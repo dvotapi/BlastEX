@@ -803,3 +803,64 @@ def test_variable_wall_kind_lattice_row_checked():
     assert (w_burdens, w_beyond, w_gaps, w_crest) == (burdens, beyond, gaps, crest)
     codes = {issue.get("code") for issue in validate(design)}
     assert "collar_too_close_to_crest" in codes
+
+
+def _bent_crest(peak_y: float):
+    """Бровка из двух отдельных рёбер (как отдаёт чертёж — [[0, 1], [1, 2]]):
+    (0, 0) → (20, `peak_y`) → (40, 0), блок выше. `peak_y` > 0 — излом
+    вдаётся в блок (вогнутый), < 0 — выступает к откосу (выпуклый)."""
+    verts = [(0.0, 0.0), (20.0, peak_y), (40.0, 0.0), (40.0, 30.0), (0.0, 30.0)]
+    return BlockContour(
+        vertices=[Point3(x=x, y=y, z=0.0) for x, y in verts],
+        free_faces=[[0, 1], [1, 2]],
+        bench=BenchSurface(crest_z_m=0.0, toe_z_m=-10.0, face_angle_deg=75.0),
+    )
+
+
+def test_angle_toe_line_is_one_polyline_over_separate_edges():
+    """Смежные рёбра свободной поверхности склеиваются до сдвига: подошва по
+    углу — одна сплошная линия, а не куски по рёбрам."""
+    for peak in (5.0, -5.0):
+        line = toe_line(_bent_crest(peak))
+        assert line is not None and len(line.polylines) == 1, peak
+        assert LineString(line.polylines[0]).is_simple
+
+
+def test_concave_bend_measures_to_continuous_toe_not_overhanging_end():
+    """Вогнутый излом: сдвинутые по отдельности рёбра перекрещивались, и их
+    концы торчали за точку пересечения — ЛСП точки над изломом мерилась до
+    конца. Теперь — до вершины сплошной линии: 3 м + o / cos θ."""
+    contour = _bent_crest(5.0)
+    o = slope_offset_m(contour.bench)
+    theta = math.atan2(5.0, 20.0)
+    position = toe_positions(contour, [(20.0, 8.0)], [10.0])[0]
+    assert position.distance_m == pytest.approx(3.0 + o / math.cos(theta), abs=1e-6)
+    assert position.toe_point == pytest.approx((20.0, 5.0 - o / math.cos(theta)), abs=1e-6)
+
+
+def test_convex_bend_has_no_gap_in_toe():
+    """Выпуклый излом: у отдельных рёбер подошва рвалась прямо под вершиной
+    бровки (концы в x = 20 ± o·sin θ); у сплошной — дуга радиуса o вокруг
+    вершины, линия проходит под ней. Точка в 1 м над вершиной — в cos θ + o
+    (ближе всего — сдвинутое ребро)."""
+    contour = _bent_crest(-5.0)
+    o = slope_offset_m(contour.bench)
+    line = toe_line(contour)
+    assert LineString(line.polylines[0]).intersects(LineString([(20.0, -20.0), (20.0, -5.0)]))
+    position = toe_positions(contour, [(20.0, -4.0)], [10.0])[0]
+    assert position.distance_m == pytest.approx(math.cos(math.atan2(5.0, 20.0)) + o, abs=1e-6)
+
+
+def test_free_chains_join_adjacent_edges_in_any_order():
+    """Склейка — по общей вершине, с разворотом ребра; несмежные участки и
+    вершины вне контура не склеиваются, повторённое ребро не даёт петли."""
+    from design.toe_line import _free_chains
+
+    verts = [(float(k), 0.0) for k in range(10)] + [(9.0, 10.0), (0.0, 10.0)]
+    contour = BlockContour(
+        vertices=[Point3(x=x, y=y, z=0.0) for x, y in verts],
+        free_faces=[[5, 4], [3, 4], [7, 8], [2, 3], [8, 9], [40, 41], [4, 3]],
+        bench=BenchSurface(crest_z_m=0.0, toe_z_m=-10.0, face_angle_deg=75.0),
+    )
+    chains = sorted(tuple(c if c[0] < c[-1] else c[::-1]) for c in _free_chains(contour))
+    assert chains == [(2, 3, 4, 5), (7, 8, 9)]

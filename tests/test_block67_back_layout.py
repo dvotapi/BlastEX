@@ -290,8 +290,8 @@ def test_full_search_tries_both_templates(block):
 
     С 09.11.2026 превышение ЛСП — брак (решение владельца), а концевая «от
     тыла» сама идёт к откосу до ЛСП ≈ W. На 67 прошедшие есть у обоих
-    шаблонов; на 66 — только «от тыла» (15 из 1116): у вариантов от бровки
-    превышение ЛСП остаётся (у лучших — 4 скважины, в том числе пара)."""
+    шаблонов; на 66 — только «от тыла» (12 из 1194): у вариантов от бровки
+    превышение ЛСП остаётся (у лучших — 3 скважины, в том числе пара)."""
     from unittest import mock
 
     from design.layout_search import search as search_module
@@ -422,3 +422,40 @@ def test_block67_owner_back_search_has_passing_variants():
     assert not res.all_rejected
     assert res.rejected < res.evaluated
     assert res.best and all(not ev.rejected for ev in res.best)
+
+
+def test_block67_toe_by_angle_is_continuous_regression_9_01():
+    """Стенд 09.11.2026, вариант 3 подбора (квадратная 3,7, «от тыла», отступы
+    2,9 м, сдвиг вдоль 1,85 м): свободная поверхность блока 67 — 13 отдельных
+    рёбер. Подошва по углу, сдвинутая по рёбрам, в вогнутом изломе торчала
+    концами, и ЛСП добавочной 9-01 (20,089; 77,599) мерилась до конца — 3,70 м;
+    до сплошной линии — 3,96 м > W + 3 % = 3,81 м. После склейки рёбер
+    генератор ставит добавочную ближе к откосу, ЛСП в допуске."""
+    import math as _math
+
+    from design.toe_line import toe_positions
+
+    contour = _contour()
+    assert len(contour.free_faces) == 13
+    position = toe_positions(contour, [(20.089, 77.599)], [contour.bench.height_m])[0]
+    assert position.distance_m == pytest.approx(3.96, abs=0.005)
+
+    params = {
+        "pattern": "square",
+        "spacing_a_m": 3.7,
+        "burden_b_m": 3.7,
+        "diameter_mm": 145.0,
+        "subdrill_m": 1.0,
+        "layout_anchor": "back",
+        "row_azimuth_deg": 179.81,
+        "edge_margin_m": 2.9,
+        "back_offset_m": 2.9,
+        "grid_shift_along_m": 1.85,
+    }
+    holes = generate_pattern(contour, params)
+    design = BlastDesign(design_id="b67", contour=contour, holes=holes, pattern_params=params)
+    burdens = floor_burdens(design)
+    near = min(holes, key=lambda h: _math.hypot(h.collar.x - 20.089, h.collar.y - 77.599))
+    assert near.id in burdens
+    assert burdens[near.id].value_m <= 3.7 * 1.03 + 1e-6
+    assert not {w["code"] for w in validate(design)} & {"floor_burden_excess", "floor_row_gap_excess"}

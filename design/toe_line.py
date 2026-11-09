@@ -126,14 +126,60 @@ def slope_offset_m(bench: BenchSurface) -> float:
     return _offset_m(bench.height_m, effective_face_angle_deg(bench))
 
 
-def _free_polylines(contour: BlockContour) -> list[Polyline]:
-    pts = contour.points_xy
-    lines = []
+def _free_chains(contour: BlockContour) -> list[list[int]]:
+    """Свободные поверхности — цепочки номеров вершин: элементы `free_faces`,
+    смежные по вершине контура (конец одного — начало или конец другого),
+    склеены в одну цепочку (с разворотом, если нужно).
+
+    Чертёж часто отдаёт свободную поверхность отдельными рёбрами
+    ([[3, 4], [4, 5], …], блок 67): подошва по углу, сдвинутая по каждому ребру
+    отдельно, в вогнутом изломе бровки торчала концами за точку пересечения
+    (ЛСП мерилась до них), в выпуклом — рвалась. Сдвиг сшитой цепочки
+    (`_built_cached`) даёт сплошную линию.
+    """
+    n = len(contour.points_xy)
+    chains: list[list[int]] = []
+    seen: set[tuple[int, ...]] = set()
     for face in contour.free_faces:
-        line = [pts[i] for i in face if 0 <= i < len(pts)]
-        if len(line) >= 2:
-            lines.append(line)
-    return lines
+        chain = [i for i in face if 0 <= i < n]
+        # Повторённое ребро (в любую сторону) склеилось бы с собой в петлю.
+        if len(chain) >= 2 and tuple(chain) not in seen and tuple(chain[::-1]) not in seen:
+            seen.add(tuple(chain))
+            chains.append(chain)
+
+    def joined(a: list[int], b: list[int]) -> list[int] | None:
+        if a[0] == a[-1] or b[0] == b[-1]:
+            return None  # замкнутая цепочка (вся граница свободна) не продолжается
+        if a[-1] == b[0]:
+            return a + b[1:]
+        if a[-1] == b[-1]:
+            return a + b[-2::-1]
+        if a[0] == b[-1]:
+            return b + a[1:]
+        if a[0] == b[0]:
+            return b[::-1] + a[1:]
+        return None
+
+    merged = True
+    while merged:
+        merged = False
+        for k in range(len(chains)):
+            for m in range(k + 1, len(chains)):
+                chain = joined(chains[k], chains[m])
+                if chain is not None:
+                    chains[k] = chain
+                    del chains[m]
+                    merged = True
+                    break
+            if merged:
+                break
+    return chains
+
+
+def _free_polylines(contour: BlockContour) -> list[Polyline]:
+    """Свободные поверхности — полилинии по сшитым цепочкам `_free_chains`."""
+    pts = contour.points_xy
+    return [[pts[i] for i in chain] for chain in _free_chains(contour)]
 
 
 def _built(contour: BlockContour, free: list[Polyline], offset: float) -> list[Polyline]:

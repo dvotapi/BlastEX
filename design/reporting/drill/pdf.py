@@ -59,6 +59,12 @@ TOP = 24 * mm       # шапка: логотип и красная линия
 BOTTOM = 14 * mm    # подвал
 FRAME_W = PAGE_W - 2 * MARGIN_X
 FRAME_H = PAGE_H - TOP - BOTTOM
+CELL_PAD_X = 4
+CELL_PAD_Y = 2
+ACQUAINTANCE_ROW_H = 7.2 * mm
+LOGO_W = 34 * mm
+# Шапка справа от логотипа: от конца логотипа с зазором до правого поля.
+HEADER_W = FRAME_W - LOGO_W - 8 * mm
 
 
 def _register_fonts() -> None:
@@ -140,7 +146,7 @@ def _title_page(layout: PassportLayout) -> list:
         ("LEFTPADDING", (1, 0), (1, -1), 4 * mm), ("TOPPADDING", (0, 0), (-1, -1), 0.6),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0.6), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
     ]))
-    story: list = [signers, Spacer(1, 12 * mm), _p("ПАСПОРТ НА БУРЕНИЕ ВЗРЫВНЫХ СКВАЖИН", "title_red"),
+    story: list = [signers, Spacer(1, 10 * mm), _p("ПАСПОРТ НА БУРЕНИЕ ВЗРЫВНЫХ СКВАЖИН", "title_red"),
                    Spacer(1, 2 * mm), _p(f"№ {title.passport_no}", "number"), Spacer(1, 1 * mm)]
     if title.object_name:
         story.append(_p(title.object_name, "object"))
@@ -157,21 +163,52 @@ def _title_page(layout: PassportLayout) -> list:
             ("VALIGN", (0, 0), (-1, -1), "BOTTOM"), ("TOPPADDING", (0, 0), (-1, -1), 4),
         ]))
         story += [Spacer(1, 5 * mm), approvals]
+    story += [Spacer(1, 7 * mm), _p("С паспортом ознакомлены", "h2"), _people_table(title), Spacer(1, 8 * mm),
+              _p(title.basis, "basis_c"), _p(title.org_year, "basis_c")]
+    return story
+
+
+def _people_table(title) -> Table:
+    """Таблица ознакомления: строка не ниже 7,2 мм и растёт под длинную должность."""
+
     rows = [[_p(h, "th") for h in ("№", "Фамилия И. О.", "Должность", "Дата", "Подпись")]]
     rows += [
         [_p(str(index), "td"), _p(name, "td"), _p(position, "td"), "", ""]
         for index, (name, position) in enumerate(title.acquaintance, start=1)
     ]
-    widths = [8 * mm, 52 * mm, 50 * mm, 32 * mm]
+    widths = [8 * mm, 46 * mm, 72 * mm, 24 * mm]
     widths.append(FRAME_W - sum(widths))
-    people = Table(rows, colWidths=widths, rowHeights=[None] + [7.2 * mm] * len(title.acquaintance), repeatRows=1)
+    heights: list[float | None] = [None]
+    for row in rows[1:]:
+        needed = max(cell.wrap(widths[col] - 2 * CELL_PAD_X, PAGE_H)[1] for col, cell in enumerate(row[:3]))
+        heights.append(max(ACQUAINTANCE_ROW_H, needed + 2 * CELL_PAD_Y))
+    people = Table(rows, colWidths=widths, rowHeights=heights, repeatRows=1)
     people.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), GRAPHITE), ("GRID", (0, 0), (-1, -1), 0.4, LINE),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("ALIGN", (0, 1), (0, -1), "CENTER"),
+        ("LEFTPADDING", (0, 0), (-1, -1), CELL_PAD_X), ("RIGHTPADDING", (0, 0), (-1, -1), CELL_PAD_X),
+        ("TOPPADDING", (0, 0), (-1, -1), CELL_PAD_Y), ("BOTTOMPADDING", (0, 0), (-1, -1), CELL_PAD_Y),
     ]))
-    story += [Spacer(1, 7 * mm), _p("С паспортом ознакомлены", "h2"), people, Spacer(1, 8 * mm),
-              _p(title.basis, "basis_c"), _p(title.org_year, "basis_c")]
-    return story
+    return people
+
+
+def fit_text(text: str, font: str, size: float, width: float) -> str:
+    """Строка, обрезанная с «…» по ширине; помещается — как есть."""
+
+    if pdfmetrics.stringWidth(text, font, size) <= width:
+        return text
+    while text and pdfmetrics.stringWidth(text + "…", font, size) > width:
+        text = text[:-1]
+    return text.rstrip() + "…"
+
+
+def fit_font_size(text: str, font: str, size: float, width: float, min_size: float = 4.5) -> float:
+    """Кегль, при котором строка помещается по ширине (не меньше `min_size`)."""
+
+    actual = pdfmetrics.stringWidth(text, font, size)
+    if actual <= width:
+        return size
+    return max(min_size, size * width / actual)
 
 
 # --- страница 2 ----------------------------------------------------------
@@ -265,6 +302,11 @@ def _depth_table(page: DepthPage, rows_per_column: int) -> Table:
             if row < len(column):
                 cell = column[row]
                 line += [cell.number, cell.depth, cell.angle, cell.azimuth, ""]
+                # Длинный номер («R10-150») уменьшается, а не вылезает из ячейки.
+                number_font = FONT_BOLD if cell.first_row else FONT
+                size = fit_font_size(cell.number, number_font, 7, DEPTH_WIDTHS[0] - 2)
+                if size < 7:
+                    style.append(("FONTSIZE", (group * 5, row + 1), (group * 5, row + 1), size))
                 if cell.first_row:
                     first, last = group * 5, group * 5 + 3
                     style += [
@@ -339,15 +381,14 @@ def _decorate(layout: PassportLayout, titles: list[str]):
     def on_page(canvas, _doc) -> None:
         number = canvas.getPageNumber()
         canvas.saveState()
-        logo_w = 34 * mm
-        canvas.drawImage(logo, MARGIN_X, PAGE_H - 17 * mm, width=logo_w, height=logo_w * 738 / 2400, mask="auto")
+        canvas.drawImage(logo, MARGIN_X, PAGE_H - 17 * mm, width=LOGO_W, height=LOGO_W * 738 / 2400, mask="auto")
         canvas.setStrokeColor(RED)
         canvas.setLineWidth(1.2)
         canvas.line(MARGIN_X, PAGE_H - 20 * mm, PAGE_W - MARGIN_X, PAGE_H - 20 * mm)
         if number > 1:
             canvas.setFillColor(GREY)
             canvas.setFont(FONT, 7.5)
-            canvas.drawRightString(PAGE_W - MARGIN_X, PAGE_H - 11.5 * mm, layout.header)
+            canvas.drawRightString(PAGE_W - MARGIN_X, PAGE_H - 11.5 * mm, fit_text(layout.header, FONT, 7.5, HEADER_W))
             title = titles[number - 1] if number - 1 < len(titles) else ""
             if title:
                 canvas.setFillColor(GRAPHITE)

@@ -105,7 +105,10 @@ def _number(value: Any) -> float | None:
 
 def _title(passport: Mapping[str, Any], payload: Mapping[str, Any], summary: Mapping[str, Any]) -> TitlePage:
     block, horizon = _text(payload.get("block")), _text(payload.get("horizon"))
-    block_line = " / ".join(part for part in (block, f"{horizon} м" if horizon else "") if part) or fmt.DASH
+    # Горизонт вводят и с единицей («+410,0 м») — вторую «м» не добавлять.
+    if horizon and not horizon.rstrip(" .").endswith("м"):
+        horizon = f"{horizon} м"
+    block_line = " / ".join(part for part in (block, horizon) if part) or fmt.DASH
     rig_number = _text(payload.get("rig_number"))
     rig = _joined(_text(payload.get("rig_name")), f"№ {rig_number}" if rig_number else "") or fmt.DASH
     grid_a, grid_b = summary.get("grid_a_m"), summary.get("grid_b_m")
@@ -163,7 +166,8 @@ def _params(summary: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
     else:
         angle = f"{fmt.num_range(summary.get('dip_min_deg'), summary.get('dip_max_deg'), 0)}°"
     first, other = summary.get("subdrill_first_row_m"), summary.get("subdrill_other_m")
-    subdrill = " / ".join(fmt.short(value) for value in (first, other) if value is not None) or fmt.DASH
+    # Пропущенная группа — «—», иначе одно число не понять, к какому ряду оно.
+    subdrill = fmt.DASH if first is None and other is None else f"{fmt.short(first)} / {fmt.short(other)}"
     return (
         ("Угол наклона скважин", angle),
         ("Глубина скважин, м", fmt.num_range(summary.get("length_min_m"), summary.get("length_max_m"))),

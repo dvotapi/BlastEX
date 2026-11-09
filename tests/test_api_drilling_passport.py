@@ -458,8 +458,9 @@ def test_passport_pdf_of_foreign_or_unknown_revision_is_404(client, repository):
         ("basis", "т" * 301),
         ("object_name", "т" * 201),
         ("personnel", [{"name": "Иванов", "position": "машинист"}] * 21),
+        ("personnel", [{"name": "Иванов", "position": "т" * 101}]),
     ],
-    ids=["drilling_order", "basis", "object_name", "personnel"],
+    ids=["drilling_order", "basis", "object_name", "personnel", "position"],
 )
 def test_printed_fields_have_length_limits(client, field, value):
     response = client.post(BASE, json={"design_id": "block-66", "payload": {**PAYLOAD, field: value}})

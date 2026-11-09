@@ -159,3 +159,19 @@ def test_old_snapshot_without_profile_uses_default_texts():
     layout = build_layout(context)
     assert len(layout.safety.items) == 10
     assert dict(layout.title.summary)["Диаметр инструмента, мм"] == "140"
+
+
+def test_missing_subdrill_group_prints_dash():
+    context = context66()
+    context["summary"]["subdrill_other_m"] = None
+    assert dict(build_layout(context).depth_pages[0].params)["Перебур: 1-й ряд / остальные, м"] == "1,5 / —"
+    context["summary"].update(subdrill_first_row_m=None, subdrill_other_m=1.0)
+    assert dict(build_layout(context).depth_pages[0].params)["Перебур: 1-й ряд / остальные, м"] == "— / 1"
+
+
+def test_horizon_with_unit_is_not_doubled():
+    payload = deepcopy(PAYLOAD_V07)
+    payload["horizon"] = "+410,0 м"
+    layout = build_layout(context66(payload))
+    assert dict(layout.title.summary)["Блок / горизонт"] == "66 / +410,0 м"
+    assert layout.header.endswith("гор. +410,0 м")

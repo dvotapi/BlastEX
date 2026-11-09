@@ -26,7 +26,7 @@ TEXT_LIMITS = {
     "power_lines": 300, "adjacent_works": 300, "acceptance": 300, "profile_code": 80,
 }
 SIGNER_LIMITS = {"position": 120, "organization": 200, "name": 120}
-PERSON_LIMITS = {"name": 120, "position": 120}
+PERSON_LIMITS = {"name": 60, "position": 100}
 
 
 class SignerSchema(BaseModel):

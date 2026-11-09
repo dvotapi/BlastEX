@@ -159,7 +159,7 @@ def test_longest_allowed_texts_stay_readable():
     for key in ("basis", "site_preparation", "stakeout", "drilling_order", "access_route",
                 "power_lines", "adjacent_works", "acceptance"):
         payload[key] = "т" * 300
-    payload["personnel"] = [{"name": "Ф" * 120, "position": "Д" * 120} for _ in range(20)]
+    payload["personnel"] = [{"name": ("Ф " * 60)[:60], "position": ("Д " * 60)[:100]} for _ in range(20)]
     # Ужатие не больше чем на четверть: страница остаётся читаемой.
     assert max(_page_scales(context66(payload))) <= 1.25
 
@@ -179,3 +179,47 @@ def test_longest_allowed_profile_stays_readable(items):
         "safety_basis": "О" * 200, "drilling_technology": words[:300],
     }
     assert max(_page_scales(context)) <= 1.25
+
+
+# --- правки по ревью PR #166: тексты не вылезают из ячеек ------------------
+
+def test_long_position_grows_acquaintance_row():
+    from design.reporting.drill import pdf
+    from design.reporting.drill.layout import build_layout
+
+    payload = deepcopy(PAYLOAD_V07)
+    payload["personnel"][1]["position"] = "машинист буровой установки 6 разряда участка буровзрывных работ карьера"
+    table = pdf._people_table(build_layout(context66(payload)).title)
+    table.wrap(pdf.FRAME_W, pdf.FRAME_H)
+    heights = table._rowHeights
+    assert heights[1] == pytest.approx(pdf.ACQUAINTANCE_ROW_H)
+    assert heights[2] > pdf.ACQUAINTANCE_ROW_H
+    cell = table._cellvalues[2][2]
+    _, needed = cell.wrap(table._colWidths[2] - 2 * pdf.CELL_PAD_X, 1000)
+    assert heights[2] >= needed
+
+
+def test_header_is_cut_to_page_width():
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+
+    from design.reporting.drill import pdf
+
+    pdf._register_fonts()
+    text = "Паспорт на бурение № " + "№" * 120 + " · блок № " + "Б" * 40
+    cut = pdf.fit_text(text, pdf.FONT, 7.5, 100.0)
+    assert cut.endswith("…")
+    assert stringWidth(cut, pdf.FONT, 7.5) <= 100.0
+    assert pdf.fit_text("Паспорт № 1", pdf.FONT, 7.5, 100.0) == "Паспорт № 1"
+
+
+def test_long_hole_number_fits_cell():
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+
+    from design.reporting.drill import pdf
+
+    pdf._register_fonts()
+    width = pdf.DEPTH_WIDTHS[0] - 2
+    size = pdf.fit_font_size("R10-150", pdf.FONT_BOLD, 7, width)
+    assert size < 7
+    assert stringWidth("R10-150", pdf.FONT_BOLD, size) <= width
+    assert pdf.fit_font_size("51", pdf.FONT, 7, width) == 7

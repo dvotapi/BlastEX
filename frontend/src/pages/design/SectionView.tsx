@@ -43,27 +43,31 @@ const rowLabel = (row: number): string => {
   if (row < 0) return `Контур ${-row}`;
   return `Ряд ${row + 1}`;
 };
-/** Подпись ряда по id скважины: номер по позиции (север→юг), стенки — P/K/B. */
+/** Подпись ряда стенки по id: P/K/B… и номер полосы. */
 const WALL_TITLE: Record<string, string> = {
   P: "Пресплит", K: "Контур", B: "Буфер", T: "Подрезка", SAT: "Сателлиты", S: "Стабилизация", I: "Инфилл",
 };
 /** Вид группы для ключа ряда: стенки отдельно, остальное — сетка. */
 const rowFamily = (kind: string): string =>
-  ["presplit", "contour", "buffer", "stab", "satellite", "infill"].includes(kind) ? kind : "grid";
+  ["presplit", "contour", "buffer", "trim", "stab", "satellite", "infill"].includes(kind) ? kind : "grid";
 /**
- * Ключ ряда в сечении: вид + номер полосы из id (позиционная нумерация). Технический row
- * у стенок общий (все полосы контура — на одном row), поэтому по нему не группируем.
+ * Ключ ряда в сечении. Сетка — по техническому row: её id — «эшелон-номер от бровки»,
+ * первое число — эшелон поперёк бровки, а не ряд. Стенки — вид + номер полосы из id:
+ * технический row у них общий (все полосы контура — на одном row).
  */
 export const sectionRowKey = (hole: { kind: string; id: string; row: number; source?: string }): string => {
   // Ручные скважины — одна группа: их технический row (например, -1000) не означает ряда.
   if (hole.source === "manual") return "manual:0";
+  const family = rowFamily(hole.kind);
+  if (family === "grid") return `grid:${hole.row}`;
   const m = /^(?:SAT|[PKBTSI])?(\d+)-/.exec(hole.id);
-  return `${rowFamily(hole.kind)}:${m ? m[1] : hole.row}`;
+  return `${family}:${m ? m[1] : hole.row}`;
 };
 const FAMILY_ORDER: Record<string, number> = {
-  grid: 0, presplit: 1, contour: 2, buffer: 3, stab: 4, satellite: 5, infill: 6, manual: 7,
+  grid: 0, presplit: 1, contour: 2, buffer: 3, trim: 4, stab: 5, satellite: 6, infill: 7, manual: 8,
 };
-const rowTitleFromId = (id: string, row: number): string => {
+const rowTitleFromId = (id: string, row: number, kind: string): string => {
+  if (rowFamily(kind) === "grid") return rowLabel(row);
   const m = /^(SAT|[PKBTSI]?)(\d+)-/.exec(id);
   if (!m) return rowLabel(row);
   const word = (m[1] && WALL_TITLE[m[1]]) || "Ряд";
@@ -164,7 +168,7 @@ export function SectionView({
     for (const h of holes) {
       const key = sectionRowKey(h);
       if (h.enabled && !titles.has(key)) {
-        titles.set(key, key.startsWith("manual:") ? "Ручные скважины" : rowTitleFromId(h.id, h.row));
+        titles.set(key, key.startsWith("manual:") ? "Ручные скважины" : rowTitleFromId(h.id, h.row, h.kind));
       }
     }
     return titles;

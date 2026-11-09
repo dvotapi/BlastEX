@@ -10,8 +10,15 @@ describe("sectionRowKey", () => {
     expect(k1).not.toBe(p1);
   });
 
-  it("groups production holes of one positional row together", () => {
-    expect(sectionRowKey({ kind: "production", id: "3-05", row: 2 })).toBe("grid:3");
+  it("groups grid holes by technical row, not by echelon number in id", () => {
+    // Id сетки — «эшелон-номер от бровки»: ряд вдоль бровки берётся из row.
+    expect(sectionRowKey({ kind: "production", id: "3-05", row: 2 })).toBe("grid:2");
+    expect(sectionRowKey({ kind: "production", id: "1-03", row: 2 })).toBe("grid:2");
+    expect(sectionRowKey({ kind: "production", id: "1-04", row: 3 })).not.toBe("grid:2");
+  });
+
+  it("keeps trim holes in their own family, not grid row 1", () => {
+    expect(sectionRowKey({ kind: "trim", id: "T1-01", row: -1 })).toBe("trim:1");
   });
 
   it("keeps stabilisation holes in their own family, not the production row", () => {

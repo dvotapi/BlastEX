@@ -1,7 +1,9 @@
-"""Нумерация по позиции: север→юг по рядам, запад→восток внутри ряда.
+"""Нумерация по позиции.
 
-Пресплит, контур и буфер — отдельные группы с буквами P, K, B. Ручные скважины
-номер не меняют.
+Основная сетка — по эшелонам: эшелон — линия скважин от бровки вглубь блока,
+эшелоны считаются с левого фланга (если смотреть с откоса вглубь), внутри
+эшелона — от бровки. Пресплит, контур и буфер — отдельные группы с буквами
+P, K, B и прежней нумерацией по рядам. Ручные скважины номер не меняют.
 """
 import unittest
 
@@ -16,7 +18,34 @@ def _hole(hid: str, x: float, y: float, kind: str = "production", source: str = 
 
 
 class NumberByPositionTest(unittest.TestCase):
-    def test_rows_go_north_to_south_and_columns_west_to_east(self):
+    def test_echelons_start_at_left_flank_and_count_from_crest(self):
+        # Бровка на юге, блок к северу: вглубь — +Y, левый фланг — запад.
+        holes = [
+            _hole("a", x=5.0, y=5.0),
+            _hole("b", x=0.0, y=0.0),
+            _hole("c", x=5.0, y=0.0),
+            _hole("d", x=0.0, y=5.0),
+        ]
+        a, b, c, d = number_by_position(holes, deep_dir=(0.0, 1.0))
+        self.assertEqual(b.id, "1-01")  # левый фланг, у бровки
+        self.assertEqual(d.id, "1-02")  # левый фланг, к тылу
+        self.assertEqual(c.id, "2-01")
+        self.assertEqual(a.id, "2-02")
+        self.assertEqual((b.row, b.col), (0, 0))  # fixture: row/col одинаковые — не переназначены
+
+    def test_reversed_block_flips_left_flank_and_crest(self):
+        # Бровка на севере, вглубь — −Y: левый фланг (с откоса вглубь) — восток.
+        holes = [
+            _hole("a", x=5.0, y=5.0),
+            _hole("b", x=0.0, y=0.0),
+            _hole("c", x=5.0, y=0.0),
+            _hole("d", x=0.0, y=5.0),
+        ]
+        a, b, c, d = number_by_position(holes, deep_dir=(0.0, -1.0))
+        self.assertEqual((a.id, c.id, d.id, b.id), ("1-01", "1-02", "2-01", "2-02"))
+
+    def test_without_deep_dir_uses_row_axis_advance(self):
+        # Азимут 0: ось ряда — на север, продвижение — на восток; левый фланг — север.
         holes = [
             _hole("a", x=10.0, y=0.0),
             _hole("b", x=0.0, y=0.0),
@@ -24,28 +53,23 @@ class NumberByPositionTest(unittest.TestCase):
             _hole("d", x=0.0, y=10.0),
         ]
         a, b, c, d = number_by_position(holes)
-        # Ряды — линии вдоль оси (север–юг), идут с запада на восток; внутри ряда — с севера на юг.
-        self.assertEqual(d.id, "1-01")  # x=0, север
-        self.assertEqual(b.id, "1-02")  # x=0, юг
-        self.assertEqual(c.id, "2-01")  # x=5
-        self.assertEqual(a.id, "3-01")  # x=10
-        self.assertEqual((d.row, d.col), (0, 0))  # fixture: row/col одинаковые — не переназначены
+        self.assertEqual((d.id, c.id, b.id, a.id), ("1-01", "1-02", "2-01", "2-02"))
 
     def test_face_pair_takes_vertical_number_with_t(self):
-        # Пара на 1 м ближе к откосу не образует свой ряд и не сбивает нумерацию.
+        # Пара на 1 м ближе к откосу не образует свой эшелон и не сбивает нумерацию.
         holes = [
             _hole("v1", x=0.0, y=0.0),
-            _hole("v2", x=0.0, y=4.0),
-            _hole("v1T", x=1.0, y=0.0, kind="face_toe"),
-            _hole("x", x=1.0, y=4.0, kind="face_toe"),  # без вертикальной — номер не меняется
+            _hole("v2", x=4.0, y=0.0),
+            _hole("v1T", x=0.0, y=-1.0, kind="face_toe"),
+            _hole("x", x=4.0, y=-1.0, kind="face_toe"),  # без вертикальной — номер не меняется
         ]
-        v1, v2, pair, orphan = number_by_position(holes)
-        self.assertEqual((v1.id, v2.id), ("1-02", "1-01"))
-        self.assertEqual(pair.id, "1-02T")
+        v1, v2, pair, orphan = number_by_position(holes, deep_dir=(0.0, 1.0))
+        self.assertEqual((v1.id, v2.id), ("1-01", "2-01"))
+        self.assertEqual(pair.id, "1-01T")
         self.assertEqual(orphan.id, "x")
         # Явная связь: индекс вертикальной.
-        _, _, pair, _ = number_by_position(holes, partners=[None, None, 1, None])
-        self.assertEqual(pair.id, "1-01T")
+        _, _, pair, _ = number_by_position(holes, deep_dir=(0.0, 1.0), partners=[None, None, 1, None])
+        self.assertEqual(pair.id, "2-01T")
 
     def test_walls_use_own_letters_and_own_counting(self):
         holes = [
@@ -62,20 +86,26 @@ class NumberByPositionTest(unittest.TestCase):
         self.assertEqual(numbered["contour"], "K1-01")
         self.assertEqual(numbered["production"], "1-01")
 
-    def test_rotated_block_groups_rows_along_its_axis(self):
-        # Азимут 30°: ряды идут вдоль оси 30°, а не по полосам Y. Каждый ряд — одна строка id.
+    def test_rotated_block_groups_echelons_along_deep_direction(self):
+        # Азимут 30°: эшелон — линия вглубь блока, а не полоса по X. Каждый эшелон — одна строка id.
         row_dir, advance = local_basis(30.0)
         holes = []
-        for j in range(3):  # полосы поперёк оси
-            for i in range(4):  # скважины вдоль оси
+        for i in range(4):  # эшелоны вдоль оси ряда
+            for j in range(3):  # скважины эшелона вглубь
                 x = i * 5.0 * row_dir[0] + j * 5.0 * advance[0]
                 y = i * 5.0 * row_dir[1] + j * 5.0 * advance[1]
-                holes.append(_hole(f"h{j}-{i}", x=x, y=y))
-        numbered = number_by_position(holes, row_azimuth_deg=30.0)
-        for j in range(3):
-            band = numbered[j * 4 : (j + 1) * 4]
-            self.assertEqual({h.id.split("-")[0] for h in band}, {str(j + 1)})
-            self.assertEqual(len({h.id for h in band}), 4)
+                holes.append(_hole(f"h{i}-{j}", x=x, y=y))
+        numbered = number_by_position(holes, row_azimuth_deg=30.0, deep_dir=advance)
+        for i in range(4):
+            echelon = numbered[i * 3 : (i + 1) * 3]
+            # Вглубь — advance, левый фланг — по оси ряда дальше всех (ось ряда смотрит вправо назад).
+            self.assertEqual([h.id for h in echelon], [f"{4 - i}-0{j + 1}" for j in range(3)])
+
+    def test_walls_keep_row_numbering(self):
+        # Стенка вдоль оси ряда: по-прежнему ряд → номер внутри ряда, без эшелонов.
+        holes = [_hole(f"p{i}", x=0.0, y=float(i) * 3.0, kind="presplit") for i in range(3)]
+        numbered = number_by_position(holes, deep_dir=(1.0, 0.0))
+        self.assertEqual([h.id for h in numbered], ["P1-03", "P1-02", "P1-01"])
 
     def test_row_and_col_stay_technical(self):
         holes = [
@@ -114,12 +144,25 @@ class AuxiliaryPrefixTest(unittest.TestCase):
 
 
 class MinimumSpacingBandsTest(unittest.TestCase):
-    def test_one_metre_spaced_rows_stay_separate(self):
-        # Ряды через 1 м поперёк оси: раньше допуск 1.0 м склеивал все в одну полосу.
+    def test_one_metre_spaced_echelons_stay_separate(self):
+        # Эшелоны через 1 м: допуск склейки — 5 см, а не шаг сетки.
         holes = [
             Hole(id=f"x{i}{j}", row=i, col=j, collar=Point3(x=float(i), y=float(j) * 5.0, z=0.0),
                  toe=Point3(x=0.0, y=0.0, z=0.0), diameter_mm=152.0)
             for i in range(10) for j in range(2)
         ]
-        numbered = number_by_position(holes, row_azimuth_deg=0.0)
+        numbered = number_by_position(holes, deep_dir=(0.0, 1.0))
         self.assertEqual(len({h.id.split("-")[0] for h in numbered}), 10)
+
+
+class StaggeredEchelonTest(unittest.TestCase):
+    def test_three_row_staggered_keeps_straight_echelons(self):
+        # Шахматка в три ряда: сдвинутые столбцы по одной скважине — свои эшелоны, не зигзаг.
+        holes = [_hole(f"r{y}-{x}", x=x, y=y) for y in (0.0, 8.0) for x in (0.0, 4.0, 8.0)]
+        holes += [_hole(f"m-{x}", x=x, y=4.0) for x in (2.0, 6.0, 10.0)]
+        numbered = number_by_position(holes, deep_dir=(0.0, 1.0))
+        by_xy = {(h.collar.x, h.collar.y): h.id for h in numbered}
+        self.assertEqual(by_xy[(0.0, 0.0)], "1-01")
+        self.assertEqual(by_xy[(0.0, 8.0)], "1-02")
+        self.assertEqual(by_xy[(2.0, 4.0)], "2-01")
+        self.assertEqual(by_xy[(10.0, 4.0)], "6-01")

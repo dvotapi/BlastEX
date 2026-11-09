@@ -23,6 +23,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from functools import lru_cache
+from itertools import pairwise
 
 import numpy as np
 import shapely
@@ -55,6 +56,18 @@ MIN_FACE_ANGLE_DEG = 30.0
 # хотя бы на эту долю min(a, b) и отступает вбок не дальше этой доли max(a, b).
 SHADOW_ADVANCE_RATIO = 0.4
 SHADOW_REACH_RATIO = 1.05
+# Порог продвижения сравнивается с этим допуском, м: сосед ровно на пороге после
+# округления координат остаётся закрывающим.
+SHADOW_ADVANCE_TOLERANCE_M = 1e-6
+# Запас сверх порога продвижения у скважины, которую генератор ставит закрывающей
+# (остаток конца эшелона «от тыла», `design/back_layout.py`), м: на самом пороге
+# проверка ЛСП после округления координат (паспорт, JSON) могла его не засчитать.
+SHADOW_ADVANCE_MARGIN_M = 0.015
+# Разрыв у подошвы до концевой скважины эшелона «от тыла» (последняя в своём
+# коридоре: соседа впереди нет, ЛСП меряется у неё) допустим до шага + 20 %, а
+# не + 3 %: генератор сдвигает или наклоняет её к откосу до ЛСП ≈ W даже ценой
+# разрыва (решение владельца 09.11.2026, `design/back_layout.py::back_grid`).
+END_GAP_TOLERANCE = 0.2
 
 # Съёмка подошвы дальше этой доли высоты уступа от верхней бровки (откос положе
 # 45° от вертикали) — развал или берма, а не откос: ЛСП считается по углу.
@@ -114,14 +127,64 @@ def slope_offset_m(bench: BenchSurface) -> float:
     return _offset_m(bench.height_m, effective_face_angle_deg(bench))
 
 
+def _free_chains(contour: BlockContour) -> list[list[int]]:
+    """Свободные поверхности — цепочки номеров вершин: рёбра всех элементов
+    `free_faces` (пары соседних номеров), без повторов в любую сторону,
+    склеены по общим вершинам контура (`_chains_of_edges`).
+
+    Чертёж часто отдаёт свободную поверхность отдельными рёбрами
+    ([[3, 4], [4, 5], …], блок 67): подошва по углу, сдвинутая по каждому ребру
+    отдельно, в вогнутом изломе бровки торчала концами за точку пересечения
+    (ЛСП мерилась до них), в выпуклом — рвалась. Сдвиг сшитой цепочки
+    (`_built_cached`) даёт сплошную линию. Перекрывающиеся элементы
+    ([[0, 1], [0, 1, 2]]) тоже сводятся к рёбрам — без возвратов и обрывков.
+    """
+    n = len(contour.points_xy)
+    faces = tuple(tuple(int(i) for i in face) for face in contour.free_faces)
+    return [list(chain) for chain in _chains_of_edges(n, faces)]
+
+
+@lru_cache(maxsize=256)
+def _chains_of_edges(n: int, faces: tuple[tuple[int, ...], ...]) -> tuple[tuple[int, ...], ...]:
+    """Склейка рёбер `faces` в цепочки — один раз на контур (линию подошвы зовут
+    сотни раз на раскладку). Обход по смежности: сначала от концов (вершин
+    нечётной степени), затем замкнутые; на развилке — меньший номер соседа."""
+    edges: set[tuple[int, int]] = set()
+    for face in faces:
+        idx = [i for i in face if 0 <= i < n]
+        for a, b in pairwise(idx):
+            if a != b:
+                edges.add((min(a, b), max(a, b)))
+    neighbours: dict[int, list[int]] = {}
+    for a, b in sorted(edges):
+        neighbours.setdefault(a, []).append(b)
+        neighbours.setdefault(b, []).append(a)
+    for links in neighbours.values():
+        links.sort()
+    used: set[tuple[int, int]] = set()
+    chains: list[tuple[int, ...]] = []
+
+    def walk(start: int) -> tuple[int, ...]:
+        chain = [start]
+        while True:
+            here = chain[-1]
+            step = next((v for v in neighbours[here] if (min(here, v), max(here, v)) not in used), None)
+            if step is None:
+                return tuple(chain)
+            used.add((min(here, step), max(here, step)))
+            chain.append(step)
+
+    starts = [v for v in sorted(neighbours) if len(neighbours[v]) % 2 == 1]
+    for v in starts + sorted(neighbours):
+        while any((min(v, u), max(v, u)) not in used for u in neighbours[v]):
+            chains.append(walk(v))
+    return tuple(chains)
+
+
 def _free_polylines(contour: BlockContour) -> list[Polyline]:
+    """Свободные поверхности — полилинии по сшитым цепочкам `_free_chains`."""
     pts = contour.points_xy
-    lines = []
-    for face in contour.free_faces:
-        line = [pts[i] for i in face if 0 <= i < len(pts)]
-        if len(line) >= 2:
-            lines.append(line)
-    return lines
+    return [[pts[i] for i in chain] for chain in _free_chains(contour)]
 
 
 def _built(contour: BlockContour, free: list[Polyline], offset: float) -> list[Polyline]:
@@ -269,11 +332,13 @@ class FloorRowGap:
 
     hole_id: str
     value_m: float  # продвижение соседа впереди вдоль коридора, на уровне подошвы
-    allowed_m: float  # шаг + 3 %
+    allowed_m: float  # шаг + допуск (`tolerance`)
     excess: bool  # все соседи впереди дальше своего допуска
     # С каким шагом сравнивалось: "a" (по ряду), "b" (соседний ряд), "2b" (через ряд)
     # или "grid" — проекция решётки на коридор (косой ряд, дуга).
     step: str = "b"
+    # Допуск к шагу: 3 %, у соседа — концевой скважины «от тыла» — 20 % (`END_GAP_TOLERANCE`).
+    tolerance: float = TOE_BURDEN_TOLERANCE
 
 
 @dataclass(frozen=True)
@@ -427,7 +492,8 @@ def corridor_blockers(
     d — единичный вектор от точки i к `target`, `value` — расстояние до неё; для
     соседа j продвижение — проекция (p_j − p_i) на d, отступ вбок — модуль
     перпендикулярной составляющей. Сосед закрывает i, если продвижение не меньше
-    `min_advance` и меньше `value`, а отступ не больше `reach`. Такой сосед
+    `min_advance` (с допуском `SHADOW_ADVANCE_TOLERANCE_M`) и меньше `value`, а
+    отступ не больше `reach`. Такой сосед
     лежит не дальше `reach` от отрезка «точка i → target», поэтому запрос к
     индексу его не пропустит. Одна и та же проверка — у ЛСП (`floor_burdens`,
     по точкам на подошве) и у ранга ряда наклона (`design/pattern.py`, по устьям).
@@ -445,7 +511,7 @@ def corridor_blockers(
         vx, vy = points[j].x - px, points[j].y - py
         advance = vx * dx + vy * dy
         lateral = abs(vx * dy - vy * dx)
-        if min_advance <= advance < value and lateral <= reach:
+        if min_advance - SHADOW_ADVANCE_TOLERANCE_M <= advance < value and lateral <= reach:
             yield j
 
 
@@ -487,7 +553,7 @@ def corridor_blocker_pairs(
     vx, vy = xs[j] - xs[i], ys[j] - ys[i]
     advance = vx * dx[pos] + vy * dy[pos]
     lateral = np.abs(vx * dy[pos] - vy * dx[pos])
-    keep = (j != i) & (advance >= min_advance) & (advance < vals[pos]) & (lateral <= reach)
+    keep = (j != i) & (advance >= min_advance - SHADOW_ADVANCE_TOLERANCE_M) & (advance < vals[pos]) & (lateral <= reach)
     return i[keep], j[keep]
 
 
@@ -672,7 +738,9 @@ def floor_checks(
             hole_id=hole.id,
             value_m=value,
             allowed_m=allowed,
-            excess=position.beyond or (allowed is not None and value > allowed),
+            # Допуск 1 мкм, как у `short`: генератор доводит ЛСП до допуска делением
+            # пополам, и ошибка округления не должна давать превышение (в подборе — брак).
+            excess=position.beyond or (allowed is not None and value > allowed + 1e-6),
             toe_source=position.source,
             beyond_toe=position.beyond,
             min_m=minimum,
@@ -684,6 +752,10 @@ def floor_checks(
         index = [i for i in range(len(grid)) if _measured(grid[i], main_kind)]
         main = [grid[i] for i in index]
         steps = _hole_steps(design, main, b)
+        # Концевые скважины «от тыла» — последние в своём коридоре (ЛСП меряется у
+        # них); только если сетка и правда построена от тыла (`_back_layout`).
+        back = _back_layout(design)
+        ends = [back and hole.id in result for hole in main]
         if steps is not None:
             gaps = _row_gaps(
                 [hole.id for hole in main],
@@ -695,8 +767,26 @@ def floor_checks(
                 min_advance,
                 reach,
                 a,
+                ends,
             )
     return result, beyond, gaps
+
+
+def _back_layout(design: BlastDesign) -> bool:
+    """Сетка построена шаблоном «от тыла» — то же условие, что у генератора
+    (`pattern.generate_pattern`): ключ `layout_anchor = "back"`, квадратная или
+    прямоугольная сетка и тыл у блока. Иначе (нет тыла, сетка другого вида —
+    ключ остался в старом паспорте) генератор раскладывает от бровки, и допуск
+    концевой `END_GAP_TOLERANCE` не действует."""
+    from design.back_layout import back_side
+    from design.pattern import LAYOUT_ANCHOR_BACK, LAYOUT_ANCHOR_PATTERNS
+
+    params = design.pattern_params or {}
+    if params.get("layout_anchor") != LAYOUT_ANCHOR_BACK:
+        return False
+    if str(params.get("pattern", "square")) not in LAYOUT_ANCHOR_PATTERNS:
+        return False
+    return back_side(design.contour) is not None
 
 
 def _measured(hole: Hole, main_kind: str) -> bool:
@@ -772,6 +862,7 @@ def _row_gaps(
     min_advance: float,
     reach: float,
     step_a: float | None = None,
+    ends: list[bool] | None = None,
 ) -> dict[str, FloorRowGap]:
     """Разрыв у подошвы для точек основной сетки (см. `floor_checks`), пакетом.
 
@@ -791,6 +882,11 @@ def _row_gaps(
     считаются. Разрыв — если каждый сосед впереди дальше своего допуска
     (наименьшее отношение продвижения к допуску больше 1); в ответе — пара с
     наименьшим отношением, при равенстве — своего ряда.
+
+    `ends` — концевые скважины эшелона «от тыла» (см. `floor_checks`): если
+    сосед впереди — такая и стоит в том же столбце решётки в другом ряду
+    (пара «предыдущая → концевая», которую генератор двигает), допуск пары —
+    шаг + `END_GAP_TOLERANCE`, а не + 3 %. Пары по шагу a и наискосок — + 3 %.
     """
     if not ids:
         return {}
@@ -827,7 +923,7 @@ def _row_gaps(
     expected = along * (rx * dx + ry * dy) + lattice_across * (ax * dx + ay * dy)
     # Пара считается, только если и в решётке j впереди i (иначе это сосед
     # сбоку, ушедший вперёд наклоном, а не ряд впереди).
-    ahead = expected >= min_advance
+    ahead = expected >= min_advance - SHADOW_ADVANCE_TOLERANCE_M
     # Подпись допуска: чистый шаг (a, b, k·b), если допуск с ним совпадает
     # (коридор вдоль столбца или ряда), иначе — проекция решётки, «шаг сетки».
     # Подпись — `step_a` (a паспорта), у переменной сетки с другим a ряда — «шаг сетки».
@@ -840,10 +936,15 @@ def _row_gaps(
     labels = np.where(
         ~exact, "grid", np.where(count == 1, letter, np.char.add(count.astype(str), letter))
     )
+    # Концевая впереди в своём столбце (вдоль ряда меньше полшага a) — допуск + 20 %.
+    end = np.asarray(ends, dtype=bool)[j] if ends is not None else np.zeros(j.shape, dtype=bool)
+    end &= ~same & (cols_apart == 0)
     i, j, same, advance, expected, labels = i[ahead], j[ahead], same[ahead], advance[ahead], expected[ahead], labels[ahead]
+    end = end[ahead]
     if i.size == 0:
         return {}
-    allowed = expected * (1.0 + TOE_BURDEN_TOLERANCE)
+    tolerance = np.where(end, END_GAP_TOLERANCE, TOE_BURDEN_TOLERANCE)
+    allowed = expected * (1.0 + tolerance)
     ratio = advance / allowed
     # При равных отношениях в ответ — сосед своего ряда (сравнение с a).
     order = np.lexsort((~same, np.round(ratio, 9), i))
@@ -855,6 +956,7 @@ def _row_gaps(
             allowed_m=float(allowed[p]),
             excess=bool(ratio[p] > 1.0 + 1e-9),
             step=str(labels[p]),
+            tolerance=float(tolerance[p]),
         )
         for p in first.tolist()
         for k in (int(i[p]),)

@@ -46,7 +46,9 @@ CONTOUR_KIND = "contour"
 # Шаги сетки, которые для проверок подошвы берутся из базы.
 STEP_KEYS = ("spacing_a_m", "burden_b_m")
 # Коды `validate`, отбраковывающие вариант (`reject_codes_and_lsp` выводит их сам).
-REJECT_CODES = ("floor_beyond_toe", "collar_too_close_to_crest", "floor_row_gap_excess")
+# `floor_burden_excess` — ЛСП передней скважины больше W + 3 %: брак, а не
+# пометка (решение владельца 09.11.2026); недобор (< 0,8·W) — только `lsp_out`.
+REJECT_CODES = ("floor_beyond_toe", "collar_too_close_to_crest", "floor_row_gap_excess", "floor_burden_excess")
 # Код отбраковки пустой сетки.
 EMPTY_CODE = "empty"
 # Метка сеток по параметрам в `seen` (ключи раскладок начинаются с фланга).
@@ -119,17 +121,18 @@ class Evaluation:
             return 0
         return int(round(self.uncovered_m2 / cell))
 
-    def rank_key(self) -> tuple:
+    def rank_key(self, rejected: bool | None = None) -> tuple:
         """Ключ сравнения, меньше — лучше: отбраковка, площадь без скважин
         (решение владельца 08.11.2026: покрытие блока у краёв; в целых ячейках
         a·b), ЛСП вне коридора, быстрые
         доли, стыки, доля вне ±25 %, разброс (None — хуже любого числа), число
         скважин. Без статистики темпа (`relief` None) доли и стыки — `inf`.
         Доли и разброс — до 0,01, стыки — до 0,5 м: шум генератора порядок не
-        решает. Окно 8 мс и замедление в сравнении не участвуют."""
+        решает. Окно 8 мс и замедление в сравнении не участвуют.
+        `rejected` — подмена флага отбраковки (семена этапа 2, `search._ranked`)."""
         spread = math.inf if self.robust_spread is None else _round_step(self.robust_spread, SHARE_STEP)
         return (
-            self.rejected,
+            self.rejected if rejected is None else rejected,
             self.uncovered_cells(),
             self.lsp_out,
             _round_step(self.fast_share, SHARE_STEP),
@@ -205,7 +208,9 @@ def reject_codes_and_lsp(design: BlastDesign, w0_m: float | None) -> tuple[list[
     """Коды отбраковки и `lsp_out` за один расчёт подошвы (`floor_checks`).
 
     Коды выводятся так же, как в `validate`: `floor_beyond_toe` — есть скважины
-    за подошвой, `floor_row_gap_excess` — есть разрыв у подошвы с `excess`,
+    за подошвой, `floor_burden_excess` — у передней скважины ЛСП больше W + 3 %
+    (`FloorBurden.excess` не за подошвой; W — b паспорта проверки, в переборе —
+    W₀ базы, `with_base_steps`), `floor_row_gap_excess` — есть разрыв у подошвы с `excess`,
     `collar_too_close_to_crest` — `collar_crest_warnings(force=True)`: в отличие
     от `validate`, отступ устья от кромки проверяется всегда, даже без ключей
     отступа и схемы первого ряда (у выпуклой бровки обычные ряды встают к ней
@@ -216,6 +221,8 @@ def reject_codes_and_lsp(design: BlastDesign, w0_m: float | None) -> tuple[list[
     codes: set[str] = set()
     if beyond_toe:
         codes.add("floor_beyond_toe")
+    if any(item.excess and not item.beyond_toe for item in burdens.values()):
+        codes.add("floor_burden_excess")
     if any(gap.excess for gap in row_gaps.values()):
         codes.add("floor_row_gap_excess")
     if collar_crest_warnings(design, force=True):

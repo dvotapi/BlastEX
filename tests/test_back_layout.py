@@ -339,8 +339,9 @@ def test_remainder_tilts_when_vertical_does_not_fit():
     """Последняя в y = 1,82: ЛСП 4,5. Вертикальный остаток должен встать на
     0,4·min(a, b) = 1,4 м впереди (y = 0,42) — ближе отступа 0,5 м к бровке.
     Остаток — устье в 0,5 м от бровки (1,32 м от последней) с наклоном к
-    откосу ровно таким, чтобы у подошвы он стоял впереди последней на 1,4 м."""
-    from design.toe_line import floor_burdens
+    откосу ровно таким, чтобы у подошвы он стоял впереди последней на 1,4 м
+    плюс запас `SHADOW_ADVANCE_MARGIN_M`."""
+    from design.toe_line import SHADOW_ADVANCE_MARGIN_M, floor_burdens
 
     c = rect(40, 30)
     params = _end_params(3.68)
@@ -355,7 +356,8 @@ def test_remainder_tilts_when_vertical_does_not_fit():
         assert 0.0 < _angle(extra) <= 30.0
         assert extra.toe.y < extra.collar.y
         advance = floor_point(last)[1] - floor_point(extra)[1]
-        assert advance == pytest.approx(0.4 * W, abs=0.01)
+        assert advance == pytest.approx(0.4 * W + SHADOW_ADVANCE_MARGIN_M, abs=0.01)
+        assert advance >= 0.4 * W + SHADOW_ADVANCE_MARGIN_M - 1e-6
         assert 0.8 * W - 1e-6 <= _lsp(c, extra) <= ALLOWED + 1e-6
         assert (logical_row(extra.row), extra.col) == (logical_row(last.row) - 1, last.col)
     burdens = floor_burdens(BlastDesign(design_id="t", contour=c, holes=holes, pattern_params=params))
@@ -414,8 +416,10 @@ def test_remainder_closes_the_last_hole_in_floor_burdens():
     """Остаток не ближе 0,4·min(a, b) (порог «впереди» у ЛСП) к последней: иначе
     проверка ЛСП не считает последнюю закрытой и показывает у неё превышение.
     Последняя в y = 2,2 (ЛСП 4,88), наклон выключен: остаток в 1,1 м с ЛСП = W
-    не закрыл бы её — остаток ставится на 1,4 м (ЛСП 3,48), а не ближе."""
-    from design.toe_line import floor_burdens
+    не закрыл бы её — остаток ставится на 1,4 м плюс запас
+    `SHADOW_ADVANCE_MARGIN_M` (ЛСП ≈ 3,47), а не ближе: на самом пороге
+    проверка после округления могла его не засчитать (прод, «П 9»)."""
+    from design.toe_line import SHADOW_ADVANCE_MARGIN_M, floor_burdens
 
     c = rect(40, 30)
     params = _end_params(3.3, front_rows_tilt_deg=0)
@@ -423,7 +427,7 @@ def test_remainder_closes_the_last_hole_in_floor_burdens():
     for echelon in _echelons(holes):
         last, extra = echelon[-2], echelon[-1]
         assert last.collar.y == pytest.approx(2.2)
-        assert last.collar.y - extra.collar.y == pytest.approx(0.4 * W, abs=1e-4)
+        assert last.collar.y - extra.collar.y == pytest.approx(0.4 * W + SHADOW_ADVANCE_MARGIN_M, abs=1e-4)
     burdens = floor_burdens(BlastDesign(design_id="t", contour=c, holes=holes, pattern_params=params))
     assert all(not v.excess for v in burdens.values())
 
@@ -696,3 +700,185 @@ def test_edge_margin_holds_at_flank_ends_block66():
     assert flanks
     gap = min(f.distance(shapely.Point(h.collar.x, h.collar.y)) for f in flanks for h in holes)
     assert gap >= 2.9 - 1e-3  # дуга буфера — многоугольник
+
+
+def test_corridor_blockers_count_neighbour_on_the_threshold():
+    """Сосед на продвижении чуть меньше порога (ошибка округления) — закрывающий:
+    продвижение сравнивается с допуском `SHADOW_ADVANCE_TOLERANCE_M`, и у
+    поштучной, и у пакетной проверки. Заметно меньше порога — нет."""
+    import shapely
+
+    from design.toe_line import (
+        SHADOW_ADVANCE_TOLERANCE_M,
+        corridor_blocker_pairs,
+        corridor_blockers,
+        shadow_limits,
+    )
+
+    min_advance, reach = shadow_limits(3.589, 3.589)
+    assert SHADOW_ADVANCE_TOLERANCE_M == pytest.approx(1e-6)
+    target = shapely.Point(0.0, 10.0)
+    for advance, blocked in ((min_advance - 1e-9, True), (min_advance - 1e-3, False)):
+        points = shapely.points([(0.0, 0.0), (0.3, advance)])
+        tree = shapely.STRtree(points)
+        assert (list(corridor_blockers(0, 10.0, points, target, tree, min_advance, reach)) == [1]) is blocked
+        i, j = corridor_blocker_pairs([0], points, shapely.points([(0.0, 10.0), (0.3, 10.0)]), [10.0, 10.0 - advance], tree, min_advance, reach)
+        assert (i.tolist(), j.tolist()) == (([0], [1]) if blocked else ([], []))
+
+
+def _end_case(**extra):
+    """Последняя в y = 1,3 (ЛСП 3,98 — в (W + 3 %; 1,2·W)): остатку места нет
+    (шаг до отступа от бровки 0,8 м < 1 м), наклон в разрыве b + 3 % доводит
+    ЛСП лишь до 3,88. Решение владельца 09.11.2026 — последняя сама идёт к
+    откосу до ЛСП ≈ W ценой разрыва до b + 20 %."""
+    from design.analysis import validate
+    from design.models import BlastDesign
+
+    c = rect(40, 30)
+    params = _end_params(0.7, layout_anchor="back", **extra)
+    holes = back_grid(c, params, c.points_xy)
+    codes = {w["code"] for w in validate(BlastDesign(design_id="t", contour=c, holes=holes, pattern_params=params))}
+    return c, holes, codes
+
+
+def test_end_hole_tilts_to_w_beyond_gap_tolerance():
+    from design.toe_line import END_GAP_TOLERANCE
+
+    c, holes, codes = _end_case()
+    for echelon in _echelons(holes):
+        assert len(echelon) == 9
+        prev, last = echelon[-2], echelon[-1]
+        assert last.collar.y == pytest.approx(1.3)
+        assert 0.0 < _angle(last) <= 30.0
+        assert _lsp(c, last) == pytest.approx(W, abs=0.01)
+        gap = floor_point(prev)[1] - floor_point(last)[1]
+        assert W * 1.03 < gap <= W * (1.0 + END_GAP_TOLERANCE)
+    assert not codes & {"floor_burden_excess", "floor_burden_short", "floor_row_gap_excess"}, codes
+
+
+def test_end_hole_shifts_to_w_when_tilt_is_off():
+    c, holes, codes = _end_case(front_rows_tilt_deg=0)
+    for echelon in _echelons(holes):
+        prev, last = echelon[-2], echelon[-1]
+        assert _angle(last) == pytest.approx(0.0, abs=1e-6)
+        # Сдвиг вдоль линии столбца: x тот же, устье ближе к бровке, не ближе отступа.
+        assert last.collar.x == pytest.approx(prev.collar.x)
+        assert 0.5 - 1e-6 <= last.collar.y < 1.3
+        assert _lsp(c, last) == pytest.approx(W, abs=0.01)
+    assert not codes & {"floor_burden_excess", "floor_burden_short", "floor_row_gap_excess"}, codes
+
+
+def test_end_gap_tolerance_only_for_back_end_holes():
+    """Проверка разрыва: у концевой скважины «от тыла» допуск — шаг + 20 %, у
+    той же раскладки без ключа опоры — шаг + 3 %; дальше 20 % — разрыв и там."""
+    from dataclasses import replace
+
+    from design.analysis import validate
+    from design.models import BlastDesign
+    from design.toe_line import END_GAP_TOLERANCE, floor_checks
+
+    c, holes, _ = _end_case(front_rows_tilt_deg=0)
+    params = _end_params(0.7, layout_anchor="back", front_rows_tilt_deg=0)
+
+    def gaps(hs, p):
+        return floor_checks(BlastDesign(design_id="t", contour=c, holes=hs, pattern_params=p))[2]
+
+    back = gaps(holes, params)
+    assert back and not any(g.excess for g in back.values())
+    # У предпоследней сосед впереди — концевая: её допуск + 20 %.
+    for echelon in _echelons(holes):
+        gap = back[echelon[-2].id]
+        assert gap.tolerance == END_GAP_TOLERANCE and gap.value_m > W * 1.03
+    crest = gaps(holes, {k: v for k, v in params.items() if k != "layout_anchor"})
+    assert any(g.excess and g.tolerance == pytest.approx(0.03) for g in crest.values())
+    # Концевые ещё на 0,5 м к бровке: разрыв ≈ 1,23·b — больше и 20 %.
+    ends = {id(e[-1]) for e in _echelons(holes)}
+    farther = [
+        replace(h, collar=replace(h.collar, y=h.collar.y - 0.5), toe=replace(h.toe, y=h.toe.y - 0.5))
+        if id(h) in ends else h
+        for h in holes
+    ]
+    warnings = validate(BlastDesign(design_id="t", contour=c, holes=farther, pattern_params=params))
+    messages = [w["message"] for w in warnings if w["code"] == "floor_row_gap_excess"]
+    assert messages and all("+ 20%" in m for m in messages), messages
+
+
+def test_end_gap_tolerance_needs_real_back_layout():
+    """Ключ `layout_anchor = "back"` без тыла (все рёбра свободны) — генератор
+    раскладывает от бровки, и проверка разрыва — с допуском + 3 %, как без
+    ключа (ревью #165: ключ включал + 20 % и у раскладки от бровки)."""
+    from dataclasses import replace
+
+    from design.analysis import validate
+    from design.models import BlastDesign
+    from design.pattern import generate_pattern
+    from design.toe_line import floor_burdens
+
+    c = rect(40, 30, free=([0, 1], [1, 2], [2, 3], [3, 0]))
+    assert back_side(c) is None
+    keyed = _end_params(2.0, layout_anchor="back")
+    plain = {k: v for k, v in keyed.items() if k != "layout_anchor"}
+    holes = generate_pattern(c, keyed)
+    front = set(floor_burdens(BlastDesign(design_id="t", contour=c, holes=holes, pattern_params=plain)))
+    assert front
+    # Передние — на 0,5 м к ближайшей кромке (больше 3 %, меньше 20 % шага).
+    def toward_edge(h):
+        x, y = h.collar.x, h.collar.y
+        dx, dy = min(((-0.5, 0.0, x), (0.5, 0.0, 40 - x), (0.0, -0.5, y), (0.0, 0.5, 30 - y)), key=lambda t: t[2])[:2]
+        return replace(h, collar=replace(h.collar, x=x + dx, y=y + dy), toe=replace(h.toe, x=h.toe.x + dx, y=h.toe.y + dy))
+
+    moved = [toward_edge(h) if h.id in front else h for h in holes]
+
+    def gap_count(params):
+        warnings = validate(BlastDesign(design_id="t", contour=c, holes=moved, pattern_params=params))
+        return sum(1 for w in warnings if w["code"] == "floor_row_gap_excess")
+
+    assert gap_count(plain) > 0
+    assert gap_count(keyed) == gap_count(plain)
+
+
+def test_end_gap_tolerance_only_along_the_column():
+    """Допуск + 20 % — только у пары «предыдущая → концевая» в одном столбце;
+    сосед своего ряда (шаг a) и наискосок — + 3 %, даже если впереди концевая
+    (ревью #165: фланг со свободной стороной)."""
+    from design.models import BlastDesign
+    from design.pattern import generate_pattern
+    from design.toe_line import END_GAP_TOLERANCE, floor_checks
+
+    c = rect(40, 30, free=([0, 1], [1, 2]))
+    params = _end_params(0.7, layout_anchor="back")
+    holes = generate_pattern(c, params)
+    gaps = floor_checks(BlastDesign(design_id="t", contour=c, holes=holes, pattern_params=params))[2]
+    assert any(g.tolerance == END_GAP_TOLERANCE for g in gaps.values())
+    assert any("a" in g.step for g in gaps.values())
+    assert all(g.tolerance != END_GAP_TOLERANCE for g in gaps.values() if "a" in g.step or g.step == "grid")
+
+
+def test_end_move_rollback_restores_layout_without_it(monkeypatch):
+    """Откат концевой (рядом новый брак) возвращает эшелон таким, каким он был
+    бы без п. 5: наклон п. 3 или исходная, а остаток п. 4 — на месте."""
+    import design.back_layout as bl
+
+    def key(holes):
+        return sorted((h.id, round(h.collar.x, 6), round(h.collar.y, 6), round(h.toe.x, 6), round(h.toe.y, 6)) for h in holes)
+
+    def flags_after_first(calls):
+        # Первый вызов — раскладка без сдвигов (без брака), второй — со сдвигами: брак у всех.
+        def flags(contour, p, holes):
+            calls.append(1)
+            return set() if len(calls) == 1 else {h.id for h in holes}
+
+        return flags
+
+    c = rect(40, 30)
+    for extra in ({}, {"front_rows_tilt_deg": 0}):
+        params = _end_params(0.7, layout_anchor="back", **extra)
+        with monkeypatch.context() as m:
+            m.setattr(bl, "_end_moved", lambda *a, **k: None)
+            plain = back_grid(c, params, c.points_xy)
+        calls: list[int] = []
+        with monkeypatch.context() as m:
+            m.setattr(bl, "_excess_ids", flags_after_first(calls))
+            rolled = back_grid(c, params, c.points_xy)
+        assert len(calls) == 2
+        assert key(rolled) == key(plain), extra

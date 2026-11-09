@@ -427,7 +427,10 @@ def validate(
                 {
                     "code": "floor_row_gap_excess",
                     "hole_id": hole_id,
-                    "message": f"Между рядами у подошвы {value} м — больше допустимого {limit} м ({step} + 3%).",
+                    "message": (
+                        f"Между рядами у подошвы {value} м — больше допустимого {limit} м "
+                        f"({step} + {round(gap.tolerance * 100):g}%)."
+                    ),
                 }
             )
 

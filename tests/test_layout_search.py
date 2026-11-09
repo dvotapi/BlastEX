@@ -176,6 +176,35 @@ class SearchTests(unittest.TestCase):
         # «Все отбракованы» — флаг `all_rejected`; предупреждение ядра его не дублирует.
         self.assertFalse(any("отбраковк" in text for text in res.warnings))
 
+    def test_floor_burden_excess_not_in_best_but_seeds_stage2(self):
+        # Отступ 1,5 и 2 м — ЛСП больше W₀ + 3 % (брак), 1 м — в допуске. В итог
+        # брак не идёт, а в семена этапа 2 — идёт: превышение ЛСП чинит пара.
+        variants = [Candidate({**BASE, "offset_from_face_m": off}, "left") for off in (1.0, 1.5, 2.0)]
+        seeds = []
+
+        def stage2(found, base):
+            seeds.extend(found)
+            return list(found)
+
+        with mock.patch.object(search_module, "stage1", lambda base, contour: variants), \
+                mock.patch.object(search_module, "stage2", stage2), \
+                mock.patch.object(search_module, "stage3", lambda seeds, base, contour=None: []):
+            res = search_layout(_ctx(), budget_s=1e9, stage2_seeds=5)
+        self.assertFalse(res.all_rejected)
+        self.assertEqual(res.rejected, 2)
+        self.assertEqual([ev.candidate.params["offset_from_face_m"] for ev in res.best], [1.0])
+        self.assertEqual({c.params["offset_from_face_m"] for c in seeds}, {1.0, 1.5, 2.0})
+
+    def test_all_rejected_by_floor_burden_excess_shows_best_rejected(self):
+        variants = [Candidate({**BASE, "offset_from_face_m": off}, "left") for off in (1.5, 2.0)]
+        with mock.patch.object(search_module, "stage1", lambda base, contour: variants), \
+                mock.patch.object(search_module, "stage2", lambda seeds, base: list(seeds)), \
+                mock.patch.object(search_module, "stage3", lambda seeds, base, contour=None: []):
+            res = search_layout(_ctx(), budget_s=1e9)
+        self.assertTrue(res.all_rejected)
+        self.assertEqual(len(res.best), 2)
+        self.assertTrue(all(ev.reject_codes == ["floor_burden_excess"] for ev in res.best))
+
     def test_no_free_face(self):
         contour = _rect_contour(40.0, 30.0, free_faces=(), face_angle_deg=75.0)
         res = search_layout(_ctx(contour=contour), budget_s=1e9, stage2_seeds=2, stage3_seeds=1)
@@ -305,7 +334,11 @@ class TemplateSearchTests(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get("BLASTEX_SLOW"), "медленный тест (≈1 мин): BLASTEX_SLOW=1")
 class Block66SearchTests(unittest.TestCase):
-    """Блок №66 с полным бюджетом: три прошедших варианта не хуже базы без перебора."""
+    """Блок №66 с полным бюджетом: три лучших варианта не хуже базы без перебора.
+
+    С 09.11.2026 превышение ЛСП — брак: у базы (от бровки) оно есть, поэтому
+    база отбракована только им; итог — прошедшие варианты «от тыла», где
+    концевая сама идёт к откосу до ЛСП ≈ W."""
 
     def test_best_not_worse_than_base(self):
         contour = _block66_contour()
@@ -325,12 +358,14 @@ class Block66SearchTests(unittest.TestCase):
         self.assertEqual({c.cut_flank for c in bases}, {"left", "right"})
         self.assertEqual(len(bases), 2)
         base_evals = [evaluate(ctx, c) for c in bases]
-        # Сама база отбраковку проходит (иначе сравнение с ней ничего не значит).
-        self.assertTrue(all(not ev.rejected for ev in base_evals), [ev.reject_codes for ev in base_evals])
+        # База без брака по геометрии (иначе сравнение с ней ничего не значит).
+        self.assertTrue(all(set(ev.reject_codes) <= {"floor_burden_excess"} for ev in base_evals),
+                        [ev.reject_codes for ev in base_evals])
         base_key = min(ev.rank_key() for ev in base_evals)
 
         res = search_layout(ctx, budget_s=150.0)
         self.assertEqual(len(res.best), 3)
+        self.assertFalse(res.all_rejected)
         self.assertTrue(all(not ev.rejected for ev in res.best))
         self.assertLessEqual(res.best[0].rank_key(), base_key)
 

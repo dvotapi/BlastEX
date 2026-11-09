@@ -498,3 +498,102 @@ def test_grid_unknown_without_spacing_a(block66):
     ctx = passport_context(design, {}, None, None)
     assert ctx["summary"]["grid_a_m"] is None
     assert ctx["summary"]["grid_b_m"] is None
+
+
+# --- PR 3: геометрия плана в снимке ревизии ---------------------------------
+
+
+def test_plan_geometry_block66(block66):
+    from design.drilling_passport import plan_geometry
+
+    plan = plan_geometry(block66)
+    assert len(plan["contour"]) == 31
+    assert plan["crest_top"] and all(len(line) >= 2 for line in plan["crest_top"])
+    assert plan["crest_toe"] and all(len(line) >= 2 for line in plan["crest_toe"])
+    assert plan["toe_source"] == "angle"
+    assert plan["situation"] == []
+    # Координаты — до миллиметра: снимок стабилен.
+    assert all(round(v, 3) == v for point in plan["contour"] for v in point)
+
+
+def test_plan_geometry_without_contour_or_faces():
+    design = BlastDesign(design_id="x", name="x", contour=BlockContour(), holes=[])
+    plan = plan_geometry_of(design)
+    assert plan == {"contour": [], "crest_top": [], "crest_toe": [], "toe_source": None, "situation": []}
+
+
+def plan_geometry_of(design):
+    from design.drilling_passport import plan_geometry
+
+    return plan_geometry(design)
+
+
+def test_rows_carry_toe_and_diameter(rows66):
+    row = rows66[0].to_dict()
+    assert row["toe"]["z"] < row["collar"]["z"]
+    assert row["diameter_mm"] == 115.0
+
+
+def test_situation_is_clipped_around_block(block66):
+    from design.drilling_passport import plan_geometry
+
+    x, y = block66.holes[0].collar.x, block66.holes[0].collar.y
+    far = {"kind": "road", "lines": [{"points": [[0, 0, 0], [1, 1, 0]], "closed": False}]}
+    near = {"kind": "power_line", "lines": [{"points": [[x - 500, y, 5], [x + 500, y, 5]], "closed": False}]}
+    plan = plan_geometry(block66, [far, near])
+    assert [layer["kind"] for layer in plan["situation"]] == ["power_line"]
+    points = [p for line in plan["situation"][0]["lines"] for p in line["points"]]
+    xs = [p[0] for p in points]
+    assert max(xs) - min(xs) < 600   # обрезано (запас 1,4 × 143 м), а не 1000 м
+    assert all(len(p) == 2 for p in points)
+
+
+def test_closed_situation_ring_stays_line(block66):
+    from design.drilling_passport import plan_geometry
+
+    x, y = block66.holes[0].collar.x, block66.holes[0].collar.y
+    ring = {"kind": "building", "lines": [{
+        "points": [[x - 5, y - 5], [x + 5, y - 5], [x + 5, y + 5], [x - 5, y + 5]], "closed": True,
+    }]}
+    (layer,) = plan_geometry(block66, [ring])["situation"]
+    (line,) = layer["lines"]
+    assert line["points"][0] == line["points"][-1]
+    assert len(line["points"]) == 5
+
+
+def test_context_has_plan(block66):
+    context = passport_context(block66, {}, None, None)
+    assert context["plan"]["contour"]
+    assert context["plan"]["situation"] == []
+
+
+def _flat_design() -> BlastDesign:
+    holes = [
+        Hole(id=str(i), row=0, col=i, collar=Point3(1000.0 + i * 10, 5000.0, 400.0),
+             toe=Point3(1000.0 + i * 10, 5000.0, 388.0), diameter_mm=140.0)
+        for i in range(41)
+    ]
+    return BlastDesign(design_id="flat", name="flat", contour=BlockContour(), holes=holes)
+
+
+def test_situation_margin_covers_sheet_of_long_block():
+    from design.drilling_passport import plan_geometry
+
+    # Блок 400 × 0 м: лист в 1:2390 покрывает ~545 м по вертикали.
+    road = {"kind": "road", "lines": [{"points": [[1200.0, 4700.0], [1200.0, 5300.0]], "closed": False}]}
+    (layer,) = plan_geometry(_flat_design(), [road])["situation"]
+    ys = [p[1] for p in layer["lines"][0]["points"]]
+    assert min(ys) <= 4750 and max(ys) >= 5250
+
+
+def test_non_finite_situation_points_are_skipped(block66):
+    from design.drilling_passport import plan_geometry
+
+    x, y = block66.holes[0].collar.x, block66.holes[0].collar.y
+    bad = {"kind": "road", "lines": [
+        {"points": [[float("nan"), y], [x, y]], "closed": False},
+        {"points": [["x", y], [x, y]], "closed": False},
+        {"points": [[x - 5, y], [x + 5, y]], "closed": False},
+    ]}
+    (layer,) = plan_geometry(block66, [bad])["situation"]
+    assert len(layer["lines"]) == 1

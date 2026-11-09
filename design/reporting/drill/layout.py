@@ -13,6 +13,7 @@ from typing import Any, Mapping
 
 from design.drilling_passport import DEFAULT_TOLERANCE_M, drill_profile
 from design.reporting.drill import fmt
+from design.reporting.drill.plan import PlanSheet, build_plan
 
 ROWS_PER_COLUMN = 50
 COLUMNS = 4
@@ -79,6 +80,7 @@ class PassportLayout:
     depth_pages: tuple[DepthPage, ...]
     blank_before_plan: bool
     page_count: int
+    plan: PlanSheet
 
 
 def _text(value: Any) -> str:
@@ -253,4 +255,5 @@ def build_layout(
         depth_pages=depth_pages,
         blank_before_plan=blank,
         page_count=before_plan + (1 if blank else 0) + 1,
+        plan=build_plan(context),
     )

@@ -7,10 +7,13 @@
 """
 from __future__ import annotations
 
+import logging
 import re
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import date
 from functools import lru_cache
+from threading import Lock
 from typing import Any, Mapping
 
 from fastapi import HTTPException, status
@@ -23,7 +26,8 @@ from api.schemas.drilling_passport import (
     DrillingPassportUpdateSchema,
     TEXT_LIMITS,
 )
-from api.services.cad_service import active_work_object_name, resolve_site_code
+from api.services.cad_service import active_work_object_name, get_cad_repository, resolve_site_code
+from api.services.cad_situation_service import source_situation
 from cost.v2.repository import EconomicsRepository, EconomicsRepositoryError
 from design import persistence as design_persistence
 from design.drilling_passport import has_errors, passport_context, warning_codes
@@ -35,7 +39,10 @@ from design.drilling_passport_repository import (
 from design.mass_blast import content_sha256
 from design.reporting.drill.pdf import render_passport_pdf
 from design.models import BlastDesign
+from design.spatial.cad.repository import CadSourceNotFound
 
+
+logger = logging.getLogger(__name__)
 
 # Длина колонки `drilling_passports.passport_no`.
 PASSPORT_NO_MAX_LENGTH = 120
@@ -198,16 +205,104 @@ def update_passport(
     )
 
 
+# Ситуация для плана: (организация, источник, версия) → слои и урезанные слои.
+# Проверку паспорта фронт зовёт часто, а чтение и упрощение ситуации большого
+# чертежа — секунды; переимпорт файла меняет `revision`, и ключ устаревает.
+_SITUATION_CACHE: OrderedDict[tuple[str, str, int], tuple[list[dict[str, Any]], list[str]]] = OrderedDict()
+_SITUATION_CACHE_SIZE = 8
+_SITUATION_CACHE_LOCK = Lock()
+
+
+def _situation_layers(repository, organization_id: str, source_id: str, revision: int):
+    key = (organization_id, source_id, int(revision))
+    with _SITUATION_CACHE_LOCK:
+        if key in _SITUATION_CACHE:
+            _SITUATION_CACHE.move_to_end(key)
+            return _SITUATION_CACHE[key]
+    geometry = source_situation(repository, organization_id, source_id)
+    value = (
+        [
+            {"kind": layer.kind, "lines": [{"points": line.points, "closed": line.closed} for line in layer.lines]}
+            for layer in geometry.layers
+            if layer.lines
+        ],
+        [layer.name for layer in geometry.layers if layer.omitted],
+    )
+    with _SITUATION_CACHE_LOCK:
+        _SITUATION_CACHE[key] = value
+        while len(_SITUATION_CACHE) > _SITUATION_CACHE_SIZE:
+            _SITUATION_CACHE.popitem(last=False)
+    return value
+
+
+def _plan_situation(organization_id: str, design: BlastDesign) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """Ситуация TASK-013 для плана на стр. 4: версии из `contour.cad.situation`.
+
+    Без ссылок база чертежей не читается. Удалённая версия или слой, не
+    уместившийся в предел вершин, — предупреждение: план без них.
+    """
+
+    refs, seen = [], set()
+    for ref in (design.contour.cad or {}).get("situation") or ():
+        source_id = str(ref.get("source_id") or "")
+        if source_id and source_id not in seen:
+            seen.add(source_id)
+            refs.append(ref)
+    if not refs:
+        return [], []
+    layers: list[dict[str, Any]] = []
+    issues: list[dict[str, str]] = []
+    try:
+        repository = get_cad_repository()
+    except Exception:  # noqa: BLE001 — ситуация только фон плана: без неё паспорт выпускается
+        logger.exception("База чертежей недоступна для плана паспорта на бурение")
+        repository = None
+    for ref in refs:
+        title = str(ref.get("title") or ref["source_id"])
+        unavailable = _warning(
+            "plan_situation_unavailable",
+            f"Ситуация «{title}» не прочитана (база чертежей недоступна или файл повреждён) — на плане её нет.",
+            "plan",
+        )
+        if repository is None:
+            issues.append(unavailable)
+            continue
+        source_id = str(ref["source_id"])
+        try:
+            record = repository.get_source(organization_id, source_id)
+            if record is None:
+                raise CadSourceNotFound(source_id)
+            source_layers, capped = _situation_layers(repository, organization_id, source_id, record.revision)
+        except CadSourceNotFound:
+            issues.append(_warning("plan_situation_missing", f"Версия ситуации «{title}» удалена — на плане её нет.", "plan"))
+            continue
+        except Exception:  # noqa: BLE001 — повреждённый чертёж не должен ронять проверку паспорта
+            logger.exception("Ситуация %s не прочитана для плана паспорта на бурение", source_id)
+            issues.append(unavailable)
+            continue
+        if capped:
+            issues.append(_warning(
+                "plan_situation_capped",
+                f"Ситуация «{title}» слишком большая: на плане нет слоёв {', '.join(capped[:5])}.",
+                "plan",
+            ))
+        # Только чтение: plan_geometry строит свои списки, кэш не меняется.
+        layers += source_layers
+    return layers, issues
+
+
 def _context(
     passport: Mapping[str, Any], economics_repository: EconomicsRepository | None, organization_id: str
 ) -> dict[str, Any]:
     payload = dict(passport.get("payload") or {})
     design = _load_design(organization_id, str(passport["design_id"]))
     refs = _reference_inputs(economics_repository, organization_id, payload)
+    situation, situation_issues = _plan_situation(organization_id, design)
     context = passport_context(
-        design, payload, refs.site, refs.rig, profile=refs.profile, profile_code=refs.profile_code
+        design, payload, refs.site, refs.rig, profile=refs.profile, profile_code=refs.profile_code,
+        situation=situation,
     )
-    context["issues"] = [*refs.issues, *context["issues"]]
+    context["issues"] = [*refs.issues, *context["issues"], *situation_issues]
     context["passport"] = {
         "passport_no": passport["passport_no"],
         "passport_date": passport["passport_date"],

@@ -176,6 +176,35 @@ class SearchTests(unittest.TestCase):
         # «Все отбракованы» — флаг `all_rejected`; предупреждение ядра его не дублирует.
         self.assertFalse(any("отбраковк" in text for text in res.warnings))
 
+    def test_floor_burden_excess_not_in_best_but_seeds_stage2(self):
+        # Отступ 1,5 и 2 м — ЛСП больше W₀ + 3 % (брак), 1 м — в допуске. В итог
+        # брак не идёт, а в семена этапа 2 — идёт: превышение ЛСП чинит пара.
+        variants = [Candidate({**BASE, "offset_from_face_m": off}, "left") for off in (1.0, 1.5, 2.0)]
+        seeds = []
+
+        def stage2(found, base):
+            seeds.extend(found)
+            return list(found)
+
+        with mock.patch.object(search_module, "stage1", lambda base, contour: variants), \
+                mock.patch.object(search_module, "stage2", stage2), \
+                mock.patch.object(search_module, "stage3", lambda seeds, base, contour=None: []):
+            res = search_layout(_ctx(), budget_s=1e9, stage2_seeds=5)
+        self.assertFalse(res.all_rejected)
+        self.assertEqual(res.rejected, 2)
+        self.assertEqual([ev.candidate.params["offset_from_face_m"] for ev in res.best], [1.0])
+        self.assertEqual({c.params["offset_from_face_m"] for c in seeds}, {1.0, 1.5, 2.0})
+
+    def test_all_rejected_by_floor_burden_excess_shows_best_rejected(self):
+        variants = [Candidate({**BASE, "offset_from_face_m": off}, "left") for off in (1.5, 2.0)]
+        with mock.patch.object(search_module, "stage1", lambda base, contour: variants), \
+                mock.patch.object(search_module, "stage2", lambda seeds, base: list(seeds)), \
+                mock.patch.object(search_module, "stage3", lambda seeds, base, contour=None: []):
+            res = search_layout(_ctx(), budget_s=1e9)
+        self.assertTrue(res.all_rejected)
+        self.assertEqual(len(res.best), 2)
+        self.assertTrue(all(ev.reject_codes == ["floor_burden_excess"] for ev in res.best))
+
     def test_no_free_face(self):
         contour = _rect_contour(40.0, 30.0, free_faces=(), face_angle_deg=75.0)
         res = search_layout(_ctx(contour=contour), budget_s=1e9, stage2_seeds=2, stage3_seeds=1)

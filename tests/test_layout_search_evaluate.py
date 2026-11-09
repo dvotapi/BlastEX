@@ -106,6 +106,28 @@ class EvaluateTests(unittest.TestCase):
         self.assertTrue(ev.rejected)
         self.assertIn("collar_too_close_to_crest", ev.reject_codes)
 
+    def test_reject_floor_burden_excess(self):
+        # ЛСП передней скважины больше W₀ + 3 % — брак (решение владельца
+        # 09.11.2026): отступ 1,5 м даёт ЛСП ≈ 4,18 м при допуске 4,12 м.
+        ev = evaluate(_ctx(), Candidate({**BASE, "offset_from_face_m": 1.5}, "left"))
+        self.assertTrue(ev.rejected)
+        self.assertEqual(ev.reject_codes, ["floor_burden_excess"])
+        self.assertEqual(ev.lsp_out, 9)
+        # По b варианта (допуск 1,03·4,12) превышения нет, а по W₀ базы — есть.
+        params = {**BASE, "burden_b_m": 4.12, "offset_from_face_m": 1.5}
+        self.assertIn("floor_burden_excess", evaluate(_ctx(), Candidate(params, "left")).reject_codes)
+        # Пара у откоса снимает превышение — вариант проходит.
+        pair = {**BASE, "offset_from_face_m": 2.0, "front_rows_mode": "pair", "front_rows_tilt_count": 1,
+                "front_rows_tilt_deg": 15.0}
+        self.assertFalse(evaluate(_ctx(), Candidate(pair, "left")).rejected)
+
+    def test_floor_burden_short_only_ranks(self):
+        # Недобор (ЛСП ≈ 2,98 м < 0,8·W₀ = 3,2 м) — не брак: только `lsp_out`.
+        params = {**BASE, "offset_from_face_m": 0.3, "edge_margin_m": 0.0}
+        ev = evaluate(_ctx(), Candidate(params, "left"))
+        self.assertFalse(ev.rejected, ev.reject_codes)
+        self.assertGreater(ev.lsp_out, 0)
+
     def test_collar_checked_without_keys_on_convex_crest(self):
         # Выпуклая бровка (мыс): откос — два первых ребра, без ключей отступа и
         # схемы. Отступ первого ряда меряется от средней точки бровки, концы
@@ -445,9 +467,14 @@ class BaseStepsTests(unittest.TestCase):
             with self.subTest(gap=gap):
                 design = replace(design_with(self._rows(gap)), pattern_params=variant)
                 # По b варианта (допуск 1,03·1,03·b₀) разрыв 1,05·b₀ в допуске.
-                self.assertEqual(reject_codes_and_lsp(design, b0)[0], [])
+                # ЛСП первого ряда здесь больше W + 3 % (ряды далеко от откоса) —
+                # сравнивается только код разрыва.
+                def gap_codes(d):
+                    return [c for c in reject_codes_and_lsp(d, b0)[0] if c == "floor_row_gap_excess"]
+
+                self.assertEqual(gap_codes(design), [])
                 checked = replace(design, pattern_params=with_base_steps(variant, GAP_PATTERN))
-                self.assertEqual(reject_codes_and_lsp(checked, b0)[0], codes)
+                self.assertEqual(gap_codes(checked), codes)
 
 
 class RejectEquivalenceTests(unittest.TestCase):
@@ -477,7 +504,8 @@ class RejectEquivalenceTests(unittest.TestCase):
             ({}, []),
             ({"min_crest_offset_m": 3.0}, ["collar_too_close_to_crest"]),
             ({"angle_deg": 30, "azimuth_deg": 180}, ["floor_beyond_toe"]),
-            ({"burden_b_m": 4.12, "offset_from_face_m": 1.5}, []),
+            # ЛСП ≈ 4,18 м больше W₀ + 3 % = 4,12 м (по b варианта — в допуске).
+            ({"burden_b_m": 4.12, "offset_from_face_m": 1.5}, ["floor_burden_excess"]),
             # b на 5 % больше базы: разрыв у подошвы больше b₀ + 3 %.
             ({"burden_b_m": 4.2}, ["floor_row_gap_excess"]),
             ({"front_rows_mode": "taper", "front_rows_tilt_count": 2, "front_rows_tilt_deg": 30,

@@ -331,3 +331,54 @@ def test_search_refines_around_edge_turn_seed(block):
         shifts = {c.params.get("grid_shift_along_m", 0.0) for c in same_azimuth}
         assert len(shifts) >= 2, (sign, shifts)
         assert all(abs(turn(c)) <= 5.0 + 1e-3 for c in out)
+
+
+def test_block67_remainder_closes_its_last_with_margin():
+    """Регрессия «П 9» (прод, вариант 1 подбора, 09.11.2026): добавочная на
+    остатке стояла впереди последней ровно на пороге «впереди» (0,4·min(a, b)),
+    после округления проверка её не засчитывала, и ЛСП последней мерилась мимо
+    добавочной — `floor_burden_excess`. Генератор ставит добавочную с запасом
+    `SHADOW_ADVANCE_MARGIN_M`: у скважины с добавочной впереди превышения нет.
+    """
+    from design.toe_line import (
+        SHADOW_ADVANCE_MARGIN_M,
+        floor_point,
+        shadow_limits,
+        toe_positions,
+    )
+
+    contour = _contour()
+    a = 3.589
+    params = {
+        "pattern": "square",
+        "spacing_a_m": a,
+        "burden_b_m": a,
+        "layout_anchor": "back",
+        "row_azimuth_deg": 179.8103,
+        "grid_shift_along_m": 1.85,
+        "back_offset_m": 2.9,
+        "edge_margin_m": 2.9,
+        "subdrill_m": 1.0,
+    }
+    holes = generate_pattern(contour, params)
+    design = BlastDesign(design_id="b67", contour=contour, holes=holes, pattern_params=params)
+    burdens = floor_burdens(design)
+    by_cell = {(h.row, h.col): h for h in holes}
+    min_advance = shadow_limits(a, a)[0]
+    remainders = 0
+    for hole in holes:
+        ahead = by_cell.get((hole.row - 1, hole.col))
+        # Добавочная — впереди в своём столбце ближе шага b (регулярная — на b).
+        if ahead is None or math.hypot(
+            ahead.collar.x - hole.collar.x, ahead.collar.y - hole.collar.y
+        ) > a - 0.01:
+            continue
+        remainders += 1
+        assert hole.id not in burdens or not burdens[hole.id].excess, hole.id
+        fx, fy = floor_point(hole)
+        tx, ty = toe_positions(contour, [(fx, fy)], [contour.bench.height_m])[0].toe_point
+        length = math.hypot(tx - fx, ty - fy)
+        ax, ay = floor_point(ahead)
+        advance = ((ax - fx) * (tx - fx) + (ay - fy) * (ty - fy)) / length
+        assert advance >= min_advance + 0.5 * SHADOW_ADVANCE_MARGIN_M, (hole.id, advance)
+    assert remainders >= 1

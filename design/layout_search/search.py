@@ -5,7 +5,9 @@
 отбракованные в семена не идут, пока есть прошедшие. Шаблоны от бровки и «от
 тыла» делят один бюджет: на этапах 1 и 3 их варианты оцениваются через один
 (`interleave_templates`), семена этапа 2 — только от бровки (схемы первого
-ряда), этапа 3 — лучшие каждого шаблона. Отбраковка и сравнение общие. Перед каждой оценкой
+ряда), этапа 3 — лучшие каждого шаблона. Отбраковка и сравнение общие; в
+семена этапа 2 идут и варианты, отбракованные только превышением ЛСП
+(`FRONT_ROWS_FIXABLE`): его и исправляют схемы первого ряда. Перед каждой оценкой
 проверяются бюджет времени и запрос остановки (и в начале каждого этапа); при
 срабатывании возвращается лучшее найденное, а если не оценено ничего — пустой
 `best` и предупреждение `NOTHING_EVALUATED`; бюджет, кончившийся до конца
@@ -30,6 +32,9 @@ NOTHING_EVALUATED = "Подбор остановлен до первой оце�
 BIG_BLOCK = "Блок большой: за отведённое время просчитана только часть вариантов геометрии."
 # Округление координат устьев при сравнении сеток, м.
 _COORD_DIGITS = 2
+# Брак, который исправляют схемы первого ряда этапа 2 (пара у откоса, плавный
+# переход): вариант, отбракованный только им, — семя этапа 2 наравне с прошедшими.
+FRONT_ROWS_FIXABLE = frozenset({"floor_burden_excess"})
 
 
 @dataclass
@@ -53,28 +58,39 @@ def _grid_key(ev: Evaluation) -> tuple:
     return (tuple(coords), ev.candidate.cut_flank)
 
 
-def _ranked(evaluations: list[Evaluation]) -> list[Evaluation]:
-    """Прошедшие отбраковку, по `rank_key`; если их нет — отбракованные."""
-    passed = [ev for ev in evaluations if not ev.rejected]
-    return sorted(passed or evaluations, key=Evaluation.rank_key)
+def _ranked(evaluations: list[Evaluation], fixable: frozenset[str] = frozenset()) -> list[Evaluation]:
+    """Прошедшие отбраковку, по `rank_key`; если их нет — отбракованные.
+
+    `fixable` — коды, с которыми вариант считается прошедшим (семена этапа 2):
+    отбракованный только ими сравнивается с прошедшими по остальному ключу."""
+
+    def hard(ev: Evaluation) -> bool:
+        return ev.rejected and not set(ev.reject_codes) <= fixable
+
+    passed = [ev for ev in evaluations if not hard(ev)]
+    return sorted(passed or evaluations, key=lambda ev: ev.rank_key(rejected=hard(ev)))
 
 
-def _seeds(evaluations: list[Evaluation], count: int) -> list[Candidate]:
+def _seeds(evaluations: list[Evaluation], count: int, fixable: frozenset[str] = frozenset()) -> list[Candidate]:
     """Лучшие варианты с разными сетками (`_grid_key`): дубли сетки семя не тратят."""
-    return [ev.candidate for ev in _top_distinct(evaluations, count)]
+    return [ev.candidate for ev in _top_distinct(evaluations, count, fixable)]
 
 
-def _template_seeds(evaluations: list[Evaluation], count: int, *, back: bool) -> list[Candidate]:
+def _template_seeds(
+    evaluations: list[Evaluation], count: int, *, back: bool, fixable: frozenset[str] = frozenset()
+) -> list[Candidate]:
     """`_seeds` среди вариантов одного шаблона."""
-    return _seeds([ev for ev in evaluations if is_back(ev.candidate.params) == back], count)
+    return _seeds([ev for ev in evaluations if is_back(ev.candidate.params) == back], count, fixable)
 
 
-def _top_distinct(evaluations: list[Evaluation], top_n: int) -> list[Evaluation]:
+def _top_distinct(
+    evaluations: list[Evaluation], top_n: int, fixable: frozenset[str] = frozenset()
+) -> list[Evaluation]:
     out: list[Evaluation] = []
     if top_n <= 0:
         return out
     seen: set[tuple] = set()
-    for ev in _ranked(evaluations):
+    for ev in _ranked(evaluations, fixable):
         key = _grid_key(ev)
         if key in seen:
             continue
@@ -145,7 +161,12 @@ def search_layout(
     stages = (
         (STAGE_GEOMETRY, lambda: interleave_templates(stage1(base, contour))),
         # Схемы первого ряда есть только у шаблона от бровки.
-        (STAGE_FRONT_ROWS, lambda: stage2(_template_seeds(list(cache.values()), stage2_seeds, back=False), base)),
+        (
+            STAGE_FRONT_ROWS,
+            lambda: stage2(
+                _template_seeds(list(cache.values()), stage2_seeds, back=False, fixable=FRONT_ROWS_FIXABLE), base
+            ),
+        ),
         (STAGE_REFINE, refine),
     )
     for name, make in stages:

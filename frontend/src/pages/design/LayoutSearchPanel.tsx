@@ -23,6 +23,8 @@ const STAGE_LABELS: Record<LayoutSearchStage, string> = {
 /** Причины отбраковки варианта: код проверки → человеческий текст. */
 const REJECT_LABELS: Record<string, string> = {
   floor_beyond_toe: "забой за подошвой откоса",
+  // Решение владельца 09.11.2026: превышение ЛСП передней скважины — брак.
+  floor_burden_excess: "ЛСП больше W + 3 %",
   floor_row_gap_excess: "разрыв между рядами у подошвы больше шага",
   collar_too_close_to_crest: "устье ближе допустимого к кромке",
   empty: "сетка не построилась",

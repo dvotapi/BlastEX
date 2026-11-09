@@ -19,6 +19,7 @@ import shapely
 from design.geometry import drape_collar, ensure_ccw, local_basis, point_in_polygon, polygon_centroid, polygon_signed_area
 from design.models import BlockContour, Hole, main_grid_kind
 from design.toe_line import (
+    SHADOW_ADVANCE_MARGIN_M,
     TOE_BURDEN_TOLERANCE,
     allowed_floor_burden_m,
     crest_geometry,
@@ -51,8 +52,10 @@ BACK_OFFSET_HALF_WIDTH_RATIO = 0.15
 BISECT_TOLERANCE_M = 1e-4
 BISECT_TOLERANCE_DEG = 1e-3
 # Скважина на остатке — не ближе этого к последней регулярной своего эшелона
-# (станок), м; и не ближе порога «впереди» у ЛСП (`toe_line.shadow_limits`:
-# 0,4·min(a, b)) — иначе проверка ЛСП не считает последнюю закрытой.
+# (станок), м; и впереди неё у подошвы не меньше порога «впереди» у ЛСП
+# (`toe_line.shadow_limits`: 0,4·min(a, b)) плюс запас
+# `toe_line.SHADOW_ADVANCE_MARGIN_M` — иначе проверка ЛСП не считает последнюю
+# закрытой.
 REMAINDER_MIN_STEP_M = 1.0
 
 
@@ -378,12 +381,13 @@ def back_grid(
        (`_least_angle_to`); ЛСП вошла в допуск — наклонённая.
     4. Иначе — вертикальная на остатке: на линии эшелона ближе к бровке, ЛСП ≈ W
        (не меньше 0,8·W), устье не ближе отступа к бровке, не ближе
-       max(`REMAINDER_MIN_STEP_M`, 0,4·min(a, b)) к последней и ближе b; член основной сетки
+       `REMAINDER_MIN_STEP_M` к последней и ближе b, впереди неё по коридору ЛСП
+       последней не меньше 0,4·min(a, b) + `SHADOW_ADVANCE_MARGIN_M`; член основной сетки
        (ряд — на один впереди последней, столбец — её). Вертикальная не
        помещается, а наклон не выключен (`front_rows_tilt_deg` > 0) — остаток
        с устьем как можно ближе к бровке (не ближе 1 м к последней) и
        наименьшим наклоном к откосу, при котором у подошвы он впереди
-       последней не меньше 0,4·min(a, b), ЛСП в коридоре и разрыв ≤ b + 3 %
+       последней не меньше 0,4·min(a, b) + запас, ЛСП в коридоре и разрыв ≤ b + 3 %
        (`_tilted_remainder`).
     5. Места для остатка нет — последняя с наклоном из п. 3 (наибольшим
        допустимым), ЛСП покажет проверка. Остаток, у которого проверка видит
@@ -510,7 +514,9 @@ def back_grid(
         last = echelons[k][-1]
         # «Впереди» у ЛСП — по пути от точки последней на подошве к ближайшей
         # точке линии подошвы (`toe_line.corridor_blockers`), а не по столбцу.
-        shadow = shadow_limits(spacing_a, burden_b)[0]
+        # Порог — с запасом: на самом пороге проверка после округления координат
+        # может не засчитать остаток закрывающим.
+        shadow = shadow_limits(spacing_a, burden_b)[0] + SHADOW_ADVANCE_MARGIN_M
         corridor = last_corridors[k]
         along = advance[0] * corridor[0] + advance[1] * corridor[1]
         if along < 0.1:

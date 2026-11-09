@@ -55,6 +55,13 @@ MIN_FACE_ANGLE_DEG = 30.0
 # хотя бы на эту долю min(a, b) и отступает вбок не дальше этой доли max(a, b).
 SHADOW_ADVANCE_RATIO = 0.4
 SHADOW_REACH_RATIO = 1.05
+# Порог продвижения сравнивается с этим допуском, м: сосед ровно на пороге после
+# округления координат остаётся закрывающим.
+SHADOW_ADVANCE_TOLERANCE_M = 1e-6
+# Запас сверх порога продвижения у скважины, которую генератор ставит закрывающей
+# (остаток конца эшелона «от тыла», `design/back_layout.py`), м: на самом пороге
+# проверка ЛСП после округления координат (паспорт, JSON) могла его не засчитать.
+SHADOW_ADVANCE_MARGIN_M = 0.015
 
 # Съёмка подошвы дальше этой доли высоты уступа от верхней бровки (откос положе
 # 45° от вертикали) — развал или берма, а не откос: ЛСП считается по углу.
@@ -427,7 +434,8 @@ def corridor_blockers(
     d — единичный вектор от точки i к `target`, `value` — расстояние до неё; для
     соседа j продвижение — проекция (p_j − p_i) на d, отступ вбок — модуль
     перпендикулярной составляющей. Сосед закрывает i, если продвижение не меньше
-    `min_advance` и меньше `value`, а отступ не больше `reach`. Такой сосед
+    `min_advance` (с допуском `SHADOW_ADVANCE_TOLERANCE_M`) и меньше `value`, а
+    отступ не больше `reach`. Такой сосед
     лежит не дальше `reach` от отрезка «точка i → target», поэтому запрос к
     индексу его не пропустит. Одна и та же проверка — у ЛСП (`floor_burdens`,
     по точкам на подошве) и у ранга ряда наклона (`design/pattern.py`, по устьям).
@@ -445,7 +453,7 @@ def corridor_blockers(
         vx, vy = points[j].x - px, points[j].y - py
         advance = vx * dx + vy * dy
         lateral = abs(vx * dy - vy * dx)
-        if min_advance <= advance < value and lateral <= reach:
+        if min_advance - SHADOW_ADVANCE_TOLERANCE_M <= advance < value and lateral <= reach:
             yield j
 
 
@@ -487,7 +495,7 @@ def corridor_blocker_pairs(
     vx, vy = xs[j] - xs[i], ys[j] - ys[i]
     advance = vx * dx[pos] + vy * dy[pos]
     lateral = np.abs(vx * dy[pos] - vy * dx[pos])
-    keep = (j != i) & (advance >= min_advance) & (advance < vals[pos]) & (lateral <= reach)
+    keep = (j != i) & (advance >= min_advance - SHADOW_ADVANCE_TOLERANCE_M) & (advance < vals[pos]) & (lateral <= reach)
     return i[keep], j[keep]
 
 
@@ -672,7 +680,9 @@ def floor_checks(
             hole_id=hole.id,
             value_m=value,
             allowed_m=allowed,
-            excess=position.beyond or (allowed is not None and value > allowed),
+            # Допуск 1 мкм, как у `short`: генератор доводит ЛСП до допуска делением
+            # пополам, и ошибка округления не должна давать превышение (в подборе — брак).
+            excess=position.beyond or (allowed is not None and value > allowed + 1e-6),
             toe_source=position.source,
             beyond_toe=position.beyond,
             min_m=minimum,
@@ -827,7 +837,7 @@ def _row_gaps(
     expected = along * (rx * dx + ry * dy) + lattice_across * (ax * dx + ay * dy)
     # Пара считается, только если и в решётке j впереди i (иначе это сосед
     # сбоку, ушедший вперёд наклоном, а не ряд впереди).
-    ahead = expected >= min_advance
+    ahead = expected >= min_advance - SHADOW_ADVANCE_TOLERANCE_M
     # Подпись допуска: чистый шаг (a, b, k·b), если допуск с ним совпадает
     # (коридор вдоль столбца или ряда), иначе — проекция решётки, «шаг сетки».
     # Подпись — `step_a` (a паспорта), у переменной сетки с другим a ряда — «шаг сетки».

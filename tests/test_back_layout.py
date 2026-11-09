@@ -696,3 +696,27 @@ def test_edge_margin_holds_at_flank_ends_block66():
     assert flanks
     gap = min(f.distance(shapely.Point(h.collar.x, h.collar.y)) for f in flanks for h in holes)
     assert gap >= 2.9 - 1e-3  # дуга буфера — многоугольник
+
+
+def test_corridor_blockers_count_neighbour_on_the_threshold():
+    """Сосед на продвижении чуть меньше порога (ошибка округления) — закрывающий:
+    продвижение сравнивается с допуском `SHADOW_ADVANCE_TOLERANCE_M`, и у
+    поштучной, и у пакетной проверки. Заметно меньше порога — нет."""
+    import shapely
+
+    from design.toe_line import (
+        SHADOW_ADVANCE_TOLERANCE_M,
+        corridor_blocker_pairs,
+        corridor_blockers,
+        shadow_limits,
+    )
+
+    min_advance, reach = shadow_limits(3.589, 3.589)
+    assert SHADOW_ADVANCE_TOLERANCE_M == pytest.approx(1e-6)
+    target = shapely.Point(0.0, 10.0)
+    for advance, blocked in ((min_advance - 1e-9, True), (min_advance - 1e-3, False)):
+        points = shapely.points([(0.0, 0.0), (0.3, advance)])
+        tree = shapely.STRtree(points)
+        assert (list(corridor_blockers(0, 10.0, points, target, tree, min_advance, reach)) == [1]) is blocked
+        i, j = corridor_blocker_pairs([0], points, shapely.points([(0.0, 10.0), (0.3, 10.0)]), [10.0, 10.0 - advance], tree, min_advance, reach)
+        assert (i.tolist(), j.tolist()) == (([0], [1]) if blocked else ([], []))

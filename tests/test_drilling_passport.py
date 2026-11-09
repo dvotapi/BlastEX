@@ -303,3 +303,13 @@ def test_passport_context_is_deterministic(block66):
     assert len(first["holes"]) == 196
     assert [issue["code"] for issue in first["issues"]] == ["first_row_burden"]
     assert first["provenance"]["first_row_offset_m"] == "MANUAL_OVERRIDE"
+
+
+def test_axis_offset_larger_than_s_keeps_axis_behind_crest(rows66):
+    """e > s: c_min = s − e ушёл бы за бровку и занизил W — берётся 0 с предупреждением."""
+    check = first_row_check(rows66, 75.0, 65.0, 3.0, None, 4.0)
+    assert check.s_m == 2.4
+    assert check.c_min_m == 0.0
+    assert check.c_m == 0.0
+    assert check.w_m == pytest.approx(11.7 / math.tan(math.radians(75.0)))
+    assert "axis_offset_exceeds_s" in [issue.code for issue in check.issues]

@@ -258,6 +258,18 @@ def first_row_check(
             )
         )
     c_min = s - (e_m or 0.0)
+    if c_min < 0.0:
+        # Ось скважины не может стоять за бровкой: c_min < 0 занизил бы W.
+        issues.append(
+            _issue(
+                "warning",
+                "axis_offset_exceeds_s",
+                f"Вылет оси e = {e_m:.1f} м больше расстояния s = {s:.1f} м: минимум от бровки "
+                "до оси первого ряда принят 0. Проверьте вылет e у станка.",
+                "axis_offset_m",
+            )
+        )
+        c_min = 0.0
     accepted_c = c_m if c_m is not None else c_min
     if c_m is not None and c_min is not None and c_m < c_min - _EPS:
         issues.append(

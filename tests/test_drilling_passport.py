@@ -294,7 +294,7 @@ def test_resolve_inputs_area(block66):
 
 def test_passport_context_is_deterministic(block66):
     site = {"bench_face_angle_deg": 75, "stable_slope_angle_deg": 65}
-    payload = {"block_area_m2": 2790, "first_row_offset_m": 2.0, "w_max_m": 4.9}
+    payload = {"block_area_m2": 2790, "first_row_offset_m": 2.0, "w_max_m": 4.9, "bit_diameter_mm": 140}
     first = passport_context(block66, payload, site, {"axis_offset_m": 1.2})
     second = passport_context(block66, dict(payload), dict(site), {"axis_offset_m": 1.2})
     assert first == second
@@ -444,3 +444,57 @@ def test_horizontal_hole_is_validation_error_not_crash():
     errors = [issue for issue in context["issues"] if issue["level"] == "error"]
     assert [issue["code"] for issue in errors] == ["hole_not_downward"]
     assert "A0" in errors[0]["message"]
+
+
+# --- данные для печати (PR 2) --------------------------------------------
+
+def test_context_carries_print_data(block66):
+    ctx = passport_context(block66, {}, None, None)
+    assert ctx["summary"]["grid_a_m"] == pytest.approx(3.7)
+    assert ctx["summary"]["grid_b_m"] == pytest.approx(3.7)
+    # Диаметр скважины (с разбуриванием, 115 мм) — не диаметр инструмента.
+    assert ctx["summary"]["bit_diameter_mm"] is None
+    assert "bit_diameter_missing" in [issue["code"] for issue in ctx["issues"]]
+    profile = ctx["profile"]
+    assert profile["code"] == ""
+    assert len(profile["safety_items"]) == 10
+    assert profile["safety_items"][2].startswith("Устанавливать станок не ближе безопасного расстояния")
+    assert " s " not in profile["safety_items"][2]
+    assert profile["safety_basis"] == "Основание: ФНП 505 пп. 989–991, 993; ФНП 494 п. 187."
+    assert profile["drilling_technology"].startswith("В раздробленных и обводнённых породах")
+
+
+def test_payload_diameter_wins(block66):
+    ctx = passport_context(block66, {"bit_diameter_mm": 140}, None, None)
+    assert ctx["summary"]["bit_diameter_mm"] == 140
+    assert "bit_diameter_missing" not in [issue["code"] for issue in ctx["issues"]]
+
+
+def test_grid_unknown_without_pattern_steps(block66):
+    design = BlastDesign.from_dict(block66.to_dict())
+    design.pattern_params = {}
+    ctx = passport_context(design, {}, None, None)
+    assert ctx["summary"]["grid_a_m"] is None
+    assert ctx["summary"]["grid_b_m"] is None
+
+
+def test_profile_record_goes_to_snapshot(block66):
+    record = {
+        "safety_items": [{"text": "Пункт один."}, {"text": "  "}, {"text": "Пункт два."}],
+        "safety_basis": "Основание: местное.",
+        "drilling_technology": "",
+    }
+    profile = passport_context(block66, {}, None, None, profile=record, profile_code="KGOK")["profile"]
+    assert profile["code"] == "KGOK"
+    assert profile["safety_items"] == ["Пункт один.", "Пункт два."]
+    assert profile["safety_basis"] == "Основание: местное."
+    # Пустое поле профиля — текст по умолчанию, а не пустая строка в паспорте.
+    assert profile["drilling_technology"].startswith("В раздробленных")
+
+
+def test_grid_unknown_without_spacing_a(block66):
+    design = BlastDesign.from_dict(block66.to_dict())
+    design.pattern_params = {"pattern": "rectangular", "burden_b_m": 4.0}
+    ctx = passport_context(design, {}, None, None)
+    assert ctx["summary"]["grid_a_m"] is None
+    assert ctx["summary"]["grid_b_m"] is None

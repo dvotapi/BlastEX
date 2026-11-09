@@ -95,8 +95,15 @@ class _Repository:
         return deepcopy(revision)
 
 
+PROFILE = {
+    "safety_items": [{"text": "Только по паспорту."}, {"text": "Осмотреть бровку."}],
+    "safety_basis": "Основание: ФНП 505.",
+    "drilling_technology": "Продувать скважину.",
+}
+
+
 def _snapshot(site=SITE, rig=RIG):
-    items = {("sites", "ZHK"): site, ("equipment_types", "JK830"): rig}
+    items = {("sites", "ZHK"): site, ("equipment_types", "JK830"): rig, ("drill_passport_profiles", "KGOK"): PROFILE}
 
     def item(section, code):
         payload = items.get((section, code))
@@ -140,7 +147,7 @@ def client(monkeypatch, repository, references, block66) -> TestClient:
     return TestClient(app)
 
 
-PAYLOAD = {"site_code": "ZHK", "rig_type_code": "JK830", "block_area_m2": 2790, "w_max_m": 6.0}
+PAYLOAD = {"site_code": "ZHK", "rig_type_code": "JK830", "block_area_m2": 2790, "w_max_m": 6.0, "bit_diameter_mm": 140}
 
 
 def _create(client, payload=PAYLOAD) -> dict:
@@ -221,15 +228,59 @@ def test_revision_is_immutable_and_hash_repeats(client):
     assert stored == first
     assert stored["context"]["passport"]["payload"]["w_max_m"] == 6.0
 
-    # Вернули прежние поля — тот же снимок, тот же хэш.
+    # Вернули прежние поля — тот же снимок: новая ревизия не выпускается,
+    # возвращается последняя (один PDF — один номер ревизии).
     client.put(
         f"{BASE}/{passport['id']}",
         json={"passport_no": "66-26/Б", "passport_date": "2026-11-09", "payload": original, "expected_version": 3},
     )
     second = client.post(url, json={"expected_version": 4}).json()
+    assert second == first
+
+
+def test_changed_snapshot_gets_next_revision(client):
+    passport = _create(client)
+    url = f"{BASE}/{passport['id']}/revisions"
+    first = client.post(url, json={"expected_version": 1}).json()
+    changed = {**passport["payload"], "rig_number": "7"}
+    client.put(
+        f"{BASE}/{passport['id']}",
+        json={"passport_no": "66-26/Б", "passport_date": "2026-11-09", "payload": changed, "expected_version": 2},
+    )
+    second = client.post(url, json={"expected_version": 3}).json()
     assert second["revision_no"] == 2
-    assert second["content_sha256"] == first["content_sha256"]
-    assert second["context"] == first["context"]
+    assert second["content_sha256"] != first["content_sha256"]
+
+
+def test_profile_texts_go_to_revision(client):
+    passport = _create(client, {**PAYLOAD, "profile_code": "KGOK"})
+    revision = client.post(f"{BASE}/{passport['id']}/revisions", json={"expected_version": 1}).json()
+    profile = revision["context"]["profile"]
+    assert profile == {
+        "code": "KGOK",
+        "safety_items": ["Только по паспорту.", "Осмотреть бровку."],
+        "safety_basis": "Основание: ФНП 505.",
+        "drilling_technology": "Продувать скважину.",
+    }
+
+
+def test_unknown_profile_is_warned_and_default_used(client):
+    passport = _create(client, {**PAYLOAD, "profile_code": "NOPE"})
+    body = client.post(f"{BASE}/{passport['id']}/validate").json()
+    assert [issue["code"] for issue in body["issues"]] == ["drill_profile_not_found"]
+    revision = client.post(
+        f"{BASE}/{passport['id']}/revisions",
+        json={"expected_version": 1, "acknowledged_warnings": ["drill_profile_not_found"]},
+    ).json()
+    assert len(revision["context"]["profile"]["safety_items"]) == 10
+    assert revision["context"]["profile"]["code"] == ""
+
+
+def test_empty_profile_code_uses_default_without_warning(client):
+    passport = _create(client)
+    assert passport["payload"]["profile_code"] == ""
+    body = client.post(f"{BASE}/{passport['id']}/validate").json()
+    assert body["issues"] == []
 
 
 def test_stale_version_is_conflict(client):
@@ -347,3 +398,105 @@ def test_validate_returns_design_bench_height(client):
     plain = client.post(f"{BASE}/{_create(client)['id']}/validate").json()
     assert plain["inputs"]["bench_height_for_s_m"] == pytest.approx(11.7)
     assert plain["provenance"]["bench_height_for_s_m"] == "CALCULATED"
+
+
+# --- PDF из ревизии (PR 2) -------------------------------------------------
+
+def _revision(client, payload=PAYLOAD) -> dict:
+    passport = _create(client, payload)
+    response = client.post(f"{BASE}/{passport['id']}/revisions", json={"expected_version": passport["version"]})
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def test_passport_pdf_from_revision(client):
+    revision = _revision(client)
+    response = client.get(f"{BASE}/revisions/{revision['id']}/passport.pdf")
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.content.startswith(b"%PDF")
+    disposition = response.headers["content-disposition"]
+    assert disposition.startswith("attachment;")
+    assert "filename*=UTF-8''" in disposition
+    assert "66-26-%D0%91" in disposition          # «/» в номере заменён
+    assert disposition.endswith("rev1.pdf")
+    again = client.get(f"{BASE}/revisions/{revision['id']}/passport.pdf")
+    assert again.content == response.content
+
+
+def test_passport_pdf_uses_revision_snapshot_only(client, repository):
+    revision = _revision(client)
+    url = f"{BASE}/revisions/{revision['id']}/passport.pdf"
+    before = client.get(url).content
+    # Черновик правят после выпуска — PDF ревизии тот же.
+    passport_id = revision["passport_id"]
+    draft = client.get(f"{BASE}/{passport_id}").json()
+    client.put(
+        f"{BASE}/{passport_id}",
+        json={"passport_no": "ДРУГОЙ", "passport_date": "2026-11-10",
+              "payload": {**draft["payload"], "rig_name": "СБШ-250"}, "expected_version": draft["version"]},
+    )
+    assert client.get(url).content == before
+    # Меняется снимок — меняется PDF.
+    repository.revisions[revision["id"]]["context"]["passport"]["passport_no"] = "77-26/Б"
+    assert client.get(url).content != before
+
+
+def test_passport_pdf_of_foreign_or_unknown_revision_is_404(client, repository):
+    revision = _revision(client)
+    repository.passports[revision["passport_id"]]["organization_id"] = "org-b"
+    assert client.get(f"{BASE}/revisions/{revision['id']}/passport.pdf").status_code == 404
+    assert client.get(f"{BASE}/revisions/nope/passport.pdf").status_code == 404
+
+
+# --- правки по ревью PR 2 ----------------------------------------------------
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("drilling_order", "т" * 301),
+        ("basis", "т" * 301),
+        ("object_name", "т" * 201),
+        ("personnel", [{"name": "Иванов", "position": "машинист"}] * 21),
+        ("personnel", [{"name": "Иванов", "position": "т" * 101}]),
+    ],
+    ids=["drilling_order", "basis", "object_name", "personnel", "position"],
+)
+def test_printed_fields_have_length_limits(client, field, value):
+    response = client.post(BASE, json={"design_id": "block-66", "payload": {**PAYLOAD, field: value}})
+    assert response.status_code == 422
+
+
+def test_unchanged_snapshot_of_approved_passport_is_conflict(client, repository):
+    revision = _revision(client)
+    passport = repository.passports[revision["passport_id"]]
+    passport["status"] = "approved"
+    response = client.post(f"{BASE}/{passport['id']}/revisions", json={"expected_version": passport["version"]})
+    assert response.status_code == 409
+    assert "только из черновика" in response.json()["detail"]
+
+
+def test_old_draft_with_long_texts_still_opens(client, repository):
+    passport = _create(client)
+    stored = repository.passports[passport["id"]]
+    stored["payload"]["basis"] = "т" * 400
+    stored["payload"]["personnel"] = [{"name": "Иванов", "position": "машинист"}] * 25
+    response = client.get(f"{BASE}/{passport['id']}")
+    assert response.status_code == 200, response.text
+    assert len(response.json()["payload"]["personnel"]) == 25
+
+
+def test_long_contour_name_is_cut_to_block_limit(client, block66, monkeypatch):
+    """Блок по умолчанию — имя контура; длиннее предела — обрезается, черновик сохраняется."""
+
+    monkeypatch.setattr(block66.contour, "name", "Б" * 45)
+    response = client.post(BASE, json={"design_id": "block-66", "passport_date": "2026-11-09", "payload": {"site_code": "ZHK"}})
+    assert response.status_code == 201, response.text
+    passport = response.json()
+    assert passport["payload"]["block"] == "Б" * 40
+    saved = client.put(
+        f"{BASE}/{passport['id']}",
+        json={"passport_no": "66-26/Б", "passport_date": "2026-11-09", "payload": passport["payload"],
+              "expected_version": passport["version"]},
+    )
+    assert saved.status_code == 200, saved.text

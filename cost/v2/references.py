@@ -136,6 +136,7 @@ REFERENCE_SECTION_DEFINITIONS: dict[str, dict[str, Any]] = {
         "columns": ["name", "contractor_share"],
     },
     "site_infrastructure": {"group": "drilling", "label": "Инфраструктура объекта", "columns": ["name"]},
+    "drill_passport_profiles": {"group": "drilling", "label": "Профиль паспорта на бурение", "columns": ["name"]},
     "cost_centers": {"group": "costs", "label": "Центры затрат", "columns": ["name", "production_unit_code", "kind"]},
     "cost_items": {"group": "costs", "label": "Статьи затрат", "columns": ["name", "kind", "cost_center_code"]},
     "cost_rules": {

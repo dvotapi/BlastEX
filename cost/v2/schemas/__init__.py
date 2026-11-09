@@ -19,6 +19,7 @@ from cost.v2.schemas.costs import (
     CostRulePayload,
     UnitFixedCostPayload,
 )
+from cost.v2.schemas.drill_profile import DrillPassportProfilePayload
 from cost.v2.schemas.equipment import (
     DrillingConditionPayload,
     EquipmentAssetPayload,
@@ -173,6 +174,7 @@ SECTION_SCHEMAS: dict[str, type[ReferencePayload]] = {
     "bench_surface_conditions": BenchSurfaceConditionPayload,
     "stakeout_modes": StakeoutModePayload,
     "site_infrastructure": SiteInfrastructurePayload,
+    "drill_passport_profiles": DrillPassportProfilePayload,
     "cost_centers": CostCenterPayload,
     "cost_items": CostItemPayload,
     "cost_rules": CostRulePayload,

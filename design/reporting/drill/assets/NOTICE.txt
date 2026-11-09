@@ -1,0 +1,5 @@
+Roboto-Regular.ttf, Roboto-Bold.ttf — шрифт Roboto 2.x (Google), лицензия
+Apache License, Version 2.0: https://www.apache.org/licenses/LICENSE-2.0
+
+logo.png — логотип ООО «Комплексные решения» (COMPLEX), фирменный стиль
+паспорта на бурение (форма ГР.05.01 v0.7).

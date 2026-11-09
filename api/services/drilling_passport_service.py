@@ -7,6 +7,8 @@
 """
 from __future__ import annotations
 
+import re
+from dataclasses import dataclass
 from datetime import date
 from functools import lru_cache
 from typing import Any, Mapping
@@ -19,6 +21,7 @@ from api.schemas.drilling_passport import (
     DrillingPassportCreateSchema,
     DrillingPassportPayload,
     DrillingPassportUpdateSchema,
+    TEXT_LIMITS,
 )
 from api.services.cad_service import active_work_object_name, resolve_site_code
 from cost.v2.repository import EconomicsRepository, EconomicsRepositoryError
@@ -30,6 +33,7 @@ from design.drilling_passport_repository import (
     PostgresDrillingPassportRepository,
 )
 from design.mass_blast import content_sha256
+from design.reporting.drill.pdf import render_passport_pdf
 from design.models import BlastDesign
 
 
@@ -74,28 +78,44 @@ def _warning(code: str, message: str, path: str) -> dict[str, str]:
     return {"level": "warning", "code": code, "message": message, "path": path}
 
 
+@dataclass(frozen=True)
+class _References:
+    """Записи справочников для паспорта; None — записи нет."""
+
+    site: dict[str, Any] | None = None
+    rig: dict[str, Any] | None = None
+    profile: dict[str, Any] | None = None
+    profile_code: str = ""
+    revision_id: str | None = None
+    issues: tuple[dict[str, str], ...] = ()
+
+
 def _reference_inputs(
     economics_repository: EconomicsRepository | None, organization_id: str, payload: Mapping[str, Any]
-) -> tuple[dict[str, Any] | None, dict[str, Any] | None, str | None, list[dict[str, str]]]:
-    """Запись объекта, запись типа станка, ревизия справочников и предупреждения.
+) -> _References:
+    """Объект, тип станка, профиль паспорта, ревизия справочников и предупреждения.
 
     Нет записи — None и предупреждение: справочник не прочитан или код из
-    паспорта в нём не найден (а не «внесите величину в справочник»).
+    паспорта в нём не найден (а не «внесите величину в справочник»). Без
+    профиля печатаются тексты формы по умолчанию.
     """
 
     site_code = str(payload.get("site_code") or "")
     rig_code = str(payload.get("rig_type_code") or "")
+    profile_code = str(payload.get("profile_code") or "")
     snapshot = _snapshot(economics_repository, organization_id)
     if snapshot is None:
-        return None, None, None, [
+        return _References(issues=(
             _warning(
                 "references_unavailable",
-                "Справочники не прочитаны: углы α, γ и вылет e взяты только из паспорта и проекта.",
+                "Справочники не прочитаны: углы α, γ и вылет e взяты только из паспорта и проекта, "
+                "тексты паспорта — по умолчанию.",
                 "site_code",
-            )
-        ]
+            ),
+        ))
     site = snapshot.item("sites", site_code) if site_code else None
     rig = snapshot.item("equipment_types", rig_code) if rig_code else None
+    profile = snapshot.item("drill_passport_profiles", profile_code) if profile_code else None
     issues: list[dict[str, str]] = []
     if site_code and site is None:
         issues.append(
@@ -109,11 +129,22 @@ def _reference_inputs(
                 "rig_type_code",
             )
         )
-    return (
-        dict(site.payload) if site else None,
-        dict(rig.payload) if rig else None,
-        snapshot.revision_id,
-        issues,
+    if profile_code and profile is None:
+        issues.append(
+            _warning(
+                "drill_profile_not_found",
+                f"Профиль паспорта «{profile_code}» не найден в справочнике: тексты мер безопасности "
+                "и технологии бурения — по умолчанию.",
+                "profile_code",
+            )
+        )
+    return _References(
+        site=dict(site.payload) if site else None,
+        rig=dict(rig.payload) if rig else None,
+        profile=dict(profile.payload) if profile else None,
+        profile_code=profile_code if profile else "",
+        revision_id=snapshot.revision_id,
+        issues=tuple(issues),
     )
 
 
@@ -140,7 +171,9 @@ def create_passport(
     design = _load_design(organization_id, request.design_id)
     payload = (request.payload or DrillingPassportPayload()).model_dump()
     if not payload["block"]:
-        payload["block"] = design.contour.name or design.name
+        # Имя контура не ограничено, а блок паспорта — да: иначе черновик не
+        # сохранить повторно (предел проверяется при записи).
+        payload["block"] = (design.contour.name or design.name or "").strip()[: TEXT_LIMITS["block"]]
     if not payload["site_code"]:
         payload["site_code"] = _default_site_code(economics_repository, organization_id)
     passport_date = request.passport_date or date.today().isoformat()
@@ -170,17 +203,17 @@ def _context(
 ) -> dict[str, Any]:
     payload = dict(passport.get("payload") or {})
     design = _load_design(organization_id, str(passport["design_id"]))
-    site, rig, reference_revision_id, reference_issues = _reference_inputs(
-        economics_repository, organization_id, payload
+    refs = _reference_inputs(economics_repository, organization_id, payload)
+    context = passport_context(
+        design, payload, refs.site, refs.rig, profile=refs.profile, profile_code=refs.profile_code
     )
-    context = passport_context(design, payload, site, rig)
-    context["issues"] = [*reference_issues, *context["issues"]]
+    context["issues"] = [*refs.issues, *context["issues"]]
     context["passport"] = {
         "passport_no": passport["passport_no"],
         "passport_date": passport["passport_date"],
         "payload": payload,
     }
-    context["reference_revision_id"] = reference_revision_id
+    context["reference_revision_id"] = refs.revision_id
     return context
 
 
@@ -213,6 +246,9 @@ def create_revision(
     passport = repository.get_passport(organization_id, passport_id)
     if passport["version"] != expected_version:
         raise DrillingPassportConflictError("Паспорт изменён другим пользователем. Обновите данные перед выпуском ревизии.")
+    if passport.get("status", "draft") != "draft":
+        # До сравнения со снимком: иначе неизменённый паспорт обходил бы проверку.
+        raise DrillingPassportConflictError("Ревизию можно выпустить только из черновика.")
     context = _context(passport, economics_repository, organization_id)
     if has_errors(context["issues"]):
         messages = "; ".join(issue["message"] for issue in context["issues"] if issue["level"] == "error")
@@ -220,10 +256,29 @@ def create_revision(
     missing = [code for code in warning_codes(context["issues"]) if code not in set(acknowledged_warnings)]
     if missing:
         raise UnacknowledgedWarningsError(missing)
+    digest = content_sha256(context)
+    if passport.get("current_revision_id"):
+        # Снимок не изменился — та же ревизия: один PDF — один номер.
+        latest = repository.get_revision(organization_id, str(passport["current_revision_id"]))
+        if latest.get("content_sha256") == digest:
+            return latest
     return repository.create_revision(
         organization_id, actor, passport_id, expected_version, context["reference_revision_id"],
-        context, content_sha256(context),
+        context, digest,
     )
+
+
+def passport_pdf(
+    repository: PostgresDrillingPassportRepository, organization_id: str, revision_id: str
+) -> tuple[bytes, str]:
+    """PDF паспорта и имя файла — только из снимка ревизии, без черновика и справочников."""
+
+    revision = repository.get_revision(organization_id, revision_id)
+    context = revision["context"]
+    number = str((context.get("passport") or {}).get("passport_no") or "")
+    safe = re.sub(r'[\\/:*?"<>|]+', "-", number).strip(" .-") or "б-н"
+    pdf = render_passport_pdf(context, revision_no=int(revision["revision_no"]))
+    return pdf, f"Паспорт на бурение {safe} rev{revision['revision_no']}.pdf"
 
 
 def repository_error(exc: Exception) -> HTTPException:

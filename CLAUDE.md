@@ -337,7 +337,18 @@ s = roundup(max(2,0; Hs·(ctg γ − ctg α)), 0,1 м) — округление 
 (`design/drilling_passport_repository.py`, `content_sha256` по
 `canonical_json`), API — `/design/drilling-passports` за флагом
 `drill_passport` (`BLASTEX_DRILL_PASSPORT_ENABLED`). Полей в `BlastDesign` не
-добавлять. Ход работ — `Docs/plans/TASK-015-progress.md`.
+добавлять. PDF (PR 2) — `design/reporting/drill/`: `layout.py` раскладывает
+только снимок ревизии (`context`) в страницы, `pdf.py` рисует ReportLab
+(`invariant=1` — без времени в metadata, повтор — те же байты; одна страница
+раскладки — одна страница PDF), `rig_scheme.py` — схема станка с одним
+размером «s»; маршрут `GET /revisions/{rid}/passport.pdf`. Печатается s,
+c_min/W/Wпред — нет; диаметр инструмента — только из паспорта (иначе «—» и
+`bit_diameter_missing`), пределы длины печатаемых полей — только при записи
+(`DrillingPassportPayloadInput`). Тексты мер безопасности и технологии — раздел
+справочника `drill_passport_profiles` (`profile_code` паспорта; пусто — тексты
+формы v0.7 в `drilling_passport.py`), в ревизию — копией в `context.profile`;
+неизменённый снимок новую ревизию не выпускает. Ход работ —
+`Docs/plans/TASK-015-progress.md`.
 
 ## Нумерация скважин
 

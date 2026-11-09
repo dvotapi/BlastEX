@@ -723,3 +723,48 @@ def test_cost_rule_without_resource_pool_from_the_form_is_valid() -> None:
     issues = validate_reference_sections(sections)
     messages = [issue.message for issue in issues if issue.section == "cost_rules"]
     assert not any("None" in message for message in messages), messages
+
+
+class TestDrillPassportReferenceFields:
+    """Углы уступа у объекта и вылет оси у станка (TASK-015, PR 1)."""
+
+    def test_site_slope_angles(self):
+        from cost.v2.schemas.organization import SitePayload
+
+        payload = SitePayload(bench_face_angle_deg=Decimal("75"), stable_slope_angle_deg=Decimal("65"))
+        assert payload.bench_face_angle_deg == Decimal("75")
+        assert SitePayload().bench_face_angle_deg is None
+        assert SitePayload().stable_slope_angle_deg is None
+        with pytest.raises(ValidationError, match="γ"):
+            SitePayload(bench_face_angle_deg=Decimal("65"), stable_slope_angle_deg=Decimal("65"))
+        with pytest.raises(ValidationError):
+            SitePayload(bench_face_angle_deg=Decimal("95"))
+        with pytest.raises(ValidationError):
+            SitePayload(stable_slope_angle_deg=Decimal("10"))
+        schema = section_json_schema("sites")["properties"]
+        assert schema["bench_face_angle_deg"]["x-unit"] == "°"
+        assert schema["stable_slope_angle_deg"]["x-unit"] == "°"
+        assert "технического проекта" in schema["bench_face_angle_deg"]["description"]
+
+    def test_site_design_bench_height(self):
+        from cost.v2.schemas.organization import SitePayload
+
+        assert SitePayload().design_bench_height_m is None
+        assert SitePayload(design_bench_height_m=Decimal("10")).design_bench_height_m == Decimal("10")
+        for wrong in ("2.9", "31"):
+            with pytest.raises(ValidationError):
+                SitePayload(design_bench_height_m=Decimal(wrong))
+        field = section_json_schema("sites")["properties"]["design_bench_height_m"]
+        assert field["x-unit"] == "м"
+        assert field["title"] == "Высота рабочего уступа по проекту отработки"
+        assert "технический проект" in field["description"].lower()
+
+    def test_rig_axis_offset(self):
+        from cost.v2.schemas.equipment import EquipmentTypePayload
+
+        assert EquipmentTypePayload().axis_offset_m is None
+        assert EquipmentTypePayload(axis_offset_m=Decimal("1.2")).axis_offset_m == Decimal("1.2")
+        with pytest.raises(ValidationError):
+            EquipmentTypePayload(axis_offset_m=Decimal("6"))
+        schema = section_json_schema("equipment_types")["properties"]
+        assert schema["axis_offset_m"]["x-unit"] == "м"

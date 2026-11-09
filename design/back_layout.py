@@ -19,6 +19,8 @@ import shapely
 from design.geometry import drape_collar, ensure_ccw, local_basis, point_in_polygon, polygon_centroid, polygon_signed_area
 from design.models import BlockContour, Hole, main_grid_kind
 from design.toe_line import (
+    END_GAP_TOLERANCE,
+    SHADOW_ADVANCE_MARGIN_M,
     TOE_BURDEN_TOLERANCE,
     allowed_floor_burden_m,
     crest_geometry,
@@ -51,8 +53,10 @@ BACK_OFFSET_HALF_WIDTH_RATIO = 0.15
 BISECT_TOLERANCE_M = 1e-4
 BISECT_TOLERANCE_DEG = 1e-3
 # Скважина на остатке — не ближе этого к последней регулярной своего эшелона
-# (станок), м; и не ближе порога «впереди» у ЛСП (`toe_line.shadow_limits`:
-# 0,4·min(a, b)) — иначе проверка ЛСП не считает последнюю закрытой.
+# (станок), м; и впереди неё у подошвы не меньше порога «впереди» у ЛСП
+# (`toe_line.shadow_limits`: 0,4·min(a, b)) плюс запас
+# `toe_line.SHADOW_ADVANCE_MARGIN_M` — иначе проверка ЛСП не считает последнюю
+# закрытой.
 REMAINDER_MIN_STEP_M = 1.0
 
 
@@ -378,16 +382,29 @@ def back_grid(
        (`_least_angle_to`); ЛСП вошла в допуск — наклонённая.
     4. Иначе — вертикальная на остатке: на линии эшелона ближе к бровке, ЛСП ≈ W
        (не меньше 0,8·W), устье не ближе отступа к бровке, не ближе
-       max(`REMAINDER_MIN_STEP_M`, 0,4·min(a, b)) к последней и ближе b; член основной сетки
+       `REMAINDER_MIN_STEP_M` к последней и ближе b, впереди неё по коридору ЛСП
+       последней не меньше 0,4·min(a, b) + `SHADOW_ADVANCE_MARGIN_M`; член основной сетки
        (ряд — на один впереди последней, столбец — её). Вертикальная не
        помещается, а наклон не выключен (`front_rows_tilt_deg` > 0) — остаток
        с устьем как можно ближе к бровке (не ближе 1 м к последней) и
        наименьшим наклоном к откосу, при котором у подошвы он впереди
-       последней не меньше 0,4·min(a, b), ЛСП в коридоре и разрыв ≤ b + 3 %
+       последней не меньше 0,4·min(a, b) + запас, ЛСП в коридоре и разрыв ≤ b + 3 %
        (`_tilted_remainder`).
-    5. Места для остатка нет — последняя с наклоном из п. 3 (наибольшим
-       допустимым), ЛСП покажет проверка. Остаток, у которого проверка видит
-       разрыв у подошвы (вне решётки у угла блока), заменяется тем же.
+    5. Остаток не встаёт (или и его ЛСП > W + 3 %) — последняя регулярная
+       сама идёт к откосу до ЛСП ≈ W, даже ценой разрыва у подошвы до шага
+       + 20 % (`toe_line.END_GAP_TOLERANCE`; решение владельца 09.11.2026 —
+       варианты «наклонить сильнее» и «сдвинуть к откосу»; остаток с
+       недобором — нет): сначала наклон (если `front_rows_tilt_deg` > 0) —
+       наименьший до 30°, при котором ЛСП ≈ W, азимут — как в п. 3; не хватает
+       или наклон выключен — сдвиг устья вдоль линии столбца к откосу
+       (вертикальная, угол паспорта), устье не ближе отступа к бровке и в
+       границе (`_end_moved`). Проверка разрыва допускает это у концевой
+       скважины «от тыла» (`toe_line.floor_checks`).
+    6. Не вышло и это — последняя с наклоном из п. 3 (наибольшим допустимым),
+       ЛСП покажет проверка. Остаток, у которого проверка видит разрыв у
+       подошвы (вне решётки у угла блока), заменяется тем же; сдвинутая или
+       наклонённая по п. 5, у которой проверка всё же видит разрыв (сосед
+       впереди закрыл её от откоса), — тоже.
     """
     from design.pattern import _front_rows_tilt, _grid_id, face_tilts, hole_spec, tilt_floor_burden_target_m
 
@@ -490,6 +507,7 @@ def back_grid(
     prev_corridors = _corridors(contour, prevs)
     last_corridors = dict(zip(over, _corridors(contour, over_holes)))
     tilted: dict[int, Hole] = {}
+    end_inputs = {k: (prev, prev_corridor, azimuth) for k, prev, prev_corridor, (_, azimuth) in zip(over, prevs, prev_corridors, tilts)}
     for k, h, (angle, azimuth), prev, prev_corridor in zip(over, over_holes, tilts, prevs, prev_corridors):
         if angle <= 1e-9:
             continue
@@ -503,6 +521,9 @@ def back_grid(
         if lsp <= allowed + 1e-9 and not beyond
     }
     remainders: dict[int, Hole] = {}
+    # Сдвинутые или наклонённые по п. 5: эшелон → (исходная последняя, остаток п. 4
+    # с ЛСП > W + 3 % или None) — на случай отката.
+    moved: dict[int, tuple[Hole, Hole | None]] = {}
     for k in over:
         if k in fixed:
             echelons[k][-1] = tilted[k]
@@ -510,7 +531,9 @@ def back_grid(
         last = echelons[k][-1]
         # «Впереди» у ЛСП — по пути от точки последней на подошве к ближайшей
         # точке линии подошвы (`toe_line.corridor_blockers`), а не по столбцу.
-        shadow = shadow_limits(spacing_a, burden_b)[0]
+        # Порог — с запасом: на самом пороге проверка после округления координат
+        # может не засчитать остаток закрывающим.
+        shadow = shadow_limits(spacing_a, burden_b)[0] + SHADOW_ADVANCE_MARGIN_M
         corridor = last_corridors[k]
         along = advance[0] * corridor[0] + advance[1] * corridor[1]
         if along < 0.1:
@@ -524,16 +547,68 @@ def back_grid(
         if (extra is None or over_tolerance) and tilt_deg > 0 and along >= 0.1:
             # Вертикальный не помещается или и на наибольшем шаге ЛСП > W + 3 % —
             # наклонный в допуске лучше; нет его — остаётся вертикальный.
-            extra = _tilted_remainder(
+            tilted_extra = _tilted_remainder(
                 contour, boundary, crest, last, advance, corridor, burden_b, shadow, lower, allowed, gap_limit,
                 min_crest, make,
-            ) or extra
+            )
+            if tilted_extra is not None:
+                # Наклонный остаток — всегда в допуске.
+                extra, over_tolerance = tilted_extra, False
+        if extra is None or over_tolerance:
+            # 5. Остатка нет или и он не в допуске — последняя сама к откосу.
+            prev, prev_corridor, azimuth = end_inputs[k]
+            end = _end_moved(
+                contour, boundary, crest, last, prev, prev_corridor, advance, burden_b, azimuth, tilt_deg > 0,
+                (angle_deg, azimuth_deg), w, lower, allowed, min_crest, make,
+            )
+            if end is not None:
+                echelons[k][-1] = end
+                moved[k] = (last, extra)
+                continue
         if extra is not None:
             echelons[k].append(extra)
             remainders[k] = extra
         elif k in tilted:
-            # 5. Места для остатка нет — наклон с наибольшим допустимым углом.
+            # 6. Места для остатка нет — наклон с наибольшим допустимым углом.
             echelons[k][-1] = tilted[k]
+    if moved:
+        # Концевая по п. 5 откатывается, если рядом с ней (в пределах коридора)
+        # проверка видит новый брак — разрыв у подошвы или ЛСП > W + 3 %, которых
+        # без сдвигов нет: её закрыл от откоса сосед и допуск + 20 % не
+        # применился, предыдущая вышла из её коридора и меряет свою ЛСП, она
+        # стала соседом впереди у концевой другого столбца. Откат — как без п. 5:
+        # остаток п. 4, иначе наклон п. 3, иначе исходная (п. 6). До чистки
+        # остатков: иначе та убрала бы остатки рядом с ней.
+        reach = 1.05 * max(spacing_a, burden_b) + burden_b
+
+        def fallback(state: list[list[Hole]], extras: dict[int, Hole], k: int) -> None:
+            original, extra = moved[k]
+            state[k][-1] = original
+            if extra is not None:
+                state[k].append(extra)
+                extras[k] = extra
+            elif k in tilted:
+                state[k][-1] = tilted[k]
+
+        def numbered(state: list[list[Hole]], extras: dict[int, Hole]) -> tuple[list[Hole], list[Hole]]:
+            flat = [h for echelon in state for h in echelon]
+            return flat, _face_rows(flat, [h for h in flat if all(h is not e for e in extras.values())])
+
+        base_state, base_extras = [list(e) for e in echelons], dict(remainders)
+        for k in moved:
+            fallback(base_state, base_extras, k)
+        base_flags = _excess_ids(contour, params, numbered(base_state, base_extras)[1])
+        flat, renumbered = numbered(echelons, remainders)
+        new = _excess_ids(contour, params, renumbered) - base_flags
+        if new:
+            for k in list(moved):
+                end = echelons[k][-1]
+                near = {
+                    n.id for h, n in zip(flat, renumbered)
+                    if math.hypot(h.collar.x - end.collar.x, h.collar.y - end.collar.y) <= reach
+                }
+                if near & new:
+                    fallback(echelons, remainders, k)
     if remainders:
         # Остаток стоит вне решётки (шаг меньше b), а проверка разрыва у подошвы
         # ждёт |Δряд|·b: где коридор к подошве идёт вбок (угол блока), она видит
@@ -602,6 +677,19 @@ def _gap_excess_ids(contour: BlockContour, params: dict[str, Any], holes: list[H
     design = BlastDesign(design_id="back_layout", contour=contour, holes=holes, pattern_params=params)
     _, _, gaps = floor_checks(design, with_gaps=True)
     return {hole_id for hole_id, gap in gaps.items() if gap.excess}
+
+
+def _excess_ids(contour: BlockContour, params: dict[str, Any], holes: list[Hole]) -> set[str]:
+    """Номера скважин с разрывом у подошвы или ЛСП > W + 3 % (не за подошвой),
+    как их видит `validate` — один расчёт `floor_checks`."""
+    from design.models import BlastDesign
+    from design.toe_line import floor_checks
+
+    design = BlastDesign(design_id="back_layout", contour=contour, holes=holes, pattern_params=params)
+    burdens, _, gaps = floor_checks(design, with_gaps=True)
+    return {hid for hid, gap in gaps.items() if gap.excess} | {
+        hid for hid, item in burdens.items() if item.excess and not item.beyond_toe
+    }
 
 
 def _corridors(contour: BlockContour, holes: list[Hole | None]) -> list[Point2]:
@@ -680,6 +768,7 @@ def _gap_limited_angle(
     advance: Point2,
     burden_b: float,
     make: Any,
+    tolerance: float = TOE_BURDEN_TOLERANCE,
 ) -> float:
     """Наибольший угол ≤ `angle`, при котором наклонённая `hole` не даёт у
     предыдущей скважины эшелона `prev` разрыва у подошвы (`floor_row_gap_excess`,
@@ -688,25 +777,109 @@ def _gap_limited_angle(
     больше (1 + 3 %) решёточного шага b, спроецированного на этот коридор; и
     расстояние между точками на подошве — не больше b + 3 %. Шаг — |Δряд|·b:
     у эшелона, вышедшего из контура и вошедшего снова, предыдущая может стоять
-    через пропущенные узлы. Без предыдущей — `angle`."""
+    через пропущенные узлы. Без предыдущей — `angle`. `tolerance` — допуск к
+    шагу (у концевой по п. 5 `back_grid` — `END_GAP_TOLERANCE`)."""
     if prev is None:
         return angle
-    step = burden_b * max(1, abs(hole.row - prev.row))
-    expected = step * (advance[0] * corridor[0] + advance[1] * corridor[1])
-    limit_along = expected * (1.0 + TOE_BURDEN_TOLERANCE) - 1e-6
-    limit_gap = step * (1.0 + TOE_BURDEN_TOLERANCE) - 1e-6
-    px, py = floor_point(prev)
+    gap_ok = _gap_fits(prev, corridor, hole.row, advance, burden_b, tolerance)
 
     def fits(value: float) -> bool:
-        fx, fy = floor_point(make(hole.collar.x, hole.collar.y, hole.row, hole.col, value, azimuth))
-        along = (fx - px) * corridor[0] + (fy - py) * corridor[1]
-        return math.hypot(fx - px, fy - py) <= limit_gap and (expected <= 0 or along <= limit_along)
+        return gap_ok(make(hole.collar.x, hole.collar.y, hole.row, hole.col, value, azimuth))
 
     if fits(angle):
         return angle
     if not fits(0.0):
         return 0.0
     return _bisect(0.0, angle, fits, BISECT_TOLERANCE_DEG)[0]
+
+
+def _gap_fits(
+    prev: Hole, corridor: Point2, row: int, advance: Point2, burden_b: float, tolerance: float
+) -> Any:
+    """Проверка «нет разрыва у подошвы до `prev`» для скважины ряда `row` того же
+    эшелона — как у `toe_line._row_gaps`: продвижение её точки на подошве от
+    точки `prev` по коридору `prev` (`corridor`) — не больше решёточного шага
+    |Δряд|·b, спроецированного на коридор, плюс `tolerance`; расстояние между
+    точками на подошве — не больше шага плюс `tolerance`."""
+    step = burden_b * max(1, abs(row - prev.row))
+    expected = step * (advance[0] * corridor[0] + advance[1] * corridor[1])
+    limit_along = expected * (1.0 + tolerance) - 1e-6
+    limit_gap = step * (1.0 + tolerance) - 1e-6
+    px, py = floor_point(prev)
+
+    def fits(hole: Hole) -> bool:
+        fx, fy = floor_point(hole)
+        along = (fx - px) * corridor[0] + (fy - py) * corridor[1]
+        return math.hypot(fx - px, fy - py) <= limit_gap and (expected <= 0 or along <= limit_along)
+
+    return fits
+
+
+def _end_moved(
+    contour: BlockContour,
+    boundary: list[Point2],
+    crest: object,
+    last: Hole,
+    prev: Hole | None,
+    prev_corridor: Point2,
+    advance: Point2,
+    burden_b: float,
+    azimuth: float,
+    tilt: bool,
+    spec: tuple[float, float],
+    w: float,
+    lower: float,
+    allowed: float,
+    min_crest: float,
+    make: Any,
+) -> Hole | None:
+    """Последняя регулярная эшелона, доведённая до ЛСП ≈ W (п. 5 `back_grid`), или None.
+
+    Разрыв у подошвы до предыдущей `prev` — не больше шага + `END_GAP_TOLERANCE`.
+    `tilt` — наклон к откосу разрешён: наименьший угол ≤ 30° с азимутом
+    `azimuth`, при котором ЛСП ≤ W (`_least_angle_to`). Не вышло — сдвиг устья
+    по линии столбца `advance` к откосу на наименьшее t с ЛСП ≤ W; угол и
+    азимут — паспорта (`spec`), устье в `boundary` и не ближе `min_crest` к
+    бровке. Годится, только если ЛСП в [`lower`; `allowed`] и низ не за подошвой.
+    """
+    from design.pattern import FRONT_ROWS_TILT_MAX_DEG
+
+    def lsp(hole: Hole) -> float:
+        value, beyond = _floor_burdens(contour, [hole])[0]
+        return math.inf if beyond else value
+
+    def good(hole: Hole) -> bool:
+        return lower - 1e-9 <= lsp(hole) <= allowed + 1e-9
+
+    x0, y0 = last.collar.x, last.collar.y
+    if tilt:
+        top = _gap_limited_angle(
+            contour, last, prev, prev_corridor, FRONT_ROWS_TILT_MAX_DEG, azimuth, advance, burden_b, make, END_GAP_TOLERANCE
+        )
+        if top > 1e-9:
+            angle = _least_angle_to(contour, last, top, azimuth, w, make)
+            hole = make(x0, y0, last.row, last.col, angle, azimuth)
+            if good(hole):
+                return hole
+
+    def at(t: float) -> Hole:
+        return make(x0 + advance[0] * t, y0 + advance[1] * t, last.row, last.col, spec[0], spec[1])
+
+    high = _max_step(last, advance, BISECT_TOLERANCE_M, burden_b, boundary, crest, min_crest)
+    if high is None:
+        return None
+    if prev is not None:
+        gap_ok = _gap_fits(prev, prev_corridor, last.row, advance, burden_b, END_GAP_TOLERANCE)
+        if not gap_ok(at(high)):
+            if not gap_ok(at(0.0)):
+                return None
+            high = _bisect(0.0, high, lambda t: gap_ok(at(t)), BISECT_TOLERANCE_M)[0]
+    if lsp(at(high)) > w:
+        hole = at(high)
+    else:
+        # lsp(0) > W ≥ lsp(high): ЛСП убывает с t.
+        hole = at(_bisect(0.0, high, lambda t: lsp(at(t)) > w, BISECT_TOLERANCE_M)[1])
+    return hole if good(hole) else None
 
 
 def _remainder(

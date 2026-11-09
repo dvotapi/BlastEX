@@ -319,6 +319,14 @@ describe("LayoutSearchPanel: карточки", () => {
     expect(screen.queryByText(/floor_beyond_toe/)).toBeNull();
   });
 
+  it("превышение ЛСП передней скважины — своя причина отбраковки", () => {
+    mount({ status: status({ result: result({ best: [variant({ rejected: true, reject_codes: ["floor_burden_excess"] })] }) }) });
+    const scope = within(card(0));
+    expect(scope.getByText(/ЛСП больше W \+ 3 %/)).toBeTruthy();
+    expect(scope.queryByText(/не прошёл проверку/)).toBeNull();
+    expect(screen.queryByText(/floor_burden_excess/)).toBeNull();
+  });
+
   it("пустая сетка — «сетка не построилась»", () => {
     mount({ status: status({ result: result({ best: [variant({ rejected: true, reject_codes: ["empty"] })] }) }) });
     expect(within(card(0)).getByText(/сетка не построилась/)).toBeTruthy();

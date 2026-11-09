@@ -215,9 +215,10 @@ def test_block67_back_layout_fires_from_the_crest():
 
 def test_block67_back_layout_toe_queries_are_bounded(monkeypatch):
     """Перебор (PR 3) зовёт генератор сотни раз: ЛСП считается пакетами, а
-    деления пополам останавливаются по точности — не больше 300 запросов к
-    линии подошвы на генерацию блока 67 (0,12 с; наклонный остаток вместо
-    вертикального с ЛСП > W + 3 % — около 290, без него было около 150)."""
+    деления пополам останавливаются по точности — не больше 330 запросов к
+    линии подошвы на генерацию блока 67 (0,13 с; наклонный остаток вместо
+    вертикального с ЛСП > W + 3 % — около 290, без него было около 150;
+    концевая, доведённая до ЛСП ≈ W наклоном или сдвигом, — 314, 09.11.2026)."""
     import design.back_layout as back_layout
     import design.pattern as pattern
     import design.toe_line as toe_line
@@ -232,7 +233,7 @@ def test_block67_back_layout_toe_queries_are_bounded(monkeypatch):
     for module in (toe_line, back_layout, pattern):
         monkeypatch.setattr(module, "toe_positions", counted)
     generate_pattern(_contour(), {**_base(), "layout_anchor": "back"})
-    assert len(calls) <= 300, len(calls)
+    assert len(calls) <= 330, len(calls)
 
 
 def _block(name: str):
@@ -253,7 +254,11 @@ def _search_ctx(contour, params):
 @pytest.mark.parametrize("block", ["67", "66"])
 def test_search_back_variants_pass(block):
     """Перебор (PR 3): варианты «от тыла» этапа 1 на блоках 67 и 66 — у тыла,
-    без отбраковки; у варианта от бровки того же блока — свой ключ опоры нет."""
+    без отбраковки по геометрии; у варианта от бровки того же блока — свой
+    ключ опоры нет. Превышение ЛСП (`floor_burden_excess`) с 09.11.2026 — брак
+    (решение владельца): у «от тыла» на этих блоках оно есть (нет места ни
+    остатку, ни наклону — `test_block67_back_layout_beats_crest_layout`), его
+    тест не исключает."""
     from design.layout_search.evaluate import evaluate
     from design.layout_search.space import is_back, stage1
 
@@ -272,7 +277,7 @@ def test_search_back_variants_pass(block):
     cache: dict = {}
     for candidate in back:
         ev = evaluate(ctx, candidate, cache)
-        assert not ev.rejected, (candidate.params.get("back_offset_m"), ev.reject_codes)
+        assert set(ev.reject_codes) <= {"floor_burden_excess"}, (candidate.params.get("back_offset_m"), ev.reject_codes)
         assert ev.hole_count > 0
         assert ev.candidate.params["layout_anchor"] == "back"
 
@@ -281,7 +286,12 @@ def test_search_back_variants_pass(block):
 @pytest.mark.parametrize("block", ["67", "66"])
 def test_full_search_tries_both_templates(block):
     """Полный перебор блока с бюджетом 150 с: оба шаблона оценены и проходят
-    отбраковку, итог — лучшие из обоих, бюджет хватает на все этапы."""
+    отбраковку, итог — лучшие из обоих, бюджет хватает на все этапы.
+
+    С 09.11.2026 превышение ЛСП — брак (решение владельца), а концевая «от
+    тыла» сама идёт к откосу до ЛСП ≈ W. На 67 прошедшие есть у обоих
+    шаблонов; на 66 — только «от тыла» (11 из 1200): у вариантов от бровки
+    превышение ЛСП остаётся (у лучших — 3 скважины, в том числе пара)."""
     from unittest import mock
 
     from design.layout_search import search as search_module
@@ -300,6 +310,7 @@ def test_full_search_tries_both_templates(block):
         res = search_module.search_layout(_search_ctx(contour, base), budget_s=150.0)
     assert not res.stopped_early, res.elapsed_s
     assert len(res.best) == 3
+    assert not res.all_rejected
     assert all(not ev.rejected for ev in res.best)
     best_by_template = {}
     for ev in evaluations:
@@ -308,7 +319,7 @@ def test_full_search_tries_both_templates(block):
         key = is_back(ev.candidate.params)
         if key not in best_by_template or ev.rank_key() < best_by_template[key].rank_key():
             best_by_template[key] = ev
-    assert set(best_by_template) == {False, True}
+    assert set(best_by_template) == ({True} if block == "66" else {False, True})
     assert res.best[0].rank_key() <= min(ev.rank_key() for ev in best_by_template.values())
 
 
@@ -331,3 +342,120 @@ def test_search_refines_around_edge_turn_seed(block):
         shifts = {c.params.get("grid_shift_along_m", 0.0) for c in same_azimuth}
         assert len(shifts) >= 2, (sign, shifts)
         assert all(abs(turn(c)) <= 5.0 + 1e-3 for c in out)
+
+
+def test_block67_remainder_closes_its_last_with_margin():
+    """Регрессия «П 9» (прод, вариант 1 подбора, 09.11.2026): добавочная на
+    остатке стояла впереди последней ровно на пороге «впереди» (0,4·min(a, b)),
+    после округления проверка её не засчитывала, и ЛСП последней мерилась мимо
+    добавочной — `floor_burden_excess`. Генератор ставит добавочную с запасом
+    `SHADOW_ADVANCE_MARGIN_M`: у скважины с добавочной впереди превышения нет.
+    """
+    from design.toe_line import (
+        SHADOW_ADVANCE_MARGIN_M,
+        floor_point,
+        shadow_limits,
+        toe_positions,
+    )
+
+    contour = _contour()
+    a = 3.589
+    params = {
+        "pattern": "square",
+        "spacing_a_m": a,
+        "burden_b_m": a,
+        "layout_anchor": "back",
+        "row_azimuth_deg": 179.8103,
+        "grid_shift_along_m": 1.85,
+        "back_offset_m": 2.9,
+        "edge_margin_m": 2.9,
+        "subdrill_m": 1.0,
+    }
+    holes = generate_pattern(contour, params)
+    design = BlastDesign(design_id="b67", contour=contour, holes=holes, pattern_params=params)
+    burdens = floor_burdens(design)
+    by_cell = {(h.row, h.col): h for h in holes}
+    min_advance = shadow_limits(a, a)[0]
+    remainders = 0
+    for hole in holes:
+        ahead = by_cell.get((hole.row - 1, hole.col))
+        # Добавочная — впереди в своём столбце ближе шага b (регулярная — на b).
+        if ahead is None or math.hypot(
+            ahead.collar.x - hole.collar.x, ahead.collar.y - hole.collar.y
+        ) > a - 0.01:
+            continue
+        remainders += 1
+        assert hole.id not in burdens or not burdens[hole.id].excess, hole.id
+        fx, fy = floor_point(hole)
+        tx, ty = toe_positions(contour, [(fx, fy)], [contour.bench.height_m])[0].toe_point
+        length = math.hypot(tx - fx, ty - fy)
+        ax, ay = floor_point(ahead)
+        advance = ((ax - fx) * (tx - fx) + (ay - fy) * (ty - fy)) / length
+        assert advance >= min_advance + 0.5 * SHADOW_ADVANCE_MARGIN_M, (hole.id, advance)
+    assert remainders >= 1
+
+
+def test_block67_owner_back_search_has_passing_variants():
+    """Проверка владельца на стенде 09.11.2026: квадратная 3,7, d = 145 мм,
+    «от тыла», отступ от тыла и от контура 2,9 м, азимут тыла без поворота.
+    До доработки все 20 вариантов — брак `floor_burden_excess`: ЛСП последней
+    в (W + 3 %; 1,2·W), остатку места нет, наклон держит разрыв b + 3 %.
+    Последняя теперь сама идёт к откосу до ЛСП ≈ W (разрыв до b + 20 %) —
+    прошедшие есть, у лучших нет ни превышения ЛСП, ни разрыва."""
+    from design.layout_search.search import search_layout
+
+    contour = _contour()
+    base = {
+        "pattern": "square",
+        "spacing_a_m": 3.7,
+        "burden_b_m": 3.7,
+        "diameter_mm": 145.0,
+        "layout_anchor": "back",
+        "back_offset_m": 2.9,
+        "edge_margin_m": 2.9,
+        "row_azimuth_deg": round(back_azimuth_deg(contour), 4),
+        "back_turn_locked": True,
+        "subdrill_m": 1.0,
+    }
+    res = search_layout(_search_ctx(contour, base), budget_s=1e9)
+    assert res.evaluated == 20
+    assert not res.all_rejected
+    assert res.rejected < res.evaluated
+    assert res.best and all(not ev.rejected for ev in res.best)
+
+
+def test_block67_toe_by_angle_is_continuous_regression_9_01():
+    """Стенд 09.11.2026, вариант 3 подбора (квадратная 3,7, «от тыла», отступы
+    2,9 м, сдвиг вдоль 1,85 м): свободная поверхность блока 67 — 13 отдельных
+    рёбер. Подошва по углу, сдвинутая по рёбрам, в вогнутом изломе торчала
+    концами, и ЛСП добавочной 9-01 (20,089; 77,599) мерилась до конца — 3,70 м;
+    до сплошной линии — 3,96 м > W + 3 % = 3,81 м. После склейки рёбер
+    генератор ставит добавочную ближе к откосу, ЛСП в допуске."""
+    import math as _math
+
+    from design.toe_line import toe_positions
+
+    contour = _contour()
+    assert len(contour.free_faces) == 13
+    position = toe_positions(contour, [(20.089, 77.599)], [contour.bench.height_m])[0]
+    assert position.distance_m == pytest.approx(3.96, abs=0.005)
+
+    params = {
+        "pattern": "square",
+        "spacing_a_m": 3.7,
+        "burden_b_m": 3.7,
+        "diameter_mm": 145.0,
+        "subdrill_m": 1.0,
+        "layout_anchor": "back",
+        "row_azimuth_deg": 179.81,
+        "edge_margin_m": 2.9,
+        "back_offset_m": 2.9,
+        "grid_shift_along_m": 1.85,
+    }
+    holes = generate_pattern(contour, params)
+    design = BlastDesign(design_id="b67", contour=contour, holes=holes, pattern_params=params)
+    burdens = floor_burdens(design)
+    near = min(holes, key=lambda h: _math.hypot(h.collar.x - 20.089, h.collar.y - 77.599))
+    assert near.id in burdens
+    assert burdens[near.id].value_m <= 3.7 * 1.03 + 1e-6
+    assert not {w["code"] for w in validate(design)} & {"floor_burden_excess", "floor_row_gap_excess"}

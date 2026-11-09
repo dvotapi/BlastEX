@@ -154,3 +154,49 @@ def test_no_holes_and_no_contour():
     context["plan"] = {"contour": [], "crest_top": [], "crest_toe": [], "toe_source": None, "situation": []}
     sheet = build_plan(context)
     assert sheet.holes == () and sheet.scale == 200
+
+
+# --- отрисовка ---------------------------------------------------------------
+
+from reportlab.graphics.shapes import Circle, Group, PolyLine  # noqa: E402
+
+from design.reporting.drill.pdf import FONT, FONT_BOLD, RED, _register_fonts  # noqa: E402
+from design.reporting.drill.plan_drawing import drawing  # noqa: E402
+
+
+def _shapes(node, kind) -> list:
+    found = []
+    for item in getattr(node, "contents", ()):
+        if isinstance(item, kind):
+            found.append(item)
+        if isinstance(item, Group):
+            found += _shapes(item, kind)
+    return found
+
+
+def _draw(sheet):
+    _register_fonts()
+    return drawing(sheet, font=FONT, bold_font=FONT_BOLD)
+
+
+def test_drawing_has_circle_per_hole(sheet66):
+    circles = [c for c in _shapes(_draw(sheet66), Circle) if c.r == pytest.approx(MIN_HOLE_MM / 2 * MM)]
+    assert len(circles) == 196
+    assert len([c for c in circles if c.strokeColor == RED]) == 44
+
+
+def test_drawing_size(sheet66):
+    d = _draw(sheet66)
+    assert (d.width, d.height) == pytest.approx((PLAN_W_MM * MM, PLAN_H_MM * MM))
+
+
+def test_inclined_hole_gets_toe_line(sheet66):
+    context = context66()
+    row = context["holes"][0]
+    row["azimuth_deg"] = 90.0
+    row["toe"]["x"] = row["collar"]["x"] + 2.0
+    before = len(_shapes(_draw(sheet66), PolyLine))
+    assert len(_shapes(_draw(build_plan(context)), PolyLine)) == before + 1
+
+
+MM = 72 / 25.4

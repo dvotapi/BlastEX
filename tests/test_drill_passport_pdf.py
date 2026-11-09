@@ -117,10 +117,10 @@ def test_pages_match_golden(pdf66, tmp_path):
     source = tmp_path / "passport.pdf"
     source.write_bytes(pdf66)
     subprocess.run(
-        ["pdftoppm", "-r", str(GOLDEN_DPI), "-gray", "-png", "-f", "1", "-l", "3", str(source), str(tmp_path / "page")],
+        ["pdftoppm", "-r", str(GOLDEN_DPI), "-gray", "-png", "-f", "1", "-l", "4", str(source), str(tmp_path / "page")],
         check=True,
     )
-    for number in (1, 2, 3):
+    for number in (1, 2, 3, 4):
         actual = Image.open(tmp_path / f"page-{number}.png").convert("L")
         expected = Image.open(GOLDEN / f"page-{number}.png").convert("L")
         assert actual.size == expected.size
@@ -223,3 +223,30 @@ def test_long_hole_number_fits_cell():
     assert size < 7
     assert stringWidth("R10-150", pdf.FONT_BOLD, size) <= width
     assert pdf.fit_font_size("51", pdf.FONT, 7, width) == 7
+
+
+def _page_text(pdf: bytes, page: int, tmp_path) -> str:
+    source = tmp_path / "passport.pdf"
+    source.write_bytes(pdf)
+    return subprocess.run(
+        ["pdftotext", "-f", str(page), "-l", str(page), str(source), "-"], check=True, capture_output=True
+    ).stdout.decode()
+
+
+@pytest.mark.skipif(shutil.which("pdftotext") is None, reason="нет pdftotext (poppler)")
+def test_page4_is_plan(pdf66, tmp_path):
+    text = _page_text(pdf66, 4, tmp_path)
+    assert "Масштаб 1:670" in text
+    assert "11,6" in text and "48" in text
+    assert "в следующей версии" not in text
+    assert "первый ряд" in text and "нижняя бровка (по углу откоса)" in text
+    assert "ситуация" not in text
+
+
+@pytest.mark.skipif(shutil.which("pdftotext") is None, reason="нет pdftotext (poppler)")
+def test_revision_before_plan_renders(tmp_path):
+    context = context66()
+    del context["plan"]
+    pdf = render_passport_pdf(context, revision_no=1)
+    assert _pages(pdf) == 4
+    assert "Контур и бровки не сохранены в ревизии" in _page_text(pdf, 4, tmp_path)

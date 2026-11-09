@@ -32,7 +32,7 @@ from reportlab.platypus import (
     TableStyle,
 )
 
-from design.reporting.drill import rig_scheme
+from design.reporting.drill import plan_drawing, rig_scheme
 from design.reporting.drill.layout import DepthPage, PassportLayout, build_layout
 
 ASSETS = Path(__file__).with_name("assets")
@@ -51,7 +51,7 @@ TITLE_SAFETY = "Меры безопасности. Порядок работ. У
 TITLE_DEPTHS = "Паспорт на бурение взрывных скважин (ФНП 505 п. 989)"
 TITLE_DEPTHS_MORE = "Паспорт на бурение взрывных скважин (продолжение)"
 TITLE_BLANK = ""
-TITLE_PLAN = "Графическая часть"
+TITLE_PLAN = "Графическая часть. План расположения скважин"
 
 PAGE_W, PAGE_H = A4
 MARGIN_X = 15 * mm
@@ -357,11 +357,15 @@ def _depth_page(page: DepthPage, first: bool, rows_per_column: int) -> list:
     return story
 
 
-def _plan_page() -> list:
-    frame = Table([[_p("План расположения скважин — в следующей версии", "blank")]],
-                  colWidths=[FRAME_W], rowHeights=[FRAME_H - 12 * mm])
-    frame.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), 0.6, LINE), ("VALIGN", (0, 0), (-1, -1), "MIDDLE")]))
-    return [frame]
+def _plan_page(layout: PassportLayout) -> list:
+    """План расположения скважин (PR 3): поле плана и легенда с масштабом под ним."""
+
+    sheet = layout.plan
+    return [
+        plan_drawing.drawing(sheet, font=FONT, bold_font=FONT_BOLD),
+        Spacer(1, 2 * mm),
+        plan_drawing.legend(sheet, FRAME_W, font=FONT, bold_font=FONT_BOLD),
+    ]
 
 
 # --- сборка ----------------------------------------------------------------
@@ -422,7 +426,7 @@ def render_layout_pdf(layout: PassportLayout, *, title: str, rows_per_column: in
     pages += [_depth_page(page, index == 0, rows_per_column) for index, page in enumerate(layout.depth_pages)]
     if layout.blank_before_plan:
         pages.append([Spacer(1, FRAME_H / 2 - 10 * mm), _p("Страница оставлена пустой", "blank")])
-    pages.append(_plan_page())
+    pages.append(_plan_page(layout))
     story: list = []
     for index, page in enumerate(pages):
         if index:

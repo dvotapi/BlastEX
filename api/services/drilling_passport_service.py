@@ -23,7 +23,8 @@ from api.schemas.drilling_passport import (
     DrillingPassportUpdateSchema,
     TEXT_LIMITS,
 )
-from api.services.cad_service import active_work_object_name, resolve_site_code
+from api.services.cad_service import active_work_object_name, get_cad_repository, resolve_site_code
+from api.services.cad_situation_service import source_situation
 from cost.v2.repository import EconomicsRepository, EconomicsRepositoryError
 from design import persistence as design_persistence
 from design.drilling_passport import has_errors, passport_context, warning_codes
@@ -35,6 +36,7 @@ from design.drilling_passport_repository import (
 from design.mass_blast import content_sha256
 from design.reporting.drill.pdf import render_passport_pdf
 from design.models import BlastDesign
+from design.spatial.cad.repository import CadSourceNotFound
 
 
 # Длина колонки `drilling_passports.passport_no`.
@@ -198,16 +200,70 @@ def update_passport(
     )
 
 
+def _plan_situation(organization_id: str, design: BlastDesign) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """Ситуация TASK-013 для плана на стр. 4: версии из `contour.cad.situation`.
+
+    Без ссылок база чертежей не читается. Удалённая версия или слой, не
+    уместившийся в предел вершин, — предупреждение: план без них.
+    """
+
+    refs = [ref for ref in ((design.contour.cad or {}).get("situation") or ()) if ref.get("source_id")]
+    if not refs:
+        return [], []
+    layers: list[dict[str, Any]] = []
+    issues: list[dict[str, str]] = []
+    try:
+        repository = get_cad_repository()
+    except (RuntimeError, SQLAlchemyError):
+        repository = None
+    for ref in refs:
+        title = str(ref.get("title") or ref["source_id"])
+        if repository is None:
+            issues.append(_warning(
+                "plan_situation_unavailable",
+                f"Ситуация «{title}» не прочитана (база чертежей недоступна) — на плане её нет.",
+                "plan",
+            ))
+            continue
+        try:
+            geometry = source_situation(repository, organization_id, str(ref["source_id"]))
+        except CadSourceNotFound:
+            issues.append(_warning("plan_situation_missing", f"Версия ситуации «{title}» удалена — на плане её нет.", "plan"))
+            continue
+        except SQLAlchemyError:
+            issues.append(_warning(
+                "plan_situation_unavailable",
+                f"Ситуация «{title}» не прочитана (база чертежей недоступна) — на плане её нет.",
+                "plan",
+            ))
+            continue
+        capped = [layer.name for layer in geometry.layers if layer.omitted]
+        if capped:
+            issues.append(_warning(
+                "plan_situation_capped",
+                f"Ситуация «{title}» слишком большая: на плане нет слоёв {', '.join(capped[:5])}.",
+                "plan",
+            ))
+        layers += [
+            {"kind": layer.kind, "lines": [{"points": line.points, "closed": line.closed} for line in layer.lines]}
+            for layer in geometry.layers
+            if layer.lines
+        ]
+    return layers, issues
+
+
 def _context(
     passport: Mapping[str, Any], economics_repository: EconomicsRepository | None, organization_id: str
 ) -> dict[str, Any]:
     payload = dict(passport.get("payload") or {})
     design = _load_design(organization_id, str(passport["design_id"]))
     refs = _reference_inputs(economics_repository, organization_id, payload)
+    situation, situation_issues = _plan_situation(organization_id, design)
     context = passport_context(
-        design, payload, refs.site, refs.rig, profile=refs.profile, profile_code=refs.profile_code
+        design, payload, refs.site, refs.rig, profile=refs.profile, profile_code=refs.profile_code,
+        situation=situation,
     )
-    context["issues"] = [*refs.issues, *context["issues"]]
+    context["issues"] = [*refs.issues, *context["issues"], *situation_issues]
     context["passport"] = {
         "passport_no": passport["passport_no"],
         "passport_date": passport["passport_date"],

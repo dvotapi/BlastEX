@@ -500,3 +500,84 @@ def test_long_contour_name_is_cut_to_block_limit(client, block66, monkeypatch):
               "expected_version": passport["version"]},
     )
     assert saved.status_code == 200, saved.text
+
+
+# --- PR 3: ситуация TASK-013 на плане -----------------------------------------
+
+from design.spatial.cad.repository import CadSourceNotFound  # noqa: E402
+
+SITUATION_REF = [{"source_id": "sit-1", "title": "Ситуация 10.2026", "survey_date": "2026-10-01"}]
+
+
+def _situation_response(x: float, y: float, *, omitted: bool = False):
+    line = SimpleNamespace(points=[[x - 10, y, 400.0], [x + 10, y, 400.0]], closed=False)
+    layer = SimpleNamespace(kind="road", lines=[] if omitted else [line], omitted=omitted, name="Дороги")
+    return SimpleNamespace(layers=[layer])
+
+
+@pytest.fixture()
+def situation_refs(monkeypatch, block66):
+    monkeypatch.setattr(block66.contour, "cad", {"situation": deepcopy(SITUATION_REF)})
+    monkeypatch.setattr(drilling_passport_service, "get_cad_repository", lambda: "cad-repo")
+    return block66
+
+
+def test_context_takes_situation_of_passport_design(client, situation_refs, monkeypatch):
+    collar = situation_refs.holes[0].collar
+    calls = []
+
+    def source_situation(repository, organization_id, source_id):
+        calls.append((repository, organization_id, source_id))
+        return _situation_response(collar.x, collar.y)
+
+    monkeypatch.setattr(drilling_passport_service, "source_situation", source_situation)
+    passport = _create(client)
+    revision = client.post(f"{BASE}/{passport['id']}/revisions", json={"expected_version": passport["version"]})
+    assert revision.status_code == 201, revision.text
+    assert calls == [("cad-repo", "org-a", "sit-1")]
+    (layer,) = revision.json()["context"]["plan"]["situation"]
+    assert layer["kind"] == "road"
+    assert layer["lines"][0]["points"] == [
+        [round(collar.x - 10, 3), round(collar.y, 3)], [round(collar.x + 10, 3), round(collar.y, 3)],
+    ]
+
+
+def test_missing_situation_source_warns(client, situation_refs, monkeypatch):
+    def source_situation(repository, organization_id, source_id):
+        raise CadSourceNotFound(source_id)
+
+    monkeypatch.setattr(drilling_passport_service, "source_situation", source_situation)
+    passport = _create(client)
+    body = client.post(f"{BASE}/{passport['id']}/validate").json()
+    (issue,) = [item for item in body["issues"] if item["code"] == "plan_situation_missing"]
+    assert issue["level"] == "warning" and "Ситуация 10.2026" in issue["message"]
+    url = f"{BASE}/{passport['id']}/revisions"
+    refused = client.post(url, json={"expected_version": passport["version"]})
+    assert refused.status_code == 409
+    accepted = client.post(
+        url, json={"expected_version": passport["version"], "acknowledged_warnings": ["plan_situation_missing"]}
+    )
+    assert accepted.status_code == 201
+    assert accepted.json()["context"]["plan"]["situation"] == []
+
+
+def test_capped_situation_layer_warns(client, situation_refs, monkeypatch):
+    collar = situation_refs.holes[0].collar
+    monkeypatch.setattr(
+        drilling_passport_service, "source_situation",
+        lambda repository, organization_id, source_id: _situation_response(collar.x, collar.y, omitted=True),
+    )
+    passport = _create(client)
+    codes = [item["code"] for item in client.post(f"{BASE}/{passport['id']}/validate").json()["issues"]]
+    assert "plan_situation_capped" in codes
+
+
+def test_no_situation_refs_no_cad_calls(client, monkeypatch):
+    def fail(*args, **kwargs):
+        raise AssertionError("ситуацию без ссылок не читают")
+
+    monkeypatch.setattr(drilling_passport_service, "get_cad_repository", fail)
+    monkeypatch.setattr(drilling_passport_service, "source_situation", fail)
+    passport = _create(client)
+    body = client.post(f"{BASE}/{passport['id']}/validate").json()
+    assert body["issues"] == []

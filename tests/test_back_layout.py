@@ -339,8 +339,9 @@ def test_remainder_tilts_when_vertical_does_not_fit():
     """Последняя в y = 1,82: ЛСП 4,5. Вертикальный остаток должен встать на
     0,4·min(a, b) = 1,4 м впереди (y = 0,42) — ближе отступа 0,5 м к бровке.
     Остаток — устье в 0,5 м от бровки (1,32 м от последней) с наклоном к
-    откосу ровно таким, чтобы у подошвы он стоял впереди последней на 1,4 м."""
-    from design.toe_line import floor_burdens
+    откосу ровно таким, чтобы у подошвы он стоял впереди последней на 1,4 м
+    плюс запас `SHADOW_ADVANCE_MARGIN_M`."""
+    from design.toe_line import SHADOW_ADVANCE_MARGIN_M, floor_burdens
 
     c = rect(40, 30)
     params = _end_params(3.68)
@@ -355,7 +356,8 @@ def test_remainder_tilts_when_vertical_does_not_fit():
         assert 0.0 < _angle(extra) <= 30.0
         assert extra.toe.y < extra.collar.y
         advance = floor_point(last)[1] - floor_point(extra)[1]
-        assert advance == pytest.approx(0.4 * W, abs=0.01)
+        assert advance == pytest.approx(0.4 * W + SHADOW_ADVANCE_MARGIN_M, abs=0.01)
+        assert advance >= 0.4 * W + SHADOW_ADVANCE_MARGIN_M - 1e-6
         assert 0.8 * W - 1e-6 <= _lsp(c, extra) <= ALLOWED + 1e-6
         assert (logical_row(extra.row), extra.col) == (logical_row(last.row) - 1, last.col)
     burdens = floor_burdens(BlastDesign(design_id="t", contour=c, holes=holes, pattern_params=params))
@@ -414,8 +416,10 @@ def test_remainder_closes_the_last_hole_in_floor_burdens():
     """Остаток не ближе 0,4·min(a, b) (порог «впереди» у ЛСП) к последней: иначе
     проверка ЛСП не считает последнюю закрытой и показывает у неё превышение.
     Последняя в y = 2,2 (ЛСП 4,88), наклон выключен: остаток в 1,1 м с ЛСП = W
-    не закрыл бы её — остаток ставится на 1,4 м (ЛСП 3,48), а не ближе."""
-    from design.toe_line import floor_burdens
+    не закрыл бы её — остаток ставится на 1,4 м плюс запас
+    `SHADOW_ADVANCE_MARGIN_M` (ЛСП ≈ 3,47), а не ближе: на самом пороге
+    проверка после округления могла его не засчитать (прод, «П 9»)."""
+    from design.toe_line import SHADOW_ADVANCE_MARGIN_M, floor_burdens
 
     c = rect(40, 30)
     params = _end_params(3.3, front_rows_tilt_deg=0)
@@ -423,7 +427,7 @@ def test_remainder_closes_the_last_hole_in_floor_burdens():
     for echelon in _echelons(holes):
         last, extra = echelon[-2], echelon[-1]
         assert last.collar.y == pytest.approx(2.2)
-        assert last.collar.y - extra.collar.y == pytest.approx(0.4 * W, abs=1e-4)
+        assert last.collar.y - extra.collar.y == pytest.approx(0.4 * W + SHADOW_ADVANCE_MARGIN_M, abs=1e-4)
     burdens = floor_burdens(BlastDesign(design_id="t", contour=c, holes=holes, pattern_params=params))
     assert all(not v.excess for v in burdens.values())
 

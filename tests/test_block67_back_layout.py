@@ -253,7 +253,11 @@ def _search_ctx(contour, params):
 @pytest.mark.parametrize("block", ["67", "66"])
 def test_search_back_variants_pass(block):
     """Перебор (PR 3): варианты «от тыла» этапа 1 на блоках 67 и 66 — у тыла,
-    без отбраковки; у варианта от бровки того же блока — свой ключ опоры нет."""
+    без отбраковки по геометрии; у варианта от бровки того же блока — свой
+    ключ опоры нет. Превышение ЛСП (`floor_burden_excess`) с 09.11.2026 — брак
+    (решение владельца): у «от тыла» на этих блоках оно есть (нет места ни
+    остатку, ни наклону — `test_block67_back_layout_beats_crest_layout`), его
+    тест не исключает."""
     from design.layout_search.evaluate import evaluate
     from design.layout_search.space import is_back, stage1
 
@@ -272,7 +276,7 @@ def test_search_back_variants_pass(block):
     cache: dict = {}
     for candidate in back:
         ev = evaluate(ctx, candidate, cache)
-        assert not ev.rejected, (candidate.params.get("back_offset_m"), ev.reject_codes)
+        assert set(ev.reject_codes) <= {"floor_burden_excess"}, (candidate.params.get("back_offset_m"), ev.reject_codes)
         assert ev.hole_count > 0
         assert ev.candidate.params["layout_anchor"] == "back"
 
@@ -281,7 +285,13 @@ def test_search_back_variants_pass(block):
 @pytest.mark.parametrize("block", ["67", "66"])
 def test_full_search_tries_both_templates(block):
     """Полный перебор блока с бюджетом 150 с: оба шаблона оценены и проходят
-    отбраковку, итог — лучшие из обоих, бюджет хватает на все этапы."""
+    отбраковку, итог — лучшие из обоих, бюджет хватает на все этапы.
+
+    С 09.11.2026 превышение ЛСП — брак (решение владельца). На 67 прошедшие
+    есть (лучшие — «от тыла» без превышения). На 66 превышение есть у всех
+    вариантов (у лучших — 2 скважины: 3,83 и 3,96 м при допуске 3,64 м):
+    итог — лучшие из отбракованных, и только по нему; остальные проверки
+    («прошедшие» — без брака по геометрии) те же."""
     from unittest import mock
 
     from design.layout_search import search as search_module
@@ -300,10 +310,12 @@ def test_full_search_tries_both_templates(block):
         res = search_module.search_layout(_search_ctx(contour, base), budget_s=150.0)
     assert not res.stopped_early, res.elapsed_s
     assert len(res.best) == 3
-    assert all(not ev.rejected for ev in res.best)
+    tolerated = {"floor_burden_excess"} if block == "66" else set()
+    assert res.all_rejected == (block == "66")
+    assert all(set(ev.reject_codes) <= tolerated for ev in res.best)
     best_by_template = {}
     for ev in evaluations:
-        if ev.rejected:
+        if not set(ev.reject_codes) <= tolerated:
             continue
         key = is_back(ev.candidate.params)
         if key not in best_by_template or ev.rank_key() < best_by_template[key].rank_key():

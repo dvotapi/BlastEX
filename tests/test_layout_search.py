@@ -334,7 +334,11 @@ class TemplateSearchTests(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get("BLASTEX_SLOW"), "медленный тест (≈1 мин): BLASTEX_SLOW=1")
 class Block66SearchTests(unittest.TestCase):
-    """Блок №66 с полным бюджетом: три прошедших варианта не хуже базы без перебора."""
+    """Блок №66 с полным бюджетом: три лучших варианта не хуже базы без перебора.
+
+    С 09.11.2026 превышение ЛСП — брак: на 66 оно есть у всех вариантов, в том
+    числе у базы, поэтому и база, и итог отбракованы только им; итог — лучшие
+    из отбракованных (`all_rejected`)."""
 
     def test_best_not_worse_than_base(self):
         contour = _block66_contour()
@@ -354,13 +358,15 @@ class Block66SearchTests(unittest.TestCase):
         self.assertEqual({c.cut_flank for c in bases}, {"left", "right"})
         self.assertEqual(len(bases), 2)
         base_evals = [evaluate(ctx, c) for c in bases]
-        # Сама база отбраковку проходит (иначе сравнение с ней ничего не значит).
-        self.assertTrue(all(not ev.rejected for ev in base_evals), [ev.reject_codes for ev in base_evals])
+        # База без брака по геометрии (иначе сравнение с ней ничего не значит).
+        self.assertTrue(all(set(ev.reject_codes) <= {"floor_burden_excess"} for ev in base_evals),
+                        [ev.reject_codes for ev in base_evals])
         base_key = min(ev.rank_key() for ev in base_evals)
 
         res = search_layout(ctx, budget_s=150.0)
         self.assertEqual(len(res.best), 3)
-        self.assertTrue(all(not ev.rejected for ev in res.best))
+        self.assertTrue(res.all_rejected)
+        self.assertTrue(all(ev.reject_codes == ["floor_burden_excess"] for ev in res.best))
         self.assertLessEqual(res.best[0].rank_key(), base_key)
 
 

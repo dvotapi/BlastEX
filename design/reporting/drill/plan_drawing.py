@@ -2,8 +2,8 @@
 
 Ничего не считает: переводит миллиметры листа в pt ReportLab и рисует слои
 снизу вверх — ситуация, контур блока, бровки, отрезки наклонных, кружки с
-номером и глубиной, стрелка «С». Легенда с масштабом и линейкой — отдельный
-рисунок под полем плана.
+номером и глубиной. Легенда с масштабом, линейкой и стрелкой «С» — отдельный
+рисунок под полем плана: на поле стрелка легла бы на скважины.
 """
 from __future__ import annotations
 
@@ -63,13 +63,15 @@ def drawing(sheet: PlanSheet, *, font: str, bold_font: str) -> Drawing:
         # Номер — справа сверху, глубина — справа снизу, как в SHOTPlus.
         d.add(String(x + r + 0.3, y + 0.4, hole.number, fontName=label_font, fontSize=size, fillColor=color))
         d.add(String(x + r + 0.3, y - size * 0.85, hole.depth, fontName=font, fontSize=size, fillColor=color))
-    d.add(_north_arrow(width - 9 * mm, height - 4 * mm, bold_font))
     d.add(Rect(0, 0, width, height, fillColor=None, strokeColor=LINE, strokeWidth=0.6))
     return d
 
 
 LEGEND_ROW = 5.5 * mm
 LEGEND_SIZE = 7.5
+# Справа в легенде — стрелка «С» (вершина вверху, буква снизу).
+ARROW_W = 14 * mm
+ARROW_H = 16 * mm
 
 
 def _scale_bar(sheet: PlanSheet, x: float, y: float, font: str) -> Group:
@@ -95,7 +97,7 @@ def _legend_items(sheet: PlanSheet) -> list[tuple[str, str]]:
     if sheet.crest_top:
         items.append(("top", "верхняя бровка"))
     if sheet.crest_toe:
-        items.append(("toe", TOE_SOURCE_LABELS.get(sheet.toe_source or "", "нижняя бровка")))
+        items.append(("toe", TOE_SOURCE_LABELS.get(sheet.toe_source, "нижняя бровка")))
     if sheet.situation:
         items.append(("situation", "ситуация"))
     return items
@@ -126,21 +128,23 @@ def legend(sheet: PlanSheet, width: float, *, font: str, bold_font: str) -> Draw
     items = _legend_items(sheet)
     rows: list[list[tuple[str, str, float]]] = [[]]
     x = 0.0
+    room = width - ARROW_W
     for kind, text in items:
         symbol_w = 8.5 * mm if kind == "hole" else 8 * mm
         item_w = symbol_w + pdfmetrics.stringWidth(text, font, LEGEND_SIZE) + 5 * mm
-        if rows[-1] and x + item_w > width:
+        if rows[-1] and x + item_w > room:
             rows.append([])
             x = 0.0
         rows[-1].append((kind, text, x))
         x += item_w
-    height = LEGEND_ROW * (len(rows) + 1) + 1 * mm
+    height = max(LEGEND_ROW * (len(rows) + 1) + 1 * mm, ARROW_H)
     d = Drawing(width, height)
+    d.add(_north_arrow(width - ARROW_W / 2, height - 0.5 * mm, bold_font))
     top = height - LEGEND_ROW
     d.add(String(0, top + 1 * mm, f"Масштаб 1:{sheet.scale}", fontName=bold_font, fontSize=8.5, fillColor=GRAPHITE))
     d.add(_scale_bar(sheet, 32 * mm, top + 0.6 * mm, font))
     if sheet.note:
-        d.add(String(width, top + 1 * mm, sheet.note, fontName=font, fontSize=LEGEND_SIZE, fillColor=GREY,
+        d.add(String(width - ARROW_W, top + 1 * mm, sheet.note, fontName=font, fontSize=LEGEND_SIZE, fillColor=GREY,
                      textAnchor="end"))
     for index, row in enumerate(rows, start=1):
         y = top - LEGEND_ROW * index

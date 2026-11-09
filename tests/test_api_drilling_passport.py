@@ -581,3 +581,28 @@ def test_no_situation_refs_no_cad_calls(client, monkeypatch):
     passport = _create(client)
     body = client.post(f"{BASE}/{passport['id']}/validate").json()
     assert body["issues"] == []
+
+
+def test_broken_situation_source_warns(client, situation_refs, monkeypatch):
+    def source_situation(repository, organization_id, source_id):
+        raise ValueError("рваные точки")
+
+    monkeypatch.setattr(drilling_passport_service, "source_situation", source_situation)
+    passport = _create(client)
+    codes = [item["code"] for item in client.post(f"{BASE}/{passport['id']}/validate").json()["issues"]]
+    assert "plan_situation_unavailable" in codes
+
+
+def test_duplicate_situation_refs_read_once(client, situation_refs, monkeypatch):
+    situation_refs.contour.cad["situation"] = deepcopy(SITUATION_REF) * 2
+    collar = situation_refs.holes[0].collar
+    calls = []
+
+    def source_situation(repository, organization_id, source_id):
+        calls.append(source_id)
+        return _situation_response(collar.x, collar.y)
+
+    monkeypatch.setattr(drilling_passport_service, "source_situation", source_situation)
+    passport = _create(client)
+    client.post(f"{BASE}/{passport['id']}/validate")
+    assert calls == ["sit-1"]

@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from statistics import median
+import numpy as np
 from typing import Any, Iterable, Mapping, Sequence
 
 import shapely
+from scipy.spatial import cKDTree
 from shapely.geometry import LineString
 
 from design.reporting.drill import fmt
@@ -21,6 +22,8 @@ from design.reporting.drill import fmt
 PLAN_W_MM = 180.0
 PLAN_H_MM = 228.0
 PLAN_PAD_MM = 6.0
+# Справа от самых восточных скважин — место под подписи (номер и глубина).
+LABEL_RESERVE_MM = 8.0
 MIN_SCALE = 200
 MIN_HOLE_MM = 1.4
 LABEL_PT = (3.5, 6.0)
@@ -63,24 +66,28 @@ class PlanSheet:
 
 
 def plan_scale(width_m: float, height_m: float, field_w_mm: float, field_h_mm: float) -> int:
-    """Знаменатель масштаба: блок с отступом `PLAN_PAD_MM` помещается в поле."""
+    """Знаменатель масштаба: блок с отступом `PLAN_PAD_MM` и местом под подписи справа помещается в поле."""
 
-    usable_w, usable_h = field_w_mm - 2 * PLAN_PAD_MM, field_h_mm - 2 * PLAN_PAD_MM
+    usable_w, usable_h = field_w_mm - 2 * PLAN_PAD_MM - LABEL_RESERVE_MM, field_h_mm - 2 * PLAN_PAD_MM
     need = max(width_m / usable_w, height_m / usable_h) * 1000
     # Округление на 1e-9 — чтобы ровно 663,0 не стало 670 из-за погрешности.
     return max(MIN_SCALE, math.ceil(need / 10 - 1e-9) * 10)
 
 
 def _point(value: Any) -> XY | None:
+    """Точка снимка; без чисел или с NaN — None (такая точка не рисуется)."""
+
     if isinstance(value, Mapping):
         x, y = value.get("x"), value.get("y")
-    elif isinstance(value, Sequence) and len(value) >= 2:
+    elif isinstance(value, Sequence) and not isinstance(value, str) and len(value) >= 2:
         x, y = value[0], value[1]
     else:
         return None
-    if x is None or y is None:
+    try:
+        fx, fy = float(x), float(y)
+    except (TypeError, ValueError):
         return None
-    return float(x), float(y)
+    return (fx, fy) if math.isfinite(fx) and math.isfinite(fy) else None
 
 
 def _line(points: Iterable[Any]) -> list[XY]:
@@ -98,10 +105,8 @@ def _bar(scale: int) -> tuple[int, float]:
 def _label_pt(points: list[XY]) -> float:
     if len(points) < 2:
         return LABEL_PT[1]
-    nearest = []
-    for i, (x, y) in enumerate(points):
-        nearest.append(min(math.hypot(x - u, y - v) for j, (u, v) in enumerate(points) if j != i))
-    size = LABEL_SHARE * median(nearest) * MM_TO_PT
+    distances, _ = cKDTree(points).query(points, k=2)
+    size = LABEL_SHARE * float(np.median(distances[:, 1])) * MM_TO_PT
     return min(LABEL_PT[1], max(LABEL_PT[0], size))
 
 
@@ -131,7 +136,7 @@ def build_plan(context: Mapping[str, Any]) -> PlanSheet:
     cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
 
     def sheet_xy(p: XY) -> XY:
-        return (PLAN_W_MM / 2 + (p[0] - cx) * k, PLAN_H_MM / 2 + (p[1] - cy) * k)
+        return ((PLAN_W_MM - LABEL_RESERVE_MM) / 2 + (p[0] - cx) * k, PLAN_H_MM / 2 + (p[1] - cy) * k)
 
     def sheet_line(line: list[XY]) -> Line:
         return tuple(sheet_xy(p) for p in line)
@@ -167,7 +172,7 @@ def build_plan(context: Mapping[str, Any]) -> PlanSheet:
         contour=sheet_line(contour) if len(contour) >= 3 else (),
         crest_top=tuple(sheet_line(line) for line in crest_top),
         crest_toe=tuple(sheet_line(line) for line in crest_toe),
-        toe_source=geometry.get("toe_source") if crest_toe else None,
+        toe_source=geometry.get("toe_source") if crest_toe and isinstance(geometry.get("toe_source"), str) else None,
         situation=tuple(situation),
         label_pt=_label_pt([(h.x, h.y) for h in holes]),
         bar_m=bar_m,

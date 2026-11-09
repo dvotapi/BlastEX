@@ -27,8 +27,8 @@ def test_scale_is_not_larger_than_200():
 
 
 def test_scale_by_width_when_block_is_wide():
-    # 300 м на 168 мм по ширине → 1:1786 → 1:1790.
-    assert plan_scale(300, 50, 180, 228) == 1790
+    # 300 м на 160 мм по ширине (за вычетом места под подписи) → 1:1875 → 1:1880.
+    assert plan_scale(300, 50, 180, 228) == 1880
 
 
 @pytest.fixture(scope="module")
@@ -200,3 +200,51 @@ def test_inclined_hole_gets_toe_line(sheet66):
 
 
 MM = 72 / 25.4
+
+
+def test_many_holes_are_fast():
+    import time
+
+    context = context66()
+    rows = []
+    for index in range(4000):
+        row = deepcopy(context["holes"][index % 196])
+        row["number"] = str(index + 1)
+        row["collar"]["x"] = 1000.0 + (index % 80) * 4.0
+        row["collar"]["y"] = 5000.0 + (index // 80) * 4.0
+        rows.append(row)
+    context["holes"] = rows
+    start = time.perf_counter()
+    sheet = build_plan(context)
+    assert time.perf_counter() - start < 1.0
+    assert len(sheet.holes) == 4000
+
+
+def test_labels_fit_right_edge(sheet66):
+    from design.reporting.drill.plan import LABEL_RESERVE_MM
+
+    wide = build_plan(_grid_context(300, 20))
+    for sheet in (sheet66, wide):
+        assert max(hole.x for hole in sheet.holes) <= PLAN_W_MM - PLAN_PAD_MM - LABEL_RESERVE_MM + 1e-6
+
+
+def test_north_arrow_is_in_legend_not_on_plan(sheet66):
+    from reportlab.graphics.shapes import String
+
+    from design.reporting.drill.plan_drawing import legend
+
+    _register_fonts()
+    assert "С" not in [s.text for s in _shapes(_draw(sheet66), String)]
+    assert "С" in [s.text for s in _shapes(legend(sheet66, 180 * MM, font=FONT, bold_font=FONT_BOLD), String)]
+
+
+def test_bad_points_in_snapshot_are_skipped():
+    context = context66()
+    context["plan"]["contour"].append(["x", "y"])
+    context["plan"]["toe_source"] = ["angle"]
+    sheet = build_plan(context)
+    assert len(sheet.contour) == 31
+    from design.reporting.drill.plan_drawing import legend
+
+    _register_fonts()
+    legend(sheet, 180 * MM, font=FONT, bold_font=FONT_BOLD)

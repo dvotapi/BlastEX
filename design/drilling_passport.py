@@ -639,17 +639,31 @@ def passport_context(
     }
 
 
-# Ситуация вокруг блока в снимке: габарит контура и устьев плюс запас. PDF
-# обрезает её по полю листа сам — снимок не зависит от вёрстки.
+# Ситуация вокруг блока в снимке: габарит контура и устьев плюс запас — не
+# меньше 60 м и не меньше 1,4 наибольшей стороны габарита. Поле листа (масштаб
+# по наибольшей стороне) выходит за габарит не дальше чем на 0,7 этой стороны,
+# поэтому ситуация не обрывается внутри поля; PDF обрезает её по полю сам.
 PLAN_SITUATION_MARGIN_M = 60.0
+PLAN_SITUATION_MARGIN_SHARE = 1.4
 
 
 def _xy(points: Iterable[Sequence[float]]) -> list[list[float]]:
     return [[round(float(p[0]), 3), round(float(p[1]), 3)] for p in points]
 
 
+def _finite_xy(point: Any) -> tuple[float, float] | None:
+    try:
+        x, y = float(point[0]), float(point[1])
+    except (TypeError, ValueError, IndexError):
+        return None
+    return (x, y) if math.isfinite(x) and math.isfinite(y) else None
+
+
 def _clipped_lines(points: Sequence[Sequence[float]], closed: bool, box: tuple[float, float, float, float]):
-    coords = [(float(p[0]), float(p[1])) for p in points]
+    # Точка без чисел или с NaN — линия ситуации не печатается (это фон плана).
+    coords = [_finite_xy(p) for p in points]
+    if any(p is None for p in coords):
+        return []
     if closed and len(coords) > 2 and coords[0] != coords[-1]:
         coords.append(coords[0])
     if len(coords) < 2:
@@ -678,7 +692,7 @@ def plan_geometry(design: BlastDesign, situation: Sequence[Mapping[str, Any]] | 
     ys = [p[1] for p in ring] + [h.collar.y for h in _passport_holes(design)]
     layers: list[dict[str, Any]] = []
     if xs and situation:
-        m = PLAN_SITUATION_MARGIN_M
+        m = max(PLAN_SITUATION_MARGIN_M, PLAN_SITUATION_MARGIN_SHARE * max(max(xs) - min(xs), max(ys) - min(ys)))
         box = (min(xs) - m, min(ys) - m, max(xs) + m, max(ys) + m)
         for layer in situation:
             lines = [

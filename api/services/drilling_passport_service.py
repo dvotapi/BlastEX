@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from datetime import date
@@ -38,6 +39,8 @@ from design.reporting.drill.pdf import render_passport_pdf
 from design.models import BlastDesign
 from design.spatial.cad.repository import CadSourceNotFound
 
+
+logger = logging.getLogger(__name__)
 
 # Длина колонки `drilling_passports.passport_no`.
 PASSPORT_NO_MAX_LENGTH = 120
@@ -207,35 +210,39 @@ def _plan_situation(organization_id: str, design: BlastDesign) -> tuple[list[dic
     уместившийся в предел вершин, — предупреждение: план без них.
     """
 
-    refs = [ref for ref in ((design.contour.cad or {}).get("situation") or ()) if ref.get("source_id")]
+    refs, seen = [], set()
+    for ref in (design.contour.cad or {}).get("situation") or ():
+        source_id = str(ref.get("source_id") or "")
+        if source_id and source_id not in seen:
+            seen.add(source_id)
+            refs.append(ref)
     if not refs:
         return [], []
     layers: list[dict[str, Any]] = []
     issues: list[dict[str, str]] = []
     try:
         repository = get_cad_repository()
-    except (RuntimeError, SQLAlchemyError):
+    except Exception:  # noqa: BLE001 — ситуация только фон плана: без неё паспорт выпускается
+        logger.exception("База чертежей недоступна для плана паспорта на бурение")
         repository = None
     for ref in refs:
         title = str(ref.get("title") or ref["source_id"])
+        unavailable = _warning(
+            "plan_situation_unavailable",
+            f"Ситуация «{title}» не прочитана (база чертежей недоступна или файл повреждён) — на плане её нет.",
+            "plan",
+        )
         if repository is None:
-            issues.append(_warning(
-                "plan_situation_unavailable",
-                f"Ситуация «{title}» не прочитана (база чертежей недоступна) — на плане её нет.",
-                "plan",
-            ))
+            issues.append(unavailable)
             continue
         try:
             geometry = source_situation(repository, organization_id, str(ref["source_id"]))
         except CadSourceNotFound:
             issues.append(_warning("plan_situation_missing", f"Версия ситуации «{title}» удалена — на плане её нет.", "plan"))
             continue
-        except SQLAlchemyError:
-            issues.append(_warning(
-                "plan_situation_unavailable",
-                f"Ситуация «{title}» не прочитана (база чертежей недоступна) — на плане её нет.",
-                "plan",
-            ))
+        except Exception:  # noqa: BLE001 — повреждённый чертёж не должен ронять проверку паспорта
+            logger.exception("Ситуация %s не прочитана для плана паспорта на бурение", ref["source_id"])
+            issues.append(unavailable)
             continue
         capped = [layer.name for layer in geometry.layers if layer.omitted]
         if capped:

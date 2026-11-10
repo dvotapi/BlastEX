@@ -27,8 +27,10 @@ from api.services.drilling_passport_service import (
     create_revision,
     get_drilling_passport_repository,
     holes_drawing,
+    list_passports,
     package_zip,
     passport_pdf,
+    preview_pdf,
     repository_error,
     stakeout_export,
     update_passport,
@@ -62,6 +64,22 @@ def post_passport(
     except Exception as exc:
         raise _fail(exc) from exc
     return DrillingPassportSchema.model_validate(created)
+
+
+@router.get("", response_model=list[DrillingPassportSchema])
+def get_passports(
+    design_id: str | None = Query(default=None, max_length=200, description="Проект блока; пусто — все паспорта"),
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresDrillingPassportRepository = Depends(get_drilling_passport_repository),
+) -> list[DrillingPassportSchema]:
+    """Паспорта организации (проекта блока), последний изменённый первым (PR 6)."""
+
+    organization_id, _ = _identity(session)
+    try:
+        items = list_passports(repository, organization_id, design_id)
+    except Exception as exc:
+        raise _fail(exc) from exc
+    return [DrillingPassportSchema.model_validate(item) for item in items]
 
 
 @router.get("/{passport_id}", response_model=DrillingPassportSchema)
@@ -105,6 +123,27 @@ def post_validate(
     except Exception as exc:
         raise _fail(exc) from exc
     return DrillingPassportValidationSchema.model_validate(result)
+
+
+@router.get("/{passport_id}/preview.pdf", response_class=Response)
+def get_preview_pdf(
+    passport_id: str,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresDrillingPassportRepository = Depends(get_drilling_passport_repository),
+    economics_repository: EconomicsRepository = Depends(get_economics_repository),
+) -> Response:
+    """PDF текущего черновика с пометкой «черновик» — предпросмотр без ревизии (PR 6)."""
+
+    organization_id, _ = _identity(session)
+    try:
+        pdf, filename = preview_pdf(repository, economics_repository, organization_id, passport_id)
+    except Exception as exc:
+        raise _fail(exc) from exc
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"inline; filename*=UTF-8''{quote(filename)}"},
+    )
 
 
 @router.post(

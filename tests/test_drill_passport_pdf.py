@@ -250,3 +250,28 @@ def test_revision_before_plan_renders(tmp_path):
     pdf = render_passport_pdf(context, revision_no=1)
     assert _pages(pdf) == 4
     assert "Контур и бровки не сохранены в ревизии" in _page_text(pdf, 4, tmp_path)
+
+
+# --- PDF черновика для предпросмотра (PR 6) --------------------------------
+
+def _raw_text(pdf: bytes, page: int, tmp_path) -> str:
+    # Повёрнутая пометка в обычном режиме pdftotext рвётся на буквы.
+    source = tmp_path / "raw.pdf"
+    source.write_bytes(pdf)
+    return subprocess.run(
+        ["pdftotext", "-raw", "-f", str(page), "-l", str(page), str(source), "-"], check=True, capture_output=True
+    ).stdout.decode()
+
+
+@pytest.mark.skipif(shutil.which("pdftotext") is None, reason="нет pdftotext (poppler)")
+def test_draft_pdf_is_marked_on_every_page(tmp_path):
+    pdf = render_passport_pdf(context66(), draft=True)
+    assert _pages(pdf) == 4
+    for page in range(1, 5):
+        assert "ЧЕРНОВИК" in _raw_text(pdf, page, tmp_path)
+
+
+@pytest.mark.skipif(shutil.which("pdftotext") is None, reason="нет pdftotext (poppler)")
+def test_revision_pdf_has_no_draft_mark(pdf66, tmp_path):
+    for page in range(1, 5):
+        assert "ЧЕРНОВИК" not in _raw_text(pdf66, page, tmp_path)

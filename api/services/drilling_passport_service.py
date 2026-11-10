@@ -352,6 +352,33 @@ def _context(
     return context
 
 
+def list_passports(
+    repository: PostgresDrillingPassportRepository, organization_id: str, design_id: str | None
+) -> list[dict[str, Any]]:
+    """Паспорта организации (проекта блока, если задан), последний изменённый первым."""
+
+    return list(repository.list_passports(organization_id, design_id))
+
+
+def preview_pdf(
+    repository: PostgresDrillingPassportRepository,
+    economics_repository: EconomicsRepository | None,
+    organization_id: str,
+    passport_id: str,
+) -> tuple[bytes, str]:
+    """PDF текущего черновика с пометкой «черновик» — только предпросмотр (PR 6).
+
+    Ревизия не выпускается; с ошибками проверки PDF не строится (422).
+    """
+
+    passport = repository.get_passport(organization_id, passport_id)
+    context = _context(passport, economics_repository, organization_id)
+    if has_errors(context["issues"]):
+        messages = "; ".join(issue["message"] for issue in context["issues"] if issue["level"] == "error")
+        raise ValueError(f"Предпросмотр недоступен: {messages}")
+    return render_passport_pdf(context, draft=True), f"Паспорт на бурение {_file_stem(context)} черновик.pdf"
+
+
 def validate_passport(
     repository: PostgresDrillingPassportRepository,
     economics_repository: EconomicsRepository | None,

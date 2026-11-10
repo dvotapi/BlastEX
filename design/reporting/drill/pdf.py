@@ -405,7 +405,21 @@ def draw_page_frame(
     canvas.restoreState()
 
 
-def _decorate(layout: PassportLayout, titles: list[str]):
+# Пометка PDF черновика (предпросмотр PR 6): на каждой странице по диагонали.
+DRAFT_MARK = "ЧЕРНОВИК — не для работы"
+
+
+def _draw_draft_mark(canvas) -> None:
+    canvas.saveState()
+    canvas.setFillColor(RED, alpha=0.18)
+    canvas.setFont(FONT_BOLD, 40)
+    canvas.translate(PAGE_W / 2, PAGE_H / 2)
+    canvas.rotate(35)
+    canvas.drawCentredString(0, 0, DRAFT_MARK)
+    canvas.restoreState()
+
+
+def _decorate(layout: PassportLayout, titles: list[str], *, draft: bool = False):
     def on_page(canvas, _doc) -> None:
         number = canvas.getPageNumber()
         # Шапка и название — со стр. 2: на титуле их нет.
@@ -415,6 +429,8 @@ def _decorate(layout: PassportLayout, titles: list[str]):
             header=layout.header if number > 1 else "", title=title,
             footer=FOOTER.format(page=number, total=layout.page_count),
         )
+        if draft:
+            _draw_draft_mark(canvas)
 
     return on_page
 
@@ -424,7 +440,9 @@ def _fit(story: list) -> KeepInFrame:
     return KeepInFrame(FRAME_W, FRAME_H, story, mode="shrink")
 
 
-def render_layout_pdf(layout: PassportLayout, *, title: str, rows_per_column: int = 50) -> bytes:
+def render_layout_pdf(
+    layout: PassportLayout, *, title: str, rows_per_column: int = 50, draft: bool = False
+) -> bytes:
     _register_fonts()
     output = BytesIO()
     doc = BaseDocTemplate(
@@ -434,7 +452,7 @@ def render_layout_pdf(layout: PassportLayout, *, title: str, rows_per_column: in
     )
     frame = Frame(MARGIN_X, BOTTOM, FRAME_W, FRAME_H, id="body", leftPadding=0, rightPadding=0,
                   topPadding=0, bottomPadding=0)
-    doc.addPageTemplates([PageTemplate(id="page", frames=[frame], onPage=_decorate(layout, _page_titles(layout)))])
+    doc.addPageTemplates([PageTemplate(id="page", frames=[frame], onPage=_decorate(layout, _page_titles(layout), draft=draft))])
     pages = [_title_page(layout), _safety_page(layout)]
     pages += [_depth_page(page, index == 0, rows_per_column) for index, page in enumerate(layout.depth_pages)]
     if layout.blank_before_plan:
@@ -449,12 +467,20 @@ def render_layout_pdf(layout: PassportLayout, *, title: str, rows_per_column: in
     return output.getvalue()
 
 
-def render_passport_pdf(context: Mapping[str, Any], *, revision_no: int | None = None) -> bytes:
-    """PDF паспорта на бурение из снимка ревизии (`drilling_passport_revisions.context`)."""
+def render_passport_pdf(
+    context: Mapping[str, Any], *, revision_no: int | None = None, draft: bool = False
+) -> bytes:
+    """PDF паспорта на бурение из снимка ревизии (`drilling_passport_revisions.context`).
+
+    `draft` — предпросмотр черновика (PR 6): на каждой странице пометка
+    `DRAFT_MARK`; PDF ревизии строится без неё, байты прежние.
+    """
 
     layout = build_layout(context)
     passport_no = str((context.get("passport") or {}).get("passport_no") or "")
     title = f"Паспорт на бурение № {passport_no}"
     if revision_no is not None:
         title += f", ревизия {revision_no}"
-    return render_layout_pdf(layout, title=title)
+    elif draft:
+        title += ", черновик"
+    return render_layout_pdf(layout, title=title, draft=draft)

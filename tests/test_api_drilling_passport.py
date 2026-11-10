@@ -50,6 +50,14 @@ class _Repository:
     def get_passport(self, organization_id, passport_id):
         return self._public(self._get(organization_id, passport_id))
 
+    def list_passports(self, organization_id, design_id=None):
+        # Как у PostgreSQL — последний изменённый первым (здесь — последний созданный).
+        items = [
+            item for item in self.passports.values()
+            if item["organization_id"] == organization_id and (not design_id or item["design_id"] == design_id)
+        ]
+        return tuple(self._public(item) for item in reversed(items))
+
     def create_passport(self, organization_id, actor, design_id, passport_no, passport_date, payload):
         passport_id = str(uuid4())
         self.passports[passport_id] = {
@@ -961,3 +969,58 @@ def test_package_without_stakeout_explains_why(client, repository):
         note = archive.read("Файл выноса не сформирован.txt").decode("utf-8")
     assert "Р1" in note
     assert len(names) == 5
+
+
+# --- список паспортов проекта и PDF черновика (PR 6) ----------------------
+
+def _pdf_text(pdf: bytes, tmp_path) -> str:
+    import subprocess
+
+    source = tmp_path / "preview.pdf"
+    source.write_bytes(pdf)
+    # -raw: повёрнутая пометка черновика в обычном режиме рвётся на буквы.
+    return subprocess.run(["pdftotext", "-raw", str(source), "-"], check=True, capture_output=True).stdout.decode()
+
+
+def test_list_passports_of_design(client):
+    first = _create(client)
+    second = _create(client)
+    items = client.get(BASE, params={"design_id": "block-66"}).json()
+    assert [item["id"] for item in items] == [second["id"], first["id"]]
+    assert items[0]["payload"]["site_code"] == "ZHK"
+    assert client.get(BASE, params={"design_id": "other"}).json() == []
+
+
+def test_list_passports_of_foreign_organization_is_empty(client, repository):
+    passport = _create(client)
+    repository.passports[passport["id"]]["organization_id"] = "org-b"
+    assert client.get(BASE, params={"design_id": "block-66"}).json() == []
+
+
+@pytest.mark.skipif(__import__("shutil").which("pdftotext") is None, reason="нет pdftotext (poppler)")
+def test_draft_preview_pdf_is_marked(client, tmp_path):
+    passport = _create(client)
+    response = client.get(f"{BASE}/{passport['id']}/preview.pdf")
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "application/pdf"
+    disposition = response.headers["content-disposition"]
+    assert disposition.startswith("inline;")
+    assert "%D1%87%D0%B5%D1%80%D0%BD%D0%BE%D0%B2%D0%B8%D0%BA.pdf" in disposition  # «черновик.pdf»
+    assert "ЧЕРНОВИК" in _pdf_text(response.content, tmp_path)
+    assert client.get(f"{BASE}/{passport['id']}").json()["current_revision_id"] is None
+
+
+def test_draft_preview_with_errors_is_422(client, references):
+    references["snapshot"] = _snapshot(site={})
+    passport = _create(client)
+    response = client.get(f"{BASE}/{passport['id']}/preview.pdf")
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail.startswith("Предпросмотр недоступен:")
+    assert "угол откоса" in detail
+
+
+def test_draft_preview_of_foreign_passport_is_404(client, repository):
+    passport = _create(client)
+    repository.passports[passport["id"]]["organization_id"] = "org-b"
+    assert client.get(f"{BASE}/{passport['id']}/preview.pdf").status_code == 404

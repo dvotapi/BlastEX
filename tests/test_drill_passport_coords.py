@@ -133,3 +133,94 @@ def test_coords_pages_are_not_shrunk(monkeypatch) -> None:
     monkeypatch.setattr(KeepInFrame, "wrap", wrap)
     render_coords_pdf(with_holes(context66(), 100), revision_no=1)
     assert scales and all(scale <= 1.0 for scale in scales)
+
+
+# --- XLSX в формате маркшейдера ---------------------------------------------
+
+import io
+import zipfile
+
+import openpyxl
+
+from design.reporting.drill.coords_xlsx import XLSX_HEADERS, render_coords_xlsx
+
+
+def _sheet(data: bytes):
+    workbook = openpyxl.load_workbook(io.BytesIO(data))
+    assert workbook.sheetnames == ["Координаты"]
+    return workbook, workbook["Координаты"]
+
+
+def _summary(sheet) -> dict[str, object]:
+    values = {}
+    for row in sheet.iter_rows(values_only=True):
+        if row[0] == "ID":
+            break
+        if row[0]:
+            values[row[0]] = row[4]
+    return values
+
+
+def _data_rows(sheet) -> list[tuple]:
+    rows = list(sheet.iter_rows(values_only=True))
+    start = next(index for index, row in enumerate(rows) if row[0] == "ID")
+    assert tuple(rows[start][: len(XLSX_HEADERS)]) == XLSX_HEADERS
+    return [row[: len(XLSX_HEADERS)] for row in rows[start + 1:] if row[0] is not None]
+
+
+def test_coords_xlsx_block66() -> None:
+    _, sheet = _sheet(render_coords_xlsx(context66(), revision_no=1))
+    assert XLSX_HEADERS == (
+        "ID", "X (восток)", "Y (север)", "Z", "Проектная глубина", "Перебур", "Высота уступа",
+        "Z забоя", "Угол β, °", "Азимут, °",
+    )
+    summary = _summary(sheet)
+    assert summary["Объём буровых работ, п. м"] == pytest.approx(2280.5)
+    assert summary["Количество скважин"] == 196
+    assert summary["Площадь блока, м²"] == pytest.approx(2790)
+    assert summary["Объём блока, м³"] == pytest.approx(29366, abs=1)
+    assert summary["Выход горной массы с 1 п. м, м³"] == pytest.approx(12.88, abs=0.01)
+    rows = _data_rows(sheet)
+    assert len(rows) == 196
+    first = rows[0]
+    assert first[0] == 1
+    assert first[1:8] == pytest.approx((1472880.04, 593722.99, 419.21, 10.7, 1.5, 9.2, 408.51), abs=0.001)
+    assert first[8:] == (None, None)
+    for row in sheet.iter_rows():
+        for cell in row:
+            assert not (isinstance(cell.value, str) and cell.value.startswith("=")), cell.coordinate
+
+
+def test_coords_xlsx_passport_numbers_stay_text() -> None:
+    context = context66()
+    context["holes"][0]["number"] = "1-01"
+    rows = _data_rows(_sheet(render_coords_xlsx(context, revision_no=1))[1])
+    assert rows[0][0] == "1-01"
+    assert rows[1][0] == 2
+
+
+def test_coords_xlsx_repeatable() -> None:
+    data = render_coords_xlsx(context66(), revision_no=1)
+    assert data == render_coords_xlsx(context66(), revision_no=1)
+    workbook, _ = _sheet(data)
+    assert workbook.properties.created.date().isoformat() == "2026-10-05"
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        assert {info.date_time for info in archive.infolist()} == {(1980, 1, 1, 0, 0, 0)}
+
+
+def test_coords_xlsx_opens_in_libreoffice(tmp_path) -> None:
+    import csv
+
+    from tests.libreoffice import convert
+
+    source = tmp_path / "coords.xlsx"
+    source.write_bytes(render_coords_xlsx(context66(), revision_no=1))
+    # Разделитель «,», UTF-8, значения ячеек, а не их вид; десятичный знак —
+    # по локали LibreOffice, поэтому числа сравниваются после замены «,».
+    target = "csv:Text - txt - csv (StarCalc):44,34,76,1,,1033,false,true,false"
+    with convert(source, target, tmp_path).open(encoding="utf-8", newline="") as stream:
+        rows = [row for row in csv.reader(stream) if row and row[0].isdigit()]
+    assert len(rows) == 196
+    values = [float(value.replace(",", ".")) for value in rows[0][1:8]]
+    assert rows[0][0] == "1"
+    assert values == pytest.approx([1472880.04, 593722.99, 419.21, 10.7, 1.5, 9.2, 408.51], abs=0.001)

@@ -419,7 +419,7 @@ def _draw_draft_mark(canvas) -> None:
     canvas.restoreState()
 
 
-def _decorate(layout: PassportLayout, titles: list[str], *, draft: bool = False):
+def _decorate(layout: PassportLayout, titles: list[str]):
     def on_page(canvas, _doc) -> None:
         number = canvas.getPageNumber()
         # Шапка и название — со стр. 2: на титуле их нет.
@@ -429,8 +429,6 @@ def _decorate(layout: PassportLayout, titles: list[str], *, draft: bool = False)
             header=layout.header if number > 1 else "", title=title,
             footer=FOOTER.format(page=number, total=layout.page_count),
         )
-        if draft:
-            _draw_draft_mark(canvas)
 
     return on_page
 
@@ -452,7 +450,12 @@ def render_layout_pdf(
     )
     frame = Frame(MARGIN_X, BOTTOM, FRAME_W, FRAME_H, id="body", leftPadding=0, rightPadding=0,
                   topPadding=0, bottomPadding=0)
-    doc.addPageTemplates([PageTemplate(id="page", frames=[frame], onPage=_decorate(layout, _page_titles(layout), draft=draft))])
+    # Пометка черновика — после содержимого страницы (`onPageEnd`), иначе её
+    # закрывают заливки таблиц и схема станка. У ревизии её нет — байты прежние.
+    template = PageTemplate(id="page", frames=[frame], onPage=_decorate(layout, _page_titles(layout)))
+    if draft:
+        template.onPageEnd = lambda canvas, _doc: _draw_draft_mark(canvas)
+    doc.addPageTemplates([template])
     pages = [_title_page(layout), _safety_page(layout)]
     pages += [_depth_page(page, index == 0, rows_per_column) for index, page in enumerate(layout.depth_pages)]
     if layout.blank_before_plan:

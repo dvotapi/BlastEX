@@ -275,3 +275,11 @@ def test_draft_pdf_is_marked_on_every_page(tmp_path):
 def test_revision_pdf_has_no_draft_mark(pdf66, tmp_path):
     for page in range(1, 5):
         assert "ЧЕРНОВИК" not in _raw_text(pdf66, page, tmp_path)
+
+
+@pytest.mark.skipif(shutil.which("pdftotext") is None, reason="нет pdftotext (poppler)")
+def test_draft_mark_is_drawn_over_page_content(tmp_path):
+    # -raw идёт в порядке рисования: пометка после таблицы глубин — поверх
+    # неё, а не под непрозрачными заливками ячеек.
+    text = _raw_text(render_passport_pdf(context66(), draft=True), 3, tmp_path)
+    assert text.index("ЧЕРНОВИК") > text.index("Всего:")

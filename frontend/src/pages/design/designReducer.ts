@@ -43,8 +43,12 @@ export type DesignAction =
    * пор открыт другой паспорт, ответ устарел и не применяется.
    */
   | { type: "LOAD"; design: BlastDesign; base?: BlastDesign }
-  /** Новые номера скважин по правилу эшелонов: id и все ссылки на них, один шаг отмены. */
-  | { type: "RENUMBER_HOLES"; mapping: Record<string, string> }
+  /**
+   * Новые номера скважин по правилу эшелонов: id и все ссылки на них, один шаг
+   * отмены. `holes` — скважины, по которым сервер считал соответствие: другие
+   * (открыли другой проект, правили скважины) — ответ устарел и не применяется.
+   */
+  | { type: "RENUMBER_HOLES"; mapping: Record<string, string>; holes: Hole[] }
   /** Ответ сервера на сохранение открытого паспорта: история правок остаётся. */
   | { type: "SAVED"; design: BlastDesign; base?: BlastDesign }
   | { type: "SET_NAME"; name: string }
@@ -358,7 +362,7 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
         blast_result: null,
       };
     case "RENUMBER_HOLES":
-      return renameHoleIds(document, action.mapping);
+      return action.holes === document.holes ? renameHoleIds(document, action.mapping) : document;
     case "APPLY_LAYOUT": {
       // Как новая сетка: заряды и исполнение прежней раскладки сбрасываются.
       const cleared = reduceDocument(document, { type: "SET_HOLES", holes: action.holes });

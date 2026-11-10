@@ -84,7 +84,7 @@ describe("renameHoleIds", () => {
 describe("RENUMBER_HOLES", () => {
   it("один шаг отмены возвращает прежние номера", () => {
     const state = initDesignState(design());
-    const renumbered = designReducer(state, { type: "RENUMBER_HOLES", mapping: SWAP });
+    const renumbered = designReducer(state, { type: "RENUMBER_HOLES", mapping: SWAP, holes: state.present.holes });
     expect(renumbered.present.holes[0].id).toBe("5-09");
     const undone = designReducer(renumbered, { type: "UNDO" });
     expect(undone.present.holes[0].id).toBe("5-08");
@@ -102,5 +102,15 @@ describe("состояние страницы после перенумерац�
   it("параметры для перенумерации — сохранённые с проектом, без подстановки из вкладки", () => {
     expect(renumberParams({ ...design(), pattern_params: {} })).toEqual({});
     expect(renumberParams({ ...design(), pattern_params: { row_azimuth_deg: 90 } })).toEqual({ row_azimuth_deg: 90 });
+  });
+});
+
+describe("RENUMBER_HOLES другого проекта", () => {
+  it("ответ, пришедший после открытия другого проекта, не применяется", () => {
+    const state = initDesignState(design());
+    const other = designReducer(state, { type: "LOAD", design: { ...design(), design_id: "b66" } });
+    const renumbered = designReducer(other, { type: "RENUMBER_HOLES", mapping: SWAP, holes: state.present.holes });
+    expect(renumbered.present.holes[0].id).toBe("5-08");
+    expect(renumbered.past).toEqual(other.past);
   });
 });

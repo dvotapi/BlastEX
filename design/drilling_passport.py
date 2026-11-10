@@ -569,6 +569,10 @@ def _first_row_measures(
         return None, {}
     first = {row.number for row in rows if row.first_row}
     holes = [hole for hole in _passport_holes(design) if hole.id in first]
+    if not holes:
+        # Первого ряда нет (скважины выключены) — об этом скажет проверка
+        # `first_row_empty`/`no_holes`; меры считать не по чему.
+        return {}, {}
     distances = shapely.distance(shapely.points([(hole.collar.x, hole.collar.y) for hole in holes]), crest)
     crest_m = {hole.id: float(distance) for hole, distance in zip(holes, distances)}
     burdens: dict[str, tuple[float, float | None, bool]] = {}

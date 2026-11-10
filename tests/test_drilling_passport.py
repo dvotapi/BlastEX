@@ -672,3 +672,13 @@ def test_crest_without_floor_burden_is_named(rows66):
     assert check.c_m == 2.0 and check.w_m is None
     missing = next(issue for issue in check.issues if issue.code == "first_row_burden_not_measured")
     assert "подошв" in missing.message
+
+
+def test_free_face_without_enabled_holes_is_validation_error_not_crash(block66):
+    """Бровка есть, включённых скважин нет — ошибки проверки, а не падение (ревью Codex PR #172)."""
+    design = BlastDesign.from_dict(block66.to_dict())
+    for hole in design.holes:
+        hole.enabled = False
+    context = passport_context(design, {}, {"bench_face_angle_deg": 75, "stable_slope_angle_deg": 65}, None)
+    errors = {issue["code"] for issue in context["issues"] if issue["level"] == "error"}
+    assert "no_holes" in errors

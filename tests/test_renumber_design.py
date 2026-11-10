@@ -145,3 +145,16 @@ def test_generator_and_renumber_share_face_row_rule():
     from design import pattern
 
     assert pattern.face_row_numbering_xy is not None
+
+
+# --- правки по ревью Codex PR #172 -----------------------------------------
+
+def test_staggered_grid_without_face_row_keeps_generator_numbers():
+    """Привязка ряда у бровки к столбцам — только при «ряде вдоль бровки», как у генератора."""
+    contour = _rect([[0, 1]], height=7.0)
+    params = {**BASE, "pattern": "staggered"}
+    generated = generate_pattern(contour, params)
+    assert renumber_map(generated, contour, params) == {}
+    scrambled = _scrambled(generated)
+    mapping = renumber_map(scrambled, contour, params)
+    assert [mapping.get(h.id, h.id) for h in scrambled] == [h.id for h in generated]

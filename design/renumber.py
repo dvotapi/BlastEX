@@ -77,8 +77,14 @@ def renumber_map(holes: list[Hole], contour: BlockContour, pattern_params: Mappi
         row_azimuth = _lattice_azimuth(holes, contour)
     row_dir, advance_dir = local_basis(row_azimuth)
     _origin, deep_dir = pattern_origin(contour, row_dir, advance_dir)
-    # Как у генератора: столбцы — по построенным скважинам, без ручных.
-    face_row = face_row_numbering_xy([h for h in holes if h.source != "manual"], row_dir, {})
+    # Как у генератора: ряд вдоль бровки привязывается к столбцам, только когда
+    # он построен («Первый ряд вдоль бровки» и свободная поверхность есть);
+    # столбцы — по построенным скважинам, без ручных.
+    face_row = (
+        face_row_numbering_xy([h for h in holes if h.source != "manual"], row_dir, {})
+        if params.get("first_row_follow_face") and contour.free_faces
+        else {}
+    )
     positions = [face_row.get(id(hole)) for hole in holes] if face_row else None
     numbered = number_by_position(holes, row_azimuth_deg=row_azimuth, positions=positions, deep_dir=deep_dir)
     return {old.id: new.id for old, new in zip(holes, numbered) if old.id != new.id}

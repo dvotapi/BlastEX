@@ -705,17 +705,24 @@ export function DesignPage({
     setPatternBusy(true);
     setError("");
     try {
+      const holes = document.holes;
       const { mapping } = await api.design.renumberHoles({
-        holes: document.holes,
+        holes,
         contour: document.contour,
         params: renumberParams(document),
       });
+      if (holesRef.current !== holes) {
+        // Пока шёл запрос, открыли другой проект или правили скважины:
+        // соответствие посчитано не для них.
+        setNotice("Скважины изменились во время перенумерации — нажмите ещё раз.");
+        return;
+      }
       const count = Object.keys(mapping).length;
       if (!count) {
         setNotice("Номера скважин уже по правилу.");
         return;
       }
-      dispatch({ type: "RENUMBER_HOLES", mapping });
+      dispatch({ type: "RENUMBER_HOLES", mapping, holes });
       // Состояние страницы с номерами скважин — на новые номера (старый номер
       // теперь у другой скважины); анализ сбросит useStaleAnalysisReset,
       // сравнения с фактом — как при перестроении сетки.

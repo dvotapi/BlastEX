@@ -373,6 +373,39 @@ def _same_drawing(expected: bytes, actual: bytes) -> bool:
     )
 
 
+# --- файл выноса для GNSS-приёмника (PR 5, спека §5) -----------------------
+
+STAKEOUT_FORMATS = ("PNEZD_CSV", "PENZD_CSV", "PNEZ_TXT", "DXF_POINTS")
+DEFAULT_STAKEOUT_PROFILE = "PNEZD_CSV"
+_PROFILE_DEFAULTS = {"header": False, "elevation": True, "include_toe": False}
+# Встроенные профили: есть всегда, запись справочника с тем же кодом их меняет.
+BUILTIN_PROFILES: dict[str, dict[str, Any]] = {
+    code: {"name": code, "format": code, **_PROFILE_DEFAULTS} for code in STAKEOUT_FORMATS
+}
+
+
+def _profile_options(record: Mapping[str, Any], code: str) -> dict[str, Any]:
+    return {
+        "name": str(record.get("name") or code),
+        "format": str(record.get("format") or DEFAULT_STAKEOUT_PROFILE),
+        **{key: bool(record.get(key, default)) for key, default in _PROFILE_DEFAULTS.items()},
+    }
+
+
+def stakeout_snapshot(records: Mapping[str, Mapping[str, Any]], default_code: str | None) -> dict[str, Any]:
+    """Профили выноса для снимка ревизии: встроенные и записи справочника.
+
+    `records` — код → payload записи с её `name`. Профиль объекта, которого
+    нет среди профилей, — `PNEZD_CSV` (предупреждение даёт сервис).
+    """
+
+    profiles = {code: dict(options) for code, options in BUILTIN_PROFILES.items()}
+    for code, record in records.items():
+        profiles[code] = _profile_options(record, code)
+    default = default_code if default_code in profiles else DEFAULT_STAKEOUT_PROFILE
+    return {"default": default, "profiles": profiles}
+
+
 def holes_dwg(dxf: bytes) -> DwgExport:
     """DWG R2000 из DXF `holes_dxf` со сверкой обратным чтением; отказ — DXF."""
 

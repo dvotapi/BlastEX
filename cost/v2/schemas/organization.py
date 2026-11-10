@@ -202,6 +202,12 @@ class SitePayload(ReferencePayload):
         ge=3,
         le=30,
     )
+    stakeout_profile_code: str | None = RefField(
+        "stakeout_profiles",
+        title="Профиль файла выноса GNSS",
+        description="Формат файла для приёмника маркшейдера; пусто — CSV: точка, север, восток, отметка, описание",
+        default=None,
+    )
     geology: list[GeologyShare] = Field(
         default_factory=list,
         title="Плановая геология",

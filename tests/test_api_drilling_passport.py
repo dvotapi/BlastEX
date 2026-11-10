@@ -102,14 +102,20 @@ PROFILE = {
 }
 
 
-def _snapshot(site=SITE, rig=RIG):
+def _snapshot(site=SITE, rig=RIG, stakeout_profiles=None):
     items = {("sites", "ZHK"): site, ("equipment_types", "JK830"): rig, ("drill_passport_profiles", "KGOK"): PROFILE}
+    for code, (name, payload) in (stakeout_profiles or {}).items():
+        items[("stakeout_profiles", code)] = payload
+    names = {code: name for code, (name, _) in (stakeout_profiles or {}).items()}
 
     def item(section, code):
         payload = items.get((section, code))
-        return SimpleNamespace(payload=payload) if payload is not None else None
+        return SimpleNamespace(code=code, name=names.get(code, code), payload=payload) if payload is not None else None
 
-    return SimpleNamespace(revision_id="ref-1", item=item)
+    def active_items(section):
+        return tuple(item(sec, code) for sec, code in items if sec == section)
+
+    return SimpleNamespace(revision_id="ref-1", item=item, active_items=active_items)
 
 
 @pytest.fixture(scope="module")
@@ -797,3 +803,32 @@ def test_holes_dwg_fallback_is_not_cached(client, monkeypatch):
     client.get(url)
     client.get(url)
     assert len(calls) == 2
+
+
+# --- файл выноса и ведомость (PR 5) ----------------------------------------
+
+def test_revision_snapshot_carries_builtin_stakeout_profiles(client):
+    revision = _revision(client)
+    stakeout = revision["context"]["stakeout"]
+    assert stakeout["default"] == "PNEZD_CSV"
+    assert list(stakeout["profiles"]) == ["PNEZD_CSV", "PENZD_CSV", "PNEZ_TXT", "DXF_POINTS"]
+
+
+def test_site_stakeout_profile_goes_to_snapshot(client, references):
+    references["snapshot"] = _snapshot(
+        site={**SITE, "stakeout_profile_code": "TRIMBLE"},
+        stakeout_profiles={"TRIMBLE": ("Trimble Access", {"format": "PENZD_CSV", "header": True})},
+    )
+    revision = _revision(client)
+    stakeout = revision["context"]["stakeout"]
+    assert stakeout["default"] == "TRIMBLE"
+    assert stakeout["profiles"]["TRIMBLE"] == {
+        "name": "Trimble Access", "format": "PENZD_CSV", "header": True, "elevation": True, "include_toe": False,
+    }
+
+
+def test_unknown_site_stakeout_profile_is_warned(client, references):
+    references["snapshot"] = _snapshot(site={**SITE, "stakeout_profile_code": "NOPE"})
+    passport = _create(client)
+    body = client.post(f"{BASE}/{passport['id']}/validate").json()
+    assert [issue["code"] for issue in body["issues"]] == ["stakeout_profile_not_found"]

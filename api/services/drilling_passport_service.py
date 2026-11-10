@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import re
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from functools import lru_cache
 from threading import Lock
@@ -37,7 +37,7 @@ from design.drilling_passport_repository import (
     PostgresDrillingPassportRepository,
 )
 from design.mass_blast import content_sha256
-from design.export_survey import DWG_DISABLED_WARNING, DwgExport, holes_dwg, holes_dxf
+from design.export_survey import DWG_DISABLED_WARNING, DwgExport, holes_dwg, holes_dxf, stakeout_snapshot
 from design.reporting.drill.pdf import render_passport_pdf
 from design.models import BlastDesign
 from design.spatial.cad.repository import CadSourceNotFound
@@ -94,6 +94,8 @@ class _References:
     rig: dict[str, Any] | None = None
     profile: dict[str, Any] | None = None
     profile_code: str = ""
+    # Профили файла выноса GNSS (PR 5): встроенные, справочника и профиль объекта.
+    stakeout: dict[str, Any] = field(default_factory=lambda: stakeout_snapshot({}, None))
     revision_id: str | None = None
     issues: tuple[dict[str, str], ...] = ()
 
@@ -146,11 +148,27 @@ def _reference_inputs(
                 "profile_code",
             )
         )
+    site_stakeout = str((site.payload or {}).get("stakeout_profile_code") or "") if site else ""
+    stakeout_records = {
+        item.code: {"name": item.name, **dict(item.payload or {})}
+        for item in snapshot.active_items("stakeout_profiles")
+    }
+    stakeout = stakeout_snapshot(stakeout_records, site_stakeout or None)
+    if site_stakeout and stakeout["default"] != site_stakeout:
+        issues.append(
+            _warning(
+                "stakeout_profile_not_found",
+                f"Профиль файла выноса «{site_stakeout}» объекта не найден в справочнике: "
+                "файл для приёмника — CSV «точка, север, восток, отметка, описание».",
+                "site_code",
+            )
+        )
     return _References(
         site=dict(site.payload) if site else None,
         rig=dict(rig.payload) if rig else None,
         profile=dict(profile.payload) if profile else None,
         profile_code=profile_code if profile else "",
+        stakeout=stakeout,
         revision_id=snapshot.revision_id,
         issues=tuple(issues),
     )
@@ -309,6 +327,7 @@ def _context(
         "passport_date": passport["passport_date"],
         "payload": payload,
     }
+    context["stakeout"] = refs.stakeout
     context["reference_revision_id"] = refs.revision_id
     return context
 

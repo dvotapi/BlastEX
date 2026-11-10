@@ -105,11 +105,19 @@ def _number(value: Any) -> float | None:
         return None
 
 
-def _title(passport: Mapping[str, Any], payload: Mapping[str, Any], summary: Mapping[str, Any]) -> TitlePage:
+def block_and_horizon(payload: Mapping[str, Any]) -> tuple[str, str]:
+    """Блок и горизонт для печати (PDF и `BLX_INFO` чертежа): без пробелов по
+    краям, горизонт — с «м»; вводят его и с единицей («+410,0 м») — вторую
+    «м» не добавлять."""
+
     block, horizon = _text(payload.get("block")), _text(payload.get("horizon"))
-    # Горизонт вводят и с единицей («+410,0 м») — вторую «м» не добавлять.
     if horizon and not horizon.rstrip(" .").endswith("м"):
         horizon = f"{horizon} м"
+    return block, horizon
+
+
+def _title(passport: Mapping[str, Any], payload: Mapping[str, Any], summary: Mapping[str, Any]) -> TitlePage:
+    block, horizon = block_and_horizon(payload)
     block_line = " / ".join(part for part in (block, horizon) if part) or fmt.DASH
     rig_number = _text(payload.get("rig_number"))
     rig = _joined(_text(payload.get("rig_name")), f"№ {rig_number}" if rig_number else "") or fmt.DASH

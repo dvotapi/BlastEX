@@ -16,7 +16,8 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 
-# Чтение DWG: GNU LibreDWG даёт утилиту dwg2dxf. В репозиториях Debian её нет,
+# Чтение DWG: GNU LibreDWG даёт утилиту dwg2dxf, запись чертежа скважин паспорта
+# на бурение в DWG R2000 — dxf2dwg (TASK-015, PR 4). В репозиториях Debian их нет,
 # поэтому собираем из релизного архива. Лицензия GPL-3: утилита вызывается
 # отдельным процессом, на код BlastEX лицензия не распространяется.
 FROM python:3.11-slim AS dwg-builder
@@ -51,6 +52,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && adduser --disabled-password --gecos "" appuser
 
 COPY --from=dwg-builder /opt/libredwg/bin/dwg2dxf /usr/local/bin/dwg2dxf
+COPY --from=dwg-builder /opt/libredwg/bin/dxf2dwg /usr/local/bin/dxf2dwg
 
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin

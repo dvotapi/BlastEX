@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import date
 from functools import lru_cache
 from threading import Lock
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping
 
 from fastapi import HTTPException, status
 from sqlalchemy.exc import SQLAlchemyError
@@ -37,6 +37,7 @@ from design.drilling_passport_repository import (
     PostgresDrillingPassportRepository,
 )
 from design.mass_blast import content_sha256
+from design.export_survey import DWG_DISABLED_WARNING, DwgExport, holes_dwg, holes_dxf
 from design.reporting.drill.pdf import render_passport_pdf
 from design.models import BlastDesign
 from design.spatial.cad.repository import CadSourceNotFound
@@ -370,10 +371,66 @@ def passport_pdf(
 
     revision = repository.get_revision(organization_id, revision_id)
     context = revision["context"]
-    number = str((context.get("passport") or {}).get("passport_no") or "")
-    safe = re.sub(r'[\\/:*?"<>|]+', "-", number).strip(" .-") or "б-н"
     pdf = render_passport_pdf(context, revision_no=int(revision["revision_no"]))
-    return pdf, f"Паспорт на бурение {safe} rev{revision['revision_no']}.pdf"
+    return pdf, f"Паспорт на бурение {_file_stem(context)} rev{revision['revision_no']}.pdf"
+
+
+def _file_stem(context: Mapping[str, Any]) -> str:
+    """Номер паспорта для имени файла: без «/» и других запрещённых знаков."""
+
+    number = str((context.get("passport") or {}).get("passport_no") or "")
+    return re.sub(r'[\\/:*?"<>|]+', "-", number).strip(" .-") or "б-н"
+
+
+# Готовые DWG ревизий: ревизия неизменяема, а dxf2dwg и обратная сверка —
+# секунды. Ключ — организация, ревизия и хэш её снимка; откат на DXF не
+# кэшируется (утилиту могут починить).
+_DWG_CACHE: OrderedDict[tuple[str, str, str], DwgExport] = OrderedDict()
+_DWG_CACHE_SIZE = 8
+_DWG_CACHE_LOCK = Lock()
+
+
+def _cached_dwg(key: tuple[str, str, str], dxf: bytes) -> DwgExport:
+    with _DWG_CACHE_LOCK:
+        if key in _DWG_CACHE:
+            _DWG_CACHE.move_to_end(key)
+            return _DWG_CACHE[key]
+    exported = holes_dwg(dxf)
+    if exported.format == "dwg":
+        with _DWG_CACHE_LOCK:
+            _DWG_CACHE[key] = exported
+            while len(_DWG_CACHE) > _DWG_CACHE_SIZE:
+                _DWG_CACHE.popitem(last=False)
+    return exported
+
+
+def holes_drawing(
+    repository: PostgresDrillingPassportRepository,
+    organization_id: str,
+    revision_id: str,
+    fmt: Literal["dxf", "dwg"],
+) -> tuple[DwgExport, str]:
+    """Чертёж скважин ревизии (TASK-015, PR 4) и имя файла — только из снимка.
+
+    DWG строится только при `BLASTEX_DWG_EXPORT_ENABLED`; без флага, а также
+    когда его не удалось записать или сверить, отдаётся DXF с предупреждением
+    (`DwgExport.warning`), имя — с расширением `.dxf`.
+    """
+
+    revision = repository.get_revision(organization_id, revision_id)
+    context = revision["context"]
+    number = int(revision["revision_no"])
+    dxf = holes_dxf(context, revision_no=number)
+    if fmt == "dwg" and config.dwg_export_enabled():
+        key = (organization_id, revision_id, str(revision.get("content_sha256") or ""))
+        exported = _cached_dwg(key, dxf)
+    elif fmt == "dwg":
+        # DWG выключен (LibreDWG 0.14 пишет R2000, который AutoCAD не открывает):
+        # отдаём DXF с подсказкой.
+        exported = DwgExport(dxf, "dxf", DWG_DISABLED_WARNING)
+    else:
+        exported = DwgExport(dxf, "dxf")
+    return exported, f"Скважины {_file_stem(context)} rev{number}.{exported.format}"
 
 
 def repository_error(exc: Exception) -> HTTPException:

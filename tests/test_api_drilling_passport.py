@@ -658,3 +658,142 @@ def test_deleted_situation_source_is_not_read(client, situation_refs, cad_reposi
     passport = _create(client)
     codes = [item["code"] for item in client.post(f"{BASE}/{passport['id']}/validate").json()["issues"]]
     assert "plan_situation_missing" in codes
+
+
+# --- чертёж скважин DXF / DWG (PR 4) -----------------------------------------
+
+def _disposition_name(response) -> str:
+    from urllib.parse import unquote
+
+    disposition = response.headers["content-disposition"]
+    assert disposition.startswith("attachment; filename*=UTF-8''")
+    return unquote(disposition.split("''", 1)[1])
+
+
+def test_holes_dxf_from_revision(client):
+    revision = _revision(client)
+    response = client.get(f"{BASE}/revisions/{revision['id']}/holes.dxf")
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "image/vnd.dxf"
+    assert _disposition_name(response) == f"Скважины {revision['context']['passport']['passport_no'].replace('/', '-')} rev1.dxf"
+    assert b"AC1024" in response.content[:2000]
+    assert b"BLX_HOLE" in response.content
+    assert "x-blastex-warning" not in response.headers
+    assert client.get(f"{BASE}/revisions/{revision['id']}/holes.dxf").content == response.content
+
+
+def test_holes_dxf_info_carries_passport_date(client):
+    revision = _revision(client)
+    content = client.get(f"{BASE}/revisions/{revision['id']}/holes.dxf").content.decode("utf-8")
+    assert "от 09.11.2026, ревизия 1" in content
+
+
+def test_holes_dxf_uses_revision_snapshot_only(client, repository):
+    revision = _revision(client)
+    url = f"{BASE}/revisions/{revision['id']}/holes.dxf"
+    before = client.get(url).content
+    passport_id = revision["passport_id"]
+    draft = client.get(f"{BASE}/{passport_id}").json()
+    client.put(
+        f"{BASE}/{passport_id}",
+        json={"passport_no": "ДРУГОЙ", "passport_date": "2026-11-10",
+              "payload": {**draft["payload"], "block": "99"}, "expected_version": draft["version"]},
+    )
+    assert client.get(url).content == before
+    repository.revisions[revision["id"]]["context"]["holes"][0]["collar"]["x"] += 1.0
+    assert client.get(url).content != before
+
+
+def test_holes_dwg_is_disabled_by_default(client, monkeypatch):
+    # LibreDWG 0.14 пишет R2000, который AutoCAD 2022 не открывает (решение
+    # владельца 10.11.2026): без флага DWG не строится, отдаётся DXF.
+    from urllib.parse import unquote
+
+    from api.services import drilling_passport_service
+
+    def forbidden(dxf):
+        raise AssertionError("DWG не должен строиться без флага")
+
+    monkeypatch.delenv("BLASTEX_DWG_EXPORT_ENABLED", raising=False)
+    monkeypatch.setattr(drilling_passport_service, "holes_dwg", forbidden)
+    revision = _revision(client)
+    response = client.get(f"{BASE}/revisions/{revision['id']}/holes.dwg")
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "image/vnd.dxf"
+    assert _disposition_name(response).endswith("rev1.dxf")
+    assert unquote(response.headers["x-blastex-warning"]).startswith("DWG пока не формируется")
+    assert response.content == client.get(f"{BASE}/revisions/{revision['id']}/holes.dxf").content
+
+
+def test_holes_dwg_without_writer_returns_dxf_with_warning(client, monkeypatch):
+    monkeypatch.setenv("BLASTEX_DWG_EXPORT_ENABLED", "1")
+    from urllib.parse import unquote
+
+    monkeypatch.setenv("BLASTEX_DXF2DWG", "/nowhere/dxf2dwg")
+    revision = _revision(client)
+    response = client.get(f"{BASE}/revisions/{revision['id']}/holes.dwg")
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "image/vnd.dxf"
+    assert _disposition_name(response).endswith("rev1.dxf")
+    assert unquote(response.headers["x-blastex-warning"]).startswith("DWG не сформирован")
+    assert response.content == client.get(f"{BASE}/revisions/{revision['id']}/holes.dxf").content
+
+
+def test_holes_dwg_returns_dwg(client, monkeypatch):
+    monkeypatch.setenv("BLASTEX_DWG_EXPORT_ENABLED", "1")
+    from api.services import drilling_passport_service
+    from design.export_survey import DwgExport
+
+    monkeypatch.setattr(drilling_passport_service, "holes_dwg", lambda dxf: DwgExport(b"AC1015 dwg", "dwg"))
+    revision = _revision(client)
+    response = client.get(f"{BASE}/revisions/{revision['id']}/holes.dwg")
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "image/vnd.dwg"
+    assert _disposition_name(response).endswith("rev1.dwg")
+    assert response.content == b"AC1015 dwg"
+    assert "x-blastex-warning" not in response.headers
+
+
+@pytest.mark.parametrize("name", ["holes.dxf", "holes.dwg"])
+def test_holes_of_foreign_or_unknown_revision_is_404(client, repository, name):
+    revision = _revision(client)
+    repository.passports[revision["passport_id"]]["organization_id"] = "org-b"
+    assert client.get(f"{BASE}/revisions/{revision['id']}/{name}").status_code == 404
+    assert client.get(f"{BASE}/revisions/nope/{name}").status_code == 404
+
+
+def test_holes_dwg_is_built_once_per_revision(client, monkeypatch):
+    monkeypatch.setenv("BLASTEX_DWG_EXPORT_ENABLED", "1")
+    from api.services import drilling_passport_service
+    from design.export_survey import DwgExport
+
+    calls = []
+
+    def fake(dxf):
+        calls.append(dxf)
+        return DwgExport(b"AC1015 dwg", "dwg")
+
+    monkeypatch.setattr(drilling_passport_service, "holes_dwg", fake)
+    revision = _revision(client)
+    url = f"{BASE}/revisions/{revision['id']}/holes.dwg"
+    assert client.get(url).content == client.get(url).content == b"AC1015 dwg"
+    assert len(calls) == 1
+
+
+def test_holes_dwg_fallback_is_not_cached(client, monkeypatch):
+    monkeypatch.setenv("BLASTEX_DWG_EXPORT_ENABLED", "1")
+    from api.services import drilling_passport_service
+    from design.export_survey import DWG_FALLBACK_WARNING, DwgExport
+
+    calls = []
+
+    def fake(dxf):
+        calls.append(dxf)
+        return DwgExport(dxf, "dxf", DWG_FALLBACK_WARNING)
+
+    monkeypatch.setattr(drilling_passport_service, "holes_dwg", fake)
+    revision = _revision(client)
+    url = f"{BASE}/revisions/{revision['id']}/holes.dwg"
+    client.get(url)
+    client.get(url)
+    assert len(calls) == 2

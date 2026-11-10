@@ -1,10 +1,11 @@
-"""REST API паспорта на бурение (TASK-015, PR 1): черновик, проверка, ревизия.
+"""REST API паспорта на бурение (TASK-015): черновик, проверка, ревизия, PDF, DXF / DWG.
 
 Подключается только при включённом флаге `drill_passport`
 (`BLASTEX_DRILL_PASSPORT_ENABLED`); без него маршрутов нет — 404.
 """
 from __future__ import annotations
 
+from typing import Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -22,6 +23,7 @@ from api.services.drilling_passport_service import (
     create_passport,
     create_revision,
     get_drilling_passport_repository,
+    holes_drawing,
     passport_pdf,
     repository_error,
     update_passport,
@@ -155,3 +157,46 @@ def get_passport_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
     )
+
+
+DRAWING_MEDIA_TYPES = {"dxf": "image/vnd.dxf", "dwg": "image/vnd.dwg"}
+
+
+def _holes_response(
+    repository: PostgresDrillingPassportRepository,
+    session: dict[str, object],
+    revision_id: str,
+    fmt: Literal["dxf", "dwg"],
+) -> Response:
+    organization_id, _ = _identity(session)
+    try:
+        exported, filename = holes_drawing(repository, organization_id, revision_id, fmt)
+    except Exception as exc:
+        raise _fail(exc) from exc
+    headers = {"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"}
+    if exported.warning:
+        # Заголовок HTTP — только ASCII: текст предупреждения в percent-encoding.
+        headers["X-BlastEX-Warning"] = quote(exported.warning)
+    return Response(content=exported.data, media_type=DRAWING_MEDIA_TYPES[exported.format], headers=headers)
+
+
+@router.get("/revisions/{revision_id}/holes.dxf", response_class=Response)
+def get_holes_dxf(
+    revision_id: str,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresDrillingPassportRepository = Depends(get_drilling_passport_repository),
+) -> Response:
+    """DXF R2010 скважин ревизии в СК объекта (TASK-015, PR 4)."""
+
+    return _holes_response(repository, session, revision_id, "dxf")
+
+
+@router.get("/revisions/{revision_id}/holes.dwg", response_class=Response)
+def get_holes_dwg(
+    revision_id: str,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresDrillingPassportRepository = Depends(get_drilling_passport_repository),
+) -> Response:
+    """DWG R2000 скважин ревизии; не вышло — DXF и заголовок `X-BlastEX-Warning`."""
+
+    return _holes_response(repository, session, revision_id, "dwg")

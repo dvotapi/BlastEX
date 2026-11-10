@@ -107,3 +107,57 @@ def test_minimal_dxf_is_requested_on_demand(tmp_path, monkeypatch):
 
     args = _recorded_args(tmp_path, monkeypatch, minimal=True)
     assert args[:3] == ["-y", "-m", "-o"]
+
+
+# --- запись DWG: dxf2dwg (TASK-015, PR 4) ----------------------------------
+
+
+def _fake_writer(tmp_path: Path, body: str) -> str:
+    """Исполняемый скрипт, изображающий dxf2dwg; аргументы пишет в args.txt."""
+
+    script = tmp_path / "fake-dxf2dwg"
+    script.write_text('#!/bin/sh\necho "$@" > "$(dirname "$0")/args.txt"\n' + _ARGS_PRELUDE + body)
+    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    return str(script)
+
+
+def test_writer_is_taken_from_the_environment(tmp_path, monkeypatch):
+    path = _fake_writer(tmp_path, "exit 0\n")
+    monkeypatch.setenv("BLASTEX_DXF2DWG", path)
+    assert dwg.find_writer() == path
+
+
+def test_writer_converts_to_r2000(tmp_path, monkeypatch):
+    path = _fake_writer(tmp_path, 'printf "AC1015 DWG" > "$OUT"\nexit 0\n')
+    monkeypatch.setenv("BLASTEX_DXF2DWG", path)
+    assert dwg.dxf_to_dwg(b"0\nSECTION\n") == b"AC1015 DWG"
+    args = (tmp_path / "args.txt").read_text().split()
+    assert args[:3] == ["-y", "--as", "r2000"]
+    assert args[-1].endswith(".dxf") and args[args.index("-o") + 1].endswith(".dwg")
+
+
+def test_writer_passes_the_source_bytes(tmp_path, monkeypatch):
+    path = _fake_writer(tmp_path, 'cat "$IN" > "$OUT"\nexit 0\n')
+    monkeypatch.setenv("BLASTEX_DXF2DWG", path)
+    assert dwg.dxf_to_dwg(b"dxf bytes") == b"dxf bytes"
+
+
+def test_missing_writer_is_an_error(monkeypatch):
+    monkeypatch.setenv("BLASTEX_DXF2DWG", "/nowhere/dxf2dwg")
+    with pytest.raises(dwg.DwgConversionError):
+        dwg.dxf_to_dwg(b"dxf")
+
+
+def test_writer_without_output_is_an_error(tmp_path, monkeypatch):
+    path = _fake_writer(tmp_path, 'echo "bad entity" >&2\nexit 0\n')
+    monkeypatch.setenv("BLASTEX_DXF2DWG", path)
+    with pytest.raises(dwg.DwgConversionError) as exc:
+        dwg.dxf_to_dwg(b"dxf")
+    assert "bad entity" in str(exc.value)
+
+
+def test_writer_with_empty_output_is_an_error(tmp_path, monkeypatch):
+    path = _fake_writer(tmp_path, ': > "$OUT"\nexit 0\n')
+    monkeypatch.setenv("BLASTEX_DXF2DWG", path)
+    with pytest.raises(dwg.DwgConversionError):
+        dwg.dxf_to_dwg(b"dxf")

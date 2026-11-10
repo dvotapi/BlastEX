@@ -110,6 +110,14 @@ def _label_pt(points: list[XY]) -> float:
     return min(LABEL_PT[1], max(LABEL_PT[0], size))
 
 
+def hole_circle_mm(summary: Mapping[str, Any], row: Mapping[str, Any]) -> float | None:
+    """Ø кружка скважины (план PR 3, чертёж PR 4): диаметр инструмента из
+    паспорта; нет — диаметр скважины (с разбуриванием); нет и его — None."""
+
+    value = summary.get("bit_diameter_mm") or row.get("diameter_mm")
+    return float(value) if value else None
+
+
 def build_plan(context: Mapping[str, Any]) -> PlanSheet:
     """План из снимка ревизии; ревизия до PR 3 (нет `plan`) — только кружки по устьям."""
 
@@ -146,8 +154,7 @@ def build_plan(context: Mapping[str, Any]) -> PlanSheet:
     for row, collar, toe in zip(rows, collars, toes):
         if collar is None:
             continue
-        # Диаметр инструмента из паспорта; нет — диаметр скважины (с разбуриванием).
-        diameter = summary.get("bit_diameter_mm") or row.get("diameter_mm") or 0.0
+        diameter = hole_circle_mm(summary, row) or 0.0
         x, y = sheet_xy(collar)
         holes.append(
             PlanHole(

@@ -350,6 +350,30 @@ describe("DrillPassportDialog", () => {
     confirm.mockRestore();
   });
 
+  it("после сохранения старый предпросмотр убирается", async () => {
+    const user = userEvent.setup();
+    open();
+    await user.click(await screen.findByRole("button", { name: "Показать предпросмотр" }));
+    expect(await screen.findByTitle("Предпросмотр паспорта")).toBeTruthy();
+    await user.type(screen.getByLabelText(/Угол устойчивого борта γ/), "60");
+    await user.click(screen.getByRole("button", { name: "Сохранить" }));
+    await waitFor(() => expect(screen.queryByTitle("Предпросмотр паспорта")).toBeNull());
+    expect(screen.getByText(/Паспорт изменён — покажите предпросмотр заново/)).toBeTruthy();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview");
+  });
+
+  it("после загрузки сохранённого паспорта старый предпросмотр убирается", async () => {
+    const user = userEvent.setup();
+    open();
+    await user.click(await screen.findByRole("button", { name: "Показать предпросмотр" }));
+    expect(await screen.findByTitle("Предпросмотр паспорта")).toBeTruthy();
+    await user.type(screen.getByLabelText(/^Горизонт/), "1");
+    api.drillPassport.save.mockRejectedValue(Object.assign(new Error("Паспорт изменён другим пользователем."), { status: 409 }));
+    await user.click(screen.getByRole("button", { name: "Сохранить" }));
+    await user.click(await screen.findByRole("button", { name: "Загрузить сохранённый паспорт" }));
+    await waitFor(() => expect(screen.queryByTitle("Предпросмотр паспорта")).toBeNull());
+  });
+
   it("проверка первого ряда со статусами, без JSON", async () => {
     const { container } = render(
       <DrillPassportDialog passport={passport66()} designSaved onClose={vi.fn()} onChange={vi.fn()} />,

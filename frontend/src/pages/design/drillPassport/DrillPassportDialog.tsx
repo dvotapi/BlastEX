@@ -138,6 +138,16 @@ export function DrillPassportDialog({
     }
   }
 
+  // Сохранённый паспорт изменился — прежний PDF предпросмотра (Blob) уже не
+  // про него: убрать, чтобы старое s не приняли за текущее.
+  function dropPreview() {
+    if (!previewRef.current) return;
+    URL.revokeObjectURL(previewRef.current);
+    previewRef.current = null;
+    setPreview(null);
+    setPreviewError("Паспорт изменён — покажите предпросмотр заново.");
+  }
+
   function setValue(key: ScalarKey, value: string) {
     setForm((previous) => ({ ...previous, values: { ...previous.values, [key]: value } }));
     setDirty(true);
@@ -166,6 +176,7 @@ export function DrillPassportDialog({
     setCurrent(saved);
     setForm(formFromPassport(saved));
     setDirty(false);
+    dropPreview();
     onChange(saved);
     return { passport: saved, validation: await refreshValidation(saved.id) };
   }
@@ -179,6 +190,7 @@ export function DrillPassportDialog({
       setForm(formFromPassport(fresh));
       setDirty(false);
       setConflict(false);
+      dropPreview();
       onChange(fresh);
       setMessage("Загружен сохранённый паспорт.");
       await refreshValidation(fresh.id);
@@ -269,6 +281,7 @@ export function DrillPassportDialog({
       if (previewRef.current) URL.revokeObjectURL(previewRef.current);
       previewRef.current = url;
       setPreview(url);
+      setPreviewError("");
     } catch (reason) {
       if (previewRef.current) URL.revokeObjectURL(previewRef.current);
       previewRef.current = null;

@@ -91,6 +91,18 @@ describe("DrillPassportPanel", () => {
     expect(screen.queryByRole("button", { name: "Открыть паспорт" })).toBeNull();
   });
 
+  it("окно, открытое на прежнем блоке, само не открывается на новом", async () => {
+    api.drillPassport.list.mockResolvedValue([passport66()]);
+    const user = userEvent.setup();
+    const { rerender } = render(<DrillPassportPanel designId="block-66" designSaved />);
+    await user.click(await screen.findByRole("button", { name: "Открыть паспорт" }));
+    expect(await screen.findByRole("dialog", { name: /Паспорт на бурение №/ })).toBeTruthy();
+    api.drillPassport.list.mockResolvedValue([{ ...passport66(), id: "p67", design_id: "block-67", passport_no: "67-26/Б" }]);
+    rerender(<DrillPassportPanel designId="block-67" designSaved />);
+    expect(await screen.findByText(/№ 67-26\/Б/)).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: /Паспорт на бурение №/ })).toBeNull();
+  });
+
   it("несохранённый проект блока — предупреждение", async () => {
     api.drillPassport.list.mockResolvedValue([passport66()]);
     render(<DrillPassportPanel designId="block-66" designSaved={false} />);

@@ -29,6 +29,8 @@ export function DrillPassportPanel({ designId, designSaved }: { designId: string
     if (shownFor.current !== designId) {
       shownFor.current = designId;
       setPassport(null);
+      // Окно прежнего блока закрыто: иначе оно само открылось бы на паспорте нового.
+      setOpen(false);
     }
     if (!designId) {
       setPassport(null);

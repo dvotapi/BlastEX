@@ -220,3 +220,15 @@ def test_renumber_route_conflict_is_422():
     )
     assert response.status_code == 422
     assert kept.id in response.json()["detail"]
+
+
+def test_back_layout_with_face_row_flag_keeps_generator_numbers():
+    """«От тыла» с оставшейся галочкой «Первый ряд вдоль бровки»: генератор ряд
+    у бровки не строит — и перенумерация его не привязывает (ревью Codex PR #172)."""
+    contour = block67_contour()
+    params = {**BASE, "layout_anchor": "back", "back_offset_m": 2.0, "first_row_follow_face": True}
+    generated = generate_pattern(contour, params)
+    assert renumber_map(generated, contour, params) == {}
+    scrambled = _scrambled(generated)
+    mapping = renumber_map(scrambled, contour, params)
+    assert [mapping.get(h.id, h.id) for h in scrambled] == [h.id for h in generated]

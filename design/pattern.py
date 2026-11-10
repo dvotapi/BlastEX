@@ -4,7 +4,7 @@ from __future__ import annotations
 import bisect
 import math
 from dataclasses import replace
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 import numpy as np
 import shapely
@@ -72,6 +72,20 @@ FACE_PAIR_AZIMUTH_MAX_DEVIATION_DEG = 15.0
 # `design/back_layout.py`. Только квадратная и прямоугольная сетки.
 LAYOUT_ANCHOR_BACK = "back"
 LAYOUT_ANCHOR_PATTERNS = ("square", "rectangular")
+
+
+def uses_back_layout(contour: BlockContour, params: Mapping[str, Any]) -> bool:
+    """Сетка строится шаблоном «от тыла»: ключ `layout_anchor`, квадратная или
+    прямоугольная сетка и тыл у блока. Тогда ряда вдоль бровки нет."""
+
+    pattern = str(params.get("pattern", "square"))
+    if pattern not in PATTERN_TYPES:
+        pattern = "square"
+    if params.get("layout_anchor") != LAYOUT_ANCHOR_BACK or pattern not in LAYOUT_ANCHOR_PATTERNS:
+        return False
+    from design.back_layout import back_side
+
+    return back_side(contour) is not None
 
 
 def generate_pattern(
@@ -153,19 +167,18 @@ def generate_pattern(
     row_dir, advance_dir = local_basis(row_azimuth_deg)
     origin, advance_dir = pattern_origin(contour, row_dir, advance_dir)
 
-    if params.get("layout_anchor") == LAYOUT_ANCHOR_BACK and pattern in LAYOUT_ANCHOR_PATTERNS:
-        from design.back_layout import back_boundary, back_grid, back_side
+    if uses_back_layout(contour, params):
+        from design.back_layout import back_boundary, back_grid
 
-        if back_side(contour) is not None:
-            # «Отступ от контура» у «от тыла» — только боковые стороны.
-            boundary = back_boundary(contour, edge_margin)
-            if len(boundary) < 3:
-                return _keep_manual(existing_holes)
-            return _finish_pattern(
-                back_grid(contour, params, boundary, surfaces),
-                contour, params, existing_holes, surfaces, boundary, origin, row_dir, advance_dir,
-                spacing_a, burden_b, diameter_mm, subdrill_m, angle_deg, azimuth_deg, depth_override,
-            )
+        # «Отступ от контура» у «от тыла» — только боковые стороны.
+        boundary = back_boundary(contour, edge_margin)
+        if len(boundary) < 3:
+            return _keep_manual(existing_holes)
+        return _finish_pattern(
+            back_grid(contour, params, boundary, surfaces),
+            contour, params, existing_holes, surfaces, boundary, origin, row_dir, advance_dir,
+            spacing_a, burden_b, diameter_mm, subdrill_m, angle_deg, azimuth_deg, depth_override,
+        )
 
     us = [(vx - origin[0]) * row_dir[0] + (vy - origin[1]) * row_dir[1] for vx, vy in verts]
     vs = [

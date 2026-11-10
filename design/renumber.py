@@ -20,7 +20,7 @@ from scipy.spatial import cKDTree
 from design.geometry import crest_azimuth_deg, local_basis, pattern_origin
 from design.models import FACE_TOE_KIND, BlockContour, Hole, row_family
 from design.numbering import number_by_position
-from design.pattern import face_row_numbering_xy
+from design.pattern import face_row_numbering_xy, uses_back_layout
 
 class RenumberConflict(ValueError):
     """Новые номера совпали бы у разных скважин (например, пара у откоса без
@@ -122,11 +122,11 @@ def renumber_map(holes: list[Hole], contour: BlockContour, pattern_params: Mappi
     row_dir, advance_dir = local_basis(row_azimuth)
     _origin, deep_dir = pattern_origin(contour, row_dir, advance_dir)
     # Как у генератора: ряд вдоль бровки привязывается к столбцам, только когда
-    # он построен («Первый ряд вдоль бровки» и свободная поверхность есть);
-    # столбцы — по построенным скважинам, без ручных.
+    # он построен («Первый ряд вдоль бровки», свободная поверхность есть, сетка
+    # не «от тыла»); столбцы — по построенным скважинам, без ручных.
     face_row = (
         face_row_numbering_xy([h for h in holes if h.source != "manual"], row_dir, {})
-        if params.get("first_row_follow_face") and contour.free_faces
+        if params.get("first_row_follow_face") and contour.free_faces and not uses_back_layout(contour, params)
         else {}
     )
     positions = [face_row.get(id(hole)) for hole in holes] if face_row else None

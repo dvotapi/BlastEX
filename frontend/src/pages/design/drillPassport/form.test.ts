@@ -169,6 +169,18 @@ describe("проверка первого ряда", () => {
     expect(byKey(validation).w).toMatchObject({ status: "none", note: "W в проекте не задана — не проверить" });
   });
 
+  it("бровка есть, линии подошвы нет — ЛСПП «не посчитана», а не «нет бровки»", () => {
+    const validation = validation66([warning("first_row_burden_not_measured")]);
+    validation.first_row_check = { ...validation.first_row_check, w_m: null, w_max_m: null };
+    expect(byKey(validation).w).toMatchObject({ value: "—", status: "none", note: "нет линии подошвы — не посчитать" });
+  });
+
+  it("скважины в откосе — предупреждение у ЛСПП", () => {
+    const keyed = byKey(validation66([warning("first_row_beyond_toe")]));
+    expect(keyed.w).toMatchObject({ status: "warn" });
+    expect(keyed.w.note).toContain("выходят в откос");
+  });
+
   it("без α и γ s не посчитан", () => {
     const validation = validation66();
     validation.first_row_check = { ...validation.first_row_check, s_m: null, c_min_m: null };

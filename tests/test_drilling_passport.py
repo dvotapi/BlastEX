@@ -162,7 +162,7 @@ def test_missing_axis_offset_is_zero_with_warning(rows66):
 
 def test_design_burden_without_design_w_is_warned(rows66):
     first = [row.number for row in rows66 if row.first_row]
-    check = first_row_check(rows66, 75.0, 65.0, 1.2, crest_m={}, burdens={n: (4.0, None) for n in first})
+    check = first_row_check(rows66, 75.0, 65.0, 1.2, crest_m={}, burdens={n: (4.0, None, False) for n in first})
     assert check.w_m == 4.0 and check.w_max_m is None
     missing = next(issue for issue in check.issues if issue.code == "w_max_missing")
     assert "проекте блока" in missing.message
@@ -639,3 +639,36 @@ def test_drilling_days_by_norm():
     assert drilling_days(100, speed_m_per_h=25, unproductive_h=1.5, shift_hours=11) == 1
     assert drilling_days(100, speed_m_per_h=0, unproductive_h=1.5, shift_hours=11) is None
     assert drilling_days(100, speed_m_per_h=25, unproductive_h=11, shift_hours=11) is None
+
+
+
+# --- правки по /code-review PR #172 ---------------------------------------
+
+def test_governing_hole_sets_shown_w_and_allowed(rows66):
+    """Разная W по доменам: показываются ЛСПП и допуск самой «плохой» скважины
+    (наибольшее превышение), а не допуск первой попавшейся."""
+    first = [row.number for row in rows66 if row.first_row]
+    burdens = {first[0]: (4.9, 5.15, False), first[1]: (4.5, 4.12, False)}
+    check = first_row_check(rows66, 75.0, 65.0, 1.2, crest_m={}, burdens=burdens)
+    assert (check.w_m, check.w_max_m) == (4.5, 4.12)
+    over = next(issue for issue in check.issues if issue.code == "first_row_burden")
+    listed = over.message.split("скважины: ")[1].rstrip(".").split(", ")
+    assert listed == [first[1]]
+
+
+def test_hole_beyond_toe_is_named_not_given_a_burden(rows66):
+    first = [row.number for row in rows66 if row.first_row]
+    burdens = {first[0]: (0.7, 3.81, True), first[1]: (3.5, 3.81, False)}
+    check = first_row_check(rows66, 75.0, 65.0, 1.2, crest_m={}, burdens=burdens)
+    assert check.w_m == 3.5
+    beyond = next(issue for issue in check.issues if issue.code == "first_row_beyond_toe")
+    assert first[0] in beyond.message and "откос" in beyond.message
+    assert "first_row_burden" not in [issue.code for issue in check.issues]
+
+
+def test_crest_without_floor_burden_is_named(rows66):
+    first = [row.number for row in rows66 if row.first_row]
+    check = first_row_check(rows66, 75.0, 65.0, 1.2, crest_m={n: 2.0 for n in first}, burdens={})
+    assert check.c_m == 2.0 and check.w_m is None
+    missing = next(issue for issue in check.issues if issue.code == "first_row_burden_not_measured")
+    assert "подошв" in missing.message

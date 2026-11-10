@@ -70,3 +70,22 @@ export function renameHoleIds(document: BlastDesign, mapping: Record<string, str
     })),
   };
 }
+
+/** Номера скважин в состоянии страницы (выделение, замер) — на новые. */
+export function remapHoleIds(ids: Iterable<string>, mapping: Record<string, string>): string[] {
+  return Array.from(ids, (id) => mapping[id] ?? id);
+}
+
+/** Номер одной скважины (инспектор, начатая связь) — на новый. */
+export function remapHoleId(id: string | null, mapping: Record<string, string>): string | null {
+  return id === null ? null : (mapping[id] ?? id);
+}
+
+/**
+ * Параметры сетки для перенумерации — сохранённые с проектом. Параметры
+ * вкладки «Сетка» могли поменять без перестроения; нет азимута рядов —
+ * сервер находит его по самим скважинам.
+ */
+export function renumberParams(document: BlastDesign): Record<string, unknown> {
+  return { ...(document.pattern_params ?? {}) };
+}

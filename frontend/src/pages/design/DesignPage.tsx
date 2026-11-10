@@ -174,6 +174,7 @@ import { MovementPanel } from "./MovementPanel";
 import { PassportPanel } from "./PassportPanel";
 import { MassBlastPanel } from "./MassBlastPanel";
 import { DrillPassportPanel } from "./drillPassport/DrillPassportPanel";
+import { remapHoleId, remapHoleIds, renumberParams } from "./holeRenumber";
 
 // three.js — крупная зависимость, нужная только вкладке «3D»: грузим лениво,
 // чтобы не раздувать основной бандл для остальных режимов редактора.
@@ -704,15 +705,30 @@ export function DesignPage({
     setPatternBusy(true);
     setError("");
     try {
-      const params = (document.pattern_params && Object.keys(document.pattern_params).length ? document.pattern_params : patternParams) as Record<string, unknown>;
-      const { mapping } = await api.design.renumberHoles({ holes: document.holes, contour: document.contour, params });
+      const { mapping } = await api.design.renumberHoles({
+        holes: document.holes,
+        contour: document.contour,
+        params: renumberParams(document),
+      });
       const count = Object.keys(mapping).length;
       if (!count) {
         setNotice("Номера скважин уже по правилу.");
         return;
       }
       dispatch({ type: "RENUMBER_HOLES", mapping });
-      setSelected(new Set());
+      // Состояние страницы с номерами скважин — на новые номера (старый номер
+      // теперь у другой скважины); анализ сбросит useStaleAnalysisReset,
+      // сравнения с фактом — как при перестроении сетки.
+      setSelected((previous) => new Set(remapHoleIds(previous, mapping)));
+      setInspectHoleId((previous) => remapHoleId(previous, mapping));
+      setPendingTieFromId((previous) => remapHoleId(previous, mapping));
+      setMeasureState((previous) => ({ ...previous, holeIds: remapHoleIds(previous.holeIds, mapping) }));
+      setHoleMenu(null);
+      setAsDrilledResult(null);
+      setAsChargedResult(null);
+      setAsFiredResult(null);
+      setExecutionResult(null);
+      setBlastResultCompare(null);
       setNotice(`Перенумеровано скважин: ${count}. Сохраните проект и выпустите новую ревизию паспорта на бурение.`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось перенумеровать скважины.");

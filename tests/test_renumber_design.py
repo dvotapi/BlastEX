@@ -108,3 +108,40 @@ def test_renumber_route_empty_holes_is_422():
     contour = _rect([[0, 1]])
     response = _client().post("/api/v1/design/holes/renumber", json={"holes": [], "contour": contour.to_dict(), "params": {}})
     assert response.status_code == 422
+
+
+# --- правки по /code-review PR #172 ---------------------------------------
+
+def test_manual_hole_between_columns_does_not_shift_echelons():
+    """Ручная скважина не становится «столбцом» для ряда вдоль бровки."""
+    contour = block67_contour()
+    params = {**BASE, "row_azimuth_deg": 0.0, "first_row_follow_face": True}
+    generated = generate_pattern(contour, params)
+    # Ряд вдоль бровки (row 0) стоит не на столбцах; ручная скважина в глубине
+    # блока на линии одной из них (вдоль ряда — ось y при азимуте 0°).
+    face = next(h for h in generated if h.row == 0)
+    deep = max((h for h in generated if h.row != 0), key=lambda h: h.collar.x)
+    middle = replace(deep, id="M-1", source="manual", row=3,
+                     collar=replace(deep.collar, y=face.collar.y + 0.01),
+                     toe=replace(deep.toe, y=face.collar.y + 0.01))
+    scrambled = _scrambled(generated) + [middle]
+    mapping = renumber_map(scrambled, contour, params)
+    assert [mapping.get(h.id, h.id) for h in scrambled[:-1]] == [h.id for h in generated]
+
+
+def test_missing_row_azimuth_is_inferred_from_holes():
+    """Нет `row_azimuth_deg` (сетка импортирована или расставлена вручную) —
+    направление рядов — по самим скважинам, ближе к бровке."""
+    contour = _rect([[0, 1]])
+    generated = generate_pattern(contour, BASE)
+    assert BASE["row_azimuth_deg"] == 90.0
+    params = {key: value for key, value in BASE.items() if key != "row_azimuth_deg"}
+    scrambled = _scrambled(generated)
+    mapping = renumber_map(scrambled, contour, params)
+    assert [mapping.get(h.id, h.id) for h in scrambled] == [h.id for h in generated]
+
+
+def test_generator_and_renumber_share_face_row_rule():
+    from design import pattern
+
+    assert pattern.face_row_numbering_xy is not None

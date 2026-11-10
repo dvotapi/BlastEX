@@ -394,15 +394,17 @@ def first_row_check(
     hs_m: float | None = None,
     hs_source: str = "MANUAL_OVERRIDE",
     crest_m: Mapping[str, float] | None = None,
-    burdens: Mapping[str, tuple[float, float | None]] | None = None,
+    burdens: Mapping[str, tuple[float, float | None, bool]] | None = None,
 ) -> FirstRowCheck:
     """Расстояние s от бровки и проверка первого ряда по проекту блока.
 
     s считается по проектной высоте уступа Hs (`hs_m`; не задана — H₁,
     источник CALCULATED). c и W — из проекта (доработки 10.11.2026, ручного
     ввода нет): `crest_m` — расстояние устья каждой скважины первого ряда до
-    верхней бровки, `burdens` — её ЛСП у подошвы и допустимая (W проекта +
-    3 %, `toe_line.floor_burdens`). Нет бровки (`crest_m` None) — c и W не
+    верхней бровки, `burdens` — её ЛСП у подошвы, допустимая (W проекта +
+    3 %, `toe_line.floor_burdens`) и признак «выходит в откос»; показываются
+    ЛСП и допуск скважины с наибольшим превышением (у доменов допуски разные).
+    Нет бровки (`crest_m` None) — c и W не
     измерить, предупреждение `first_row_not_measured`.
     Ошибка только одна — нет углов α, γ: без них s не считается. Остальное —
     предупреждения: выпуск не блокируют, требуют отметки «просмотрено».
@@ -437,8 +439,16 @@ def first_row_check(
     c_low = min(c_values.values()) if c_values else None
     c_high = max(c_values.values()) if c_values else None
     measured = {row.number: burdens[row.number] for row in first if burdens is not None and row.number in burdens}
-    w = max((value for value, _ in measured.values()), default=None)
-    w_max = next((allowed for _, allowed in measured.values() if allowed is not None), None)
+    beyond = [number for number, (_, _, out) in measured.items() if out]
+    inside = {number: (value, allowed) for number, (value, allowed, out) in measured.items() if not out}
+    # Скважина с наибольшим превышением допуска (без допуска — с наибольшей ЛСП).
+    governing = max(
+        inside.items(),
+        key=lambda item: (item[1][1] is not None, item[1][0] - (item[1][1] or 0.0)),
+        default=None,
+    )
+    w = governing[1][0] if governing else None
+    w_max = governing[1][1] if governing else None
     if crest_m is None:
         issues.append(
             _issue(
@@ -449,7 +459,16 @@ def first_row_check(
                 "holes",
             )
         )
-    elif measured and w_max is None:
+    elif not measured:
+        issues.append(
+            _issue(
+                "warning",
+                "first_row_burden_not_measured",
+                "ЛСПП первого ряда у подошвы по проекту не посчитана: нет линии подошвы откоса.",
+                "holes",
+            )
+        )
+    elif inside and all(allowed is None for _, allowed in inside.values()):
         issues.append(
             _issue(
                 "warning",
@@ -458,9 +477,9 @@ def first_row_check(
                 "holes",
             )
         )
-    elif w_max is not None:
+    else:
         over = sorted(
-            ((value, number) for number, (value, allowed) in measured.items() if allowed is not None and value > allowed + _EPS),
+            ((value - allowed, number) for number, (value, allowed) in inside.items() if allowed is not None and value > allowed + _EPS),
             key=lambda item: -item[0],
         )
         if over:
@@ -473,6 +492,15 @@ def first_row_check(
                     "holes",
                 )
             )
+    if beyond:
+        issues.append(
+            _issue(
+                "warning",
+                "first_row_beyond_toe",
+                f"Скважины первого ряда выходят в откос (точка на подошве за линией подошвы): {_listed(beyond)}.",
+                "holes",
+            )
+        )
 
     if alpha_deg is None or gamma_deg is None or gamma_deg >= alpha_deg or gamma_deg <= 0:
         issues.append(
@@ -528,12 +556,12 @@ def first_row_check(
 
 def _first_row_measures(
     design: BlastDesign, rows: list[DrillHoleRow]
-) -> tuple[dict[str, float] | None, dict[str, tuple[float, float | None]]]:
+) -> tuple[dict[str, float] | None, dict[str, tuple[float, float | None, bool]]]:
     """Расстояние устья первого ряда до верхней бровки и ЛСП у подошвы по проекту.
 
     Нет бровки — (None, {}). ЛСП — `toe_line.floor_burdens`: та же, что у
     проверки сетки (наклон скважины, линия подошвы по съёмке или по углу);
-    допустимая — W проекта + 3 %. Скважина, выходящая в откос, — с превышением.
+    допустимая — W проекта + 3 %; третье — скважина выходит в откос.
     """
 
     crest = crest_geometry(design.contour)
@@ -543,14 +571,11 @@ def _first_row_measures(
     holes = [hole for hole in _passport_holes(design) if hole.id in first]
     distances = shapely.distance(shapely.points([(hole.collar.x, hole.collar.y) for hole in holes]), crest)
     crest_m = {hole.id: float(distance) for hole, distance in zip(holes, distances)}
-    burdens: dict[str, tuple[float, float | None]] = {}
+    burdens: dict[str, tuple[float, float | None, bool]] = {}
     for hole_id, item in floor_burdens(design).items():
-        if hole_id not in first:
-            continue
-        allowed = item.allowed_m
-        # За подошвой расстояние «с другой стороны» — не в допуске при любом значении.
-        value = max(item.value_m, (allowed or 0.0) + 1.0) if item.beyond_toe else item.value_m
-        burdens[hole_id] = (float(value), None if allowed is None else float(allowed))
+        if hole_id in first:
+            allowed = None if item.allowed_m is None else float(item.allowed_m)
+            burdens[hole_id] = (float(item.value_m), allowed, bool(item.beyond_toe))
     return crest_m, burdens
 
 

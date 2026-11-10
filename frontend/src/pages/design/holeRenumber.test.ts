@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { emptyDesign, emptyNetwork, type BlastDesign, type Hole } from "../../types/design";
 import { designReducer, initDesignState } from "./designReducer";
-import { renameHoleIds } from "./holeRenumber";
+import { remapHoleId, remapHoleIds, renameHoleIds, renumberParams } from "./holeRenumber";
 
 function hole(id: string, x: number): Hole {
   return {
@@ -89,5 +89,18 @@ describe("RENUMBER_HOLES", () => {
     const undone = designReducer(renumbered, { type: "UNDO" });
     expect(undone.present.holes[0].id).toBe("5-08");
     expect(undone.present.network.starters).toEqual(["5-08"]);
+  });
+});
+
+describe("состояние страницы после перенумерации", () => {
+  it("номера в выделении, инспекторе и замере переходят на новые", () => {
+    expect(remapHoleIds(["5-08", "M-1"], SWAP)).toEqual(["5-09", "M-1"]);
+    expect(remapHoleId("5-09", SWAP)).toBe("5-08");
+    expect(remapHoleId(null, SWAP)).toBeNull();
+  });
+
+  it("параметры для перенумерации — сохранённые с проектом, без подстановки из вкладки", () => {
+    expect(renumberParams({ ...design(), pattern_params: {} })).toEqual({});
+    expect(renumberParams({ ...design(), pattern_params: { row_azimuth_deg: 90 } })).toEqual({ row_azimuth_deg: 90 });
   });
 });

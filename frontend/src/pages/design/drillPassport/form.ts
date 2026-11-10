@@ -311,15 +311,17 @@ export function checkRows(validation: DrillPassportValidation): CheckRow[] {
     status: cLow === null || cLow === undefined ? "none" : codes.has("first_row_too_close") ? "warn" : "ok",
     note: cLow === null || cLow === undefined ? notMeasured : check.c_min_m === null ? "c_min не посчитан" : `нужно не меньше ${metres(check.c_min_m)} (s − e)`,
   });
+  const beyond = codes.has("first_row_beyond_toe");
+  const wNote =
+    check.w_m === null
+      ? codes.has("first_row_burden_not_measured") ? "нет линии подошвы — не посчитать" : notMeasured
+      : check.w_max_m === null
+        ? "W в проекте не задана — не проверить"
+        : `допустимая ${metres(check.w_max_m, 2)} (W проекта + 3 %)`;
   rows.push({
     key: "w", label: "ЛСПП у подошвы", value: check.w_m === null ? "—" : `до ${metres(check.w_m, 2)}`,
-    status: check.w_m === null || check.w_max_m === null ? "none" : codes.has("first_row_burden") ? "warn" : "ok",
-    note:
-      check.w_m === null
-        ? notMeasured
-        : check.w_max_m === null
-          ? "W в проекте не задана — не проверить"
-          : `допустимая ${metres(check.w_max_m, 2)} (W проекта + 3 %)`,
+    status: beyond || codes.has("first_row_burden") ? "warn" : check.w_m === null || check.w_max_m === null ? "none" : "ok",
+    note: beyond ? `${wNote}; есть скважины, которые выходят в откос` : wNote,
   });
   return rows;
 }

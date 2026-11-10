@@ -244,7 +244,9 @@ def _block_label(design: BlastDesign) -> str:
     else:
         name = (design.name or "").strip()
         match = _BLOCK_NUMBER.match(name)
-        label = match.group(1) if match else name
+        # Без номера в названии («Новый паспорт», «Блок») — поле пустым, а не
+        # «блок № Новый паспорт» в шапке PDF.
+        label = match.group(1) if match else (name if any(ch.isdigit() for ch in name) else "")
     return label[: TEXT_LIMITS["block"]]
 
 

@@ -464,7 +464,7 @@ def generate_pattern(
         holes = _off_crest(holes, contour, min_crest_offset_m(params))
 
     if skip_regular_first:
-        lattice_xy.update(_face_row_numbering_xy(holes, row_dir, lattice_xy))
+        lattice_xy.update(face_row_numbering_xy(holes, row_dir, lattice_xy))
 
     return _finish_pattern(
         holes, contour, params, existing_holes, surfaces, boundary, origin, row_dir, advance_dir,
@@ -473,7 +473,7 @@ def generate_pattern(
     )
 
 
-def _face_row_numbering_xy(
+def face_row_numbering_xy(
     holes: list[Hole], row_dir: tuple[float, float], lattice_xy: dict[int, tuple[float, float]]
 ) -> dict[int, tuple[float, float]]:
     """Место для нумерации у ряда вдоль бровки (ряд 0): на линии ближайшего столбца.

@@ -44,3 +44,19 @@ def date(value: str | None) -> str:
     if match:
         return f"{match[3]}.{match[2]}.{match[1]}"
     return text or DASH
+
+
+def whole_degrees(value: float) -> int:
+    """Угол в целых градусах, 0–359: азимут 359,6° — 0, как везде в документах."""
+
+    return round(float(value)) % 360
+
+
+def integer_number(text: str) -> int | None:
+    """Номер скважины как число, если он записан числом без ведущих нулей («7»);
+    «07», «1-01» — None: их пишут как есть, чтобы не терять знаки."""
+
+    text = text.strip()
+    if text.isascii() and text.isdigit() and text == str(int(text)):
+        return int(text)
+    return None

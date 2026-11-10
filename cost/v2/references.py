@@ -18,6 +18,7 @@ from cost.v2.models import (
     ReferenceSnapshot,
 )
 from cost.v2.schemas import SECTION_SCHEMAS, field_label, reference_paths
+from cost.v2.schemas.stakeout_profile import STAKEOUT_FORMAT_LABELS
 from cost.v2.packages import (
     DEFAULT_OPERATIONS,
     DEFAULT_PACKAGES,
@@ -282,11 +283,8 @@ def _system_items() -> dict[str, tuple[ReferenceItem, ...]]:
         ),
         # Встроенные профили файла выноса GNSS (TASK-015, PR 5): записями —
         # чтобы их можно было выбрать профилем объекта.
-        "stakeout_profiles": (
-            _item("PNEZD_CSV", "CSV: точка, север, восток, отметка, описание", {"format": "PNEZD_CSV"}),
-            _item("PENZD_CSV", "CSV: точка, восток, север, отметка, описание", {"format": "PENZD_CSV"}),
-            _item("PNEZ_TXT", "TXT через пробел: точка, север, восток, отметка", {"format": "PNEZ_TXT"}),
-            _item("DXF_POINTS", "DXF: точки и номера скважин", {"format": "DXF_POINTS"}),
+        "stakeout_profiles": tuple(
+            _item(code, label, {"format": code}) for code, label in STAKEOUT_FORMAT_LABELS.items()
         ),
         "site_infrastructure": (
             _item("REFUELING", "Заправка бурового станка", {"required_fields": ["available", "provider", "price_rub"]}),

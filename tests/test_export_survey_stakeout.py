@@ -11,7 +11,8 @@ def test_stakeout_snapshot_builtin_profiles() -> None:
     assert list(snapshot["profiles"]) == ["PNEZD_CSV", "PENZD_CSV", "PNEZ_TXT", "DXF_POINTS"]
     assert snapshot["profiles"] == BUILTIN_PROFILES
     assert snapshot["profiles"]["PENZD_CSV"] == {
-        "name": "PENZD_CSV", "format": "PENZD_CSV", "header": False, "elevation": True, "include_toe": False,
+        "name": "CSV: точка, восток, север, отметка, описание", "format": "PENZD_CSV",
+        "header": False, "elevation": True, "include_toe": False,
     }
 
 
@@ -238,3 +239,56 @@ def test_builtin_profiles_are_reference_records() -> None:
     sections["sites"] = (ReferenceItem(code="ZHK", name="Жуков Камень", payload={"stakeout_profile_code": "DXF_POINTS"}),)
     issues = [issue for issue in validate_reference_sections(sections) if issue.section == "sites" and "DXF_POINTS" in issue.message]
     assert issues == []
+
+
+# --- правки по /code-review PR #170 -----------------------------------------
+
+
+def test_names_differing_only_in_case_clash() -> None:
+    """Полевые программы часто не различают регистр имён точек."""
+
+    context = context66()
+    context["holes"][0]["number"] = "1-01a"
+    context["holes"][1]["number"] = "1-01A"
+    with pytest.raises(StakeoutError, match="1-01a"):
+        _file(context, "PNEZD_CSV")
+
+
+def test_leading_zeros_are_kept() -> None:
+    assert point_name("66", "01") == "66-01"
+    assert point_name("66", "0012") == "66-0012"
+    assert point_name("66", "7") == "66-007"
+    context = context66()
+    context["holes"][1]["number"] = "01"
+    lines = _lines(_file(context, "PNEZD_CSV"))
+    assert [line.split(",")[0] for line in lines[:2]] == ["66-001", "66-01"]
+
+
+def test_azimuth_near_north_is_zero_everywhere() -> None:
+    from design.export_survey import holes_dxf
+
+    context = _inclined(context66())
+    context["holes"][100]["azimuth_deg"] = 359.6
+    assert _lines(_file(context, "PNEZD_CSV"))[100].endswith("A75 AZ0")
+    doc = ezdxf.read(io.StringIO(holes_dxf(context, revision_no=1).decode("utf-8")))
+    number = context["holes"][100]["number"]
+    insert = next(e for e in doc.modelspace().query("INSERT") if e.get_attrib_text("NUM") == number)
+    assert insert.get_attrib_text("AZIM") == "0"
+
+
+def test_dxf_points_always_carry_collar_elevation() -> None:
+    """В DXF поле отметки не оставить пустым: Z = 0 приёмник принял бы за проект."""
+
+    doc = ezdxf.read(io.StringIO(_file(context66(), "DXF_POINTS", elevation=False).decode("ascii")))
+    point = next(e for e in doc.modelspace() if e.dxftype() == "POINT")
+    assert point.dxf.location[2] == pytest.approx(419.21, abs=0.001)
+
+
+def test_dxf_points_extents_cover_the_block() -> None:
+    doc = ezdxf.read(io.StringIO(_file(context66(), "DXF_POINTS").decode("ascii")))
+    xs = [e.dxf.location[0] for e in doc.modelspace() if e.dxftype() == "POINT"]
+    ys = [e.dxf.location[1] for e in doc.modelspace() if e.dxftype() == "POINT"]
+    low, high = doc.header["$EXTMIN"], doc.header["$EXTMAX"]
+    assert low[0] <= min(xs) and low[1] <= min(ys)
+    assert high[0] >= max(xs) and high[1] >= max(ys)
+    assert high[0] - low[0] < 1000 and high[1] - low[1] < 1000

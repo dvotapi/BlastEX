@@ -540,9 +540,10 @@ def package_zip(
         (f"Паспорт на бурение {stem}.pdf", render_passport_pdf(context, revision_no=number)),
         (f"Скважины {stem}.dxf", holes_dxf(context, revision_no=number)),
         (stakeout_name, stakeout),
-        _coords(context, number, "pdf")[::-1],
-        _coords(context, number, "xlsx")[::-1],
     ]
+    for kind in ("pdf", "xlsx"):
+        data, name = _coords(context, number, kind)
+        entries.append((name, data))
     return build_zip(entries), f"Паспорт на бурение {stem}.zip"
 
 

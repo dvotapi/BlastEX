@@ -14,9 +14,18 @@ from pydantic import Field
 
 from cost.v2.schemas.base import ReferencePayload
 
-__all__ = ["StakeoutFormat", "StakeoutProfilePayload"]
+__all__ = ["STAKEOUT_FORMAT_LABELS", "StakeoutFormat", "StakeoutProfilePayload"]
 
 StakeoutFormat = Literal["PNEZD_CSV", "PENZD_CSV", "PNEZ_TXT", "DXF_POINTS"]
+# Встроенные профили — по одному на формат: код, подпись (имя записи
+# справочника). Единственный перечень: системные записи справочника и
+# `design/export_survey.BUILTIN_PROFILES` строятся из него.
+STAKEOUT_FORMAT_LABELS: dict[str, str] = {
+    "PNEZD_CSV": "CSV: точка, север, восток, отметка, описание",
+    "PENZD_CSV": "CSV: точка, восток, север, отметка, описание",
+    "PNEZ_TXT": "TXT через пробел: точка, север, восток, отметка",
+    "DXF_POINTS": "DXF: точки и номера скважин",
+}
 
 
 class StakeoutProfilePayload(ReferencePayload):
@@ -30,7 +39,9 @@ class StakeoutProfilePayload(ReferencePayload):
     )
     header: bool = Field(default=False, title="Строка заголовка", description="Первой строкой — названия полей")
     elevation: bool = Field(
-        default=True, title="Отметка устья", description="Выключено — поле отметки пустое (высоту не выносят)"
+        default=True,
+        title="Отметка устья",
+        description="Выключено — поле отметки пустое (высоту не выносят); в DXF отметка пишется всегда",
     )
     include_toe: bool = Field(
         default=False,

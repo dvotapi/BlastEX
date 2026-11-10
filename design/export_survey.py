@@ -45,6 +45,7 @@ from typing import Any, Literal
 import ezdxf
 from ezdxf.enums import MTextEntityAlignment, TextEntityAlignment
 
+from cost.v2.schemas.stakeout_profile import STAKEOUT_FORMAT_LABELS
 from design.mass_blast import canonical_json
 from design.reporting.drill import fmt
 from design.reporting.drill.layout import block_and_horizon, crs_line
@@ -250,8 +251,8 @@ def _build(context: Mapping[str, Any], revision_no: int | None) -> str:
             {
                 "NUM": number,
                 "DEPTH": depth,
-                "ANGLE": _f(float(row["dip_deg"]), 0) if inclined else "",
-                "AZIM": _f(float(row["azimuth_deg"]), 0) if inclined else "",
+                "ANGLE": str(fmt.whole_degrees(row["dip_deg"])) if inclined else "",
+                "AZIM": str(fmt.whole_degrees(row["azimuth_deg"])) if inclined else "",
                 "ZCOL": _f(collar[2], 2),
                 "ZTOE": _f(toe[2], 2),
             }
@@ -379,12 +380,12 @@ def _same_drawing(expected: bytes, actual: bytes) -> bool:
 
 # --- файл выноса для GNSS-приёмника (PR 5, спека §5) -----------------------
 
-STAKEOUT_FORMATS = ("PNEZD_CSV", "PENZD_CSV", "PNEZ_TXT", "DXF_POINTS")
 DEFAULT_STAKEOUT_PROFILE = "PNEZD_CSV"
 _PROFILE_DEFAULTS = {"header": False, "elevation": True, "include_toe": False}
 # Встроенные профили: есть всегда, запись справочника с тем же кодом их меняет.
+# Перечень и подписи — `STAKEOUT_FORMAT_LABELS` схемы справочника.
 BUILTIN_PROFILES: dict[str, dict[str, Any]] = {
-    code: {"name": code, "format": code, **_PROFILE_DEFAULTS} for code in STAKEOUT_FORMATS
+    code: {"name": label, "format": code, **_PROFILE_DEFAULTS} for code, label in STAKEOUT_FORMAT_LABELS.items()
 }
 
 
@@ -422,6 +423,8 @@ TOE_SUFFIX = "_T"
 MAX_LISTED = 10
 TOE_DESCRIPTION = "TOE"
 POINT_TEXT_HEIGHT_M = 0.4
+# Запас границ чертежа точек вокруг крайних точек, м.
+DXF_EXTENT_MARGIN_M = 5.0
 
 # Транслитерация кириллицы (ГОСТ 7.79, система Б, без диакритики): в файле
 # для приёмника — только ASCII.
@@ -449,10 +452,15 @@ def ascii_name(text: str) -> str:
 
 
 def point_name(block: str, number: str) -> str:
-    """Имя точки: «{блок}-{номер}»; номер из одних цифр — три знака («66-001»)."""
+    """Имя точки: «{блок}-{номер}»; номер-число — три знака («66-001»).
+
+    Номер с ведущими нулями («01», «0012») пишется как есть: иначе «1» и «01»
+    дали бы одно имя.
+    """
 
     number = str(number).strip()
-    part = f"{int(number):03d}" if number.isascii() and number.isdigit() else ascii_name(number)
+    integer = fmt.integer_number(number)
+    part = f"{integer:03d}" if integer is not None else ascii_name(number)
     prefix = ascii_name(block)
     return f"{prefix}-{part}" if prefix else part
 
@@ -481,7 +489,7 @@ class _StakeoutPoint:
 def _description(row: Mapping[str, Any]) -> str:
     text = f"L{float(row['length_m']):.1f}"
     if row.get("azimuth_deg") is not None:
-        text += f" A{round(float(row['dip_deg']))} AZ{round(float(row['azimuth_deg'])) % 360}"
+        text += f" A{fmt.whole_degrees(row['dip_deg'])} AZ{fmt.whole_degrees(row['azimuth_deg'])}"
     return f"R1 {text}" if row.get("first_row") else text
 
 
@@ -506,9 +514,10 @@ def _stakeout_points(context: Mapping[str, Any], include_toe: bool) -> list[_Sta
             f"Имя точки длиннее {POINT_NAME_MAX} знаков — приёмник его не примет: "
             f"{', '.join(long[:MAX_LISTED])}.{hint}"
         )
+    # Регистр не различается: многие полевые программы считают «A» и «a» одним именем.
     by_name: dict[str, list[str]] = {}
     for point in points:
-        by_name.setdefault(point.name, []).append(point.number)
+        by_name.setdefault(point.name.upper(), []).append(point.number)
     clashes = [f"{name}: {', '.join(numbers)}" for name, numbers in by_name.items() if len(numbers) > 1]
     if clashes:
         raise StakeoutError(
@@ -520,17 +529,34 @@ def _stakeout_points(context: Mapping[str, Any], include_toe: bool) -> list[_Sta
 
 
 
-def _stakeout_dxf(points: list[_StakeoutPoint], elevation: bool) -> bytes:
+def _stakeout_dxf(points: list[_StakeoutPoint]) -> bytes:
+    """DXF R12 точек. Отметка — всегда: пустой её в DXF не сделать, а Z = 0
+    приёмник принял бы за проектную (опция профиля «Отметка» — только для CSV/TXT)."""
+
     with _fixed_metadata():
         # R12: его читают все контроллеры, которые выносят точки из DXF.
         doc = ezdxf.new("R12")
         doc.layers.add("BLX_HOLE", color=LAYER_COLORS["BLX_HOLE"])
         msp = doc.modelspace()
         for point in points:
-            z = point.z if elevation else 0.0
-            msp.add_point((point.x, point.y, z), dxfattribs={"layer": "BLX_HOLE"})
+            msp.add_point((point.x, point.y, point.z), dxfattribs={"layer": "BLX_HOLE"})
             msp.add_text(point.name, height=POINT_TEXT_HEIGHT_M, dxfattribs={"layer": "BLX_HOLE"}).set_placement(
-                (point.x + TEXT_GAP_M, point.y + TEXT_GAP_M, z)
+                (point.x + TEXT_GAP_M, point.y + TEXT_GAP_M, point.z)
+            )
+        if points:
+            # Границы чертежа: иначе полевая программа открывает окно у (0, 0).
+            # ezdxf переписывает $EXTMIN/$EXTMAX из границ пространства модели.
+            msp.reset_extents(
+                (
+                    min(p.x for p in points) - DXF_EXTENT_MARGIN_M,
+                    min(p.y for p in points) - DXF_EXTENT_MARGIN_M,
+                    min(p.z for p in points),
+                ),
+                (
+                    max(p.x for p in points) + DXF_EXTENT_MARGIN_M,
+                    max(p.y for p in points) + DXF_EXTENT_MARGIN_M,
+                    max(p.z for p in points),
+                ),
             )
         stream = io.StringIO()
         doc.write(stream)
@@ -562,7 +588,7 @@ def stakeout_file(context: Mapping[str, Any], profile: Mapping[str, Any]) -> byt
     elevation = bool(profile.get("elevation", True))
     points = _stakeout_points(context, bool(profile.get("include_toe", False)))
     if fmt_code == "DXF_POINTS":
-        return _stakeout_dxf(points, elevation)
+        return _stakeout_dxf(points)
     if fmt_code not in STAKEOUT_EXTENSIONS:
         raise StakeoutError(f"Формат файла выноса «{fmt_code}» не поддерживается.")
     lines: list[str] = []

@@ -20,8 +20,9 @@ from reportlab.lib.units import mm
 from reportlab.platypus import BaseDocTemplate, Frame, KeepInFrame, PageBreak, PageTemplate, Paragraph, Table, TableStyle
 
 from design.drilling_passport import DEFAULT_TOLERANCE_M
+from design.reporting.drill import fmt
 from design.reporting.drill.coords import CoordsRow, coords_header, coords_pages, coords_rows
-from design.reporting.drill.pdf import ASSETS, FONT, FONT_BOLD, GRAPHITE, GREY, LINE, RED, _register_fonts, fit_text
+from design.reporting.drill.pdf import FONT, FONT_BOLD, GRAPHITE, GREY, LINE, RED, _register_fonts, draw_page_frame
 
 __all__ = ["render_coords_pdf"]
 
@@ -31,8 +32,6 @@ TOP = 24 * mm
 BOTTOM = 14 * mm
 FRAME_W = PAGE_W - 2 * MARGIN_X
 FRAME_H = PAGE_H - TOP - BOTTOM
-LOGO_W = 34 * mm
-HEADER_W = FRAME_W - LOGO_W - 8 * mm
 HEAD_ROW_H = 9 * mm
 ROW_H = 5 * mm
 FIELD = HexColor("#FFF6D6")   # графы, которые заполняют в поле
@@ -76,7 +75,7 @@ def _note(context: Mapping[str, Any]) -> str:
 
 
 def _angle(value: float | None) -> str:
-    return "" if value is None else str(round(value) % 360)
+    return "" if value is None else str(fmt.whole_degrees(value))
 
 
 def _cells(row: CoordsRow) -> list[str]:
@@ -116,25 +115,12 @@ def _table(rows: list[CoordsRow]) -> Table:
 
 
 def _decorate(header: str, total: int):
-    logo = str(ASSETS / "logo.png")
-
     def on_page(canvas, _doc) -> None:
         number = canvas.getPageNumber()
-        canvas.saveState()
-        canvas.drawImage(logo, MARGIN_X, PAGE_H - 17 * mm, width=LOGO_W, height=LOGO_W * 738 / 2400, mask="auto")
-        canvas.setStrokeColor(RED)
-        canvas.setLineWidth(1.2)
-        canvas.line(MARGIN_X, PAGE_H - 20 * mm, PAGE_W - MARGIN_X, PAGE_H - 20 * mm)
-        canvas.setFillColor(GREY)
-        canvas.setFont(FONT, 7.5)
-        canvas.drawRightString(PAGE_W - MARGIN_X, PAGE_H - 11.5 * mm, fit_text(header, FONT, 7.5, HEADER_W))
-        canvas.setFillColor(GRAPHITE)
-        canvas.setFont(FONT_BOLD, 8.5)
-        canvas.drawRightString(PAGE_W - MARGIN_X, PAGE_H - 16.5 * mm, SUBTITLE)
-        canvas.setFillColor(GREY)
-        canvas.setFont(FONT, 7)
-        canvas.drawCentredString(PAGE_W / 2, 8 * mm, FOOTER.format(page=number, total=total))
-        canvas.restoreState()
+        draw_page_frame(
+            canvas, page_w=PAGE_W, page_h=PAGE_H, margin_x=MARGIN_X, header=header, title=SUBTITLE,
+            footer=FOOTER.format(page=number, total=total),
+        )
 
     return on_page
 

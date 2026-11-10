@@ -252,3 +252,10 @@ def test_coords_xlsx_hole_number_is_never_a_formula() -> None:
     _, sheet = _sheet(render_coords_xlsx(context, revision_no=1))
     cell = next(row[0] for row in sheet.iter_rows() if row[0].value == '=HYPERLINK("http://example.com","1")')
     assert cell.data_type == "s"
+
+
+def test_coords_xlsx_keeps_leading_zeros() -> None:
+    context = context66()
+    context["holes"][0]["number"] = "0012"
+    rows = _data_rows(_sheet(render_coords_xlsx(context, revision_no=1))[1])
+    assert rows[0][0] == "0012"

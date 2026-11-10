@@ -21,6 +21,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.writer.excel import ExcelWriter
 
+from design.reporting.drill import fmt
 from design.reporting.drill.archive import fixed_zip
 from design.reporting.drill.coords import coords_header, coords_rows
 
@@ -61,7 +62,8 @@ def _summary_rows(summary: Mapping[str, Any]) -> list[tuple[str, float | int | N
 
 
 def _number_id(number: str) -> int | str:
-    return int(number) if number.isascii() and number.isdigit() else number
+    integer = fmt.integer_number(number)
+    return number if integer is None else integer
 
 
 def render_coords_xlsx(context: Mapping[str, Any], *, revision_no: int | None = None) -> bytes:
@@ -89,8 +91,8 @@ def render_coords_xlsx(context: Mapping[str, Any], *, revision_no: int | None = 
         sheet.append([
             _number_id(row.number), round(row.x, 3), round(row.y, 3), round(row.z_collar, 3), round(row.depth_m, 3),
             round(row.subdrill_m, 3), round(row.bench_m, 3), round(row.z_toe, 3),
-            None if row.dip_deg is None else round(row.dip_deg),
-            None if row.azimuth_deg is None else round(row.azimuth_deg) % 360,
+            None if row.dip_deg is None else fmt.whole_degrees(row.dip_deg),
+            None if row.azimuth_deg is None else fmt.whole_degrees(row.azimuth_deg),
         ])
         for cell, number_format in zip(sheet[sheet.max_row], FORMATS):
             if isinstance(cell.value, str):

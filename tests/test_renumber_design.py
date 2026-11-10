@@ -253,3 +253,16 @@ def test_inferred_azimuth_of_staggered_grid_with_wide_rows():
     scrambled = _scrambled(generated)
     mapping = renumber_map(scrambled, contour, _without_azimuth(params))
     assert [mapping.get(h.id, h.id) for h in scrambled] == [h.id for h in generated]
+
+
+@pytest.mark.parametrize("kind", ["buffer", "contour", "presplit", "trim"])
+def test_inferred_azimuth_of_wall_kind_main_grid(kind):
+    """Основная сетка стеночного вида без сохранённого азимута: направление —
+    по её же скважинам, а не 0° (ревью Codex PR #172)."""
+    contour = _rect([[0, 1]], width=24.0, height=15.0)
+    params = {**BASE, "default_kind": kind}
+    generated = generate_pattern(contour, params)
+    assert all(h.kind == kind for h in generated)
+    scrambled = _scrambled(generated)
+    mapping = renumber_map(scrambled, contour, _without_azimuth(params))
+    assert [mapping.get(h.id, h.id) for h in scrambled] == [h.id for h in generated]

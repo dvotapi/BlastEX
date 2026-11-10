@@ -18,7 +18,7 @@ import numpy as np
 from scipy.spatial import cKDTree
 
 from design.geometry import crest_azimuth_deg, local_basis, pattern_origin
-from design.models import FACE_TOE_KIND, BlockContour, Hole, main_grid_kind, row_family
+from design.models import FACE_TOE_KIND, BlockContour, Hole, in_main_grid, main_grid_kind
 from design.numbering import number_by_position
 from design.pattern import face_row_numbering_xy, uses_back_layout
 
@@ -56,7 +56,8 @@ def _lattice_azimuth(holes: list[Hole], contour: BlockContour) -> float:
     """Азимут рядов по самим скважинам — когда в параметрах сетки его нет.
 
     Направления решётки (по модулю 180°) — на 8 ближайших соседок каждой
-    скважины основной сетки (`holes` — уже без ручных и вставок), без отсечки
+    скважины основной сетки (`models.in_main_grid`: и стеночного вида, без
+    отдельных стеночных рядов; `holes` — уже без ручных и вставок), без отсечки
     по расстоянию: у прямоугольной и шахматной сетки с широким шагом ряд
     дальше диагоналей и глубины. Градусные корзины только находят направление, само оно — среднее
     точных углов (округление до градуса сдвинуло бы эшелон на 10 м на 7 см
@@ -65,7 +66,7 @@ def _lattice_azimuth(holes: list[Hole], contour: BlockContour) -> float:
     """
 
     points = np.array(
-        [(h.collar.x, h.collar.y) for h in holes if row_family(h.kind) == "grid" and h.kind != FACE_TOE_KIND],
+        [(h.collar.x, h.collar.y) for h in holes if in_main_grid(h) and h.kind != FACE_TOE_KIND],
         dtype=float,
     )
     if len(points) < 3:

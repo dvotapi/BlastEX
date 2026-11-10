@@ -87,3 +87,54 @@ export const put = <T,>(path: string, body: unknown) =>
 export const patch = <T,>(path: string, body: unknown) =>
   request<T>(path, { method: "PATCH", body: JSON.stringify(body) });
 export const del = <T,>(path: string) => request<T>(path, { method: "DELETE" });
+
+/** Имя файла из Content-Disposition: `filename*=UTF-8''…`, иначе `filename="…"`. */
+function dispositionName(disposition: string): string | null {
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded[1].trim());
+    } catch {
+      // Битое кодирование — берём простое имя.
+    }
+  }
+  return /filename="([^"]+)"/i.exec(disposition)?.[1] ?? null;
+}
+
+/** Файл ответа как Blob; ошибка — `HttpError` с русским текстом сервера, а не тело ответа. */
+export async function fetchBlob(path: string): Promise<Blob> {
+  const response = await fetch(path, { credentials: "include" });
+  if (!response.ok) throw new HttpError(await errorMessage(response, "Не удалось получить файл."), response.status);
+  return response.blob();
+}
+
+/**
+ * Скачать файл: имя — из ответа сервера, предупреждение — заголовок
+ * `X-BlastEX-Warning` (percent-encoding, например «DWG пока не формируется»).
+ */
+export async function downloadFile(
+  path: string,
+  fallbackName: string,
+): Promise<{ filename: string; warning: string | null }> {
+  const response = await fetch(path, { credentials: "include" });
+  if (!response.ok) throw new HttpError(await errorMessage(response, "Не удалось скачать файл."), response.status);
+  const filename = dispositionName(response.headers.get("content-disposition") ?? "") ?? fallbackName;
+  const header = response.headers.get("x-blastex-warning");
+  let warning: string | null = null;
+  if (header) {
+    try {
+      warning = decodeURIComponent(header);
+    } catch {
+      warning = header;
+    }
+  }
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  return { filename, warning };
+}

@@ -117,6 +117,13 @@ import type {
   Point3,
 } from "../types/design";
 import type {
+  DrillPassport,
+  DrillPassportFile,
+  DrillPassportRevision,
+  DrillPassportUpdate,
+  DrillPassportValidation,
+} from "../types/drillPassport";
+import type {
   CalculationRun,
   EconomicScenario,
   EconomicsReferenceItem,
@@ -176,6 +183,7 @@ import type {
 } from "../types/cad";
 
 const V1 = "/api/v1";
+const DRILL = `${V1}/design/drilling-passports`;
 
 /** Порода, ВВ и уступ листа — общая часть запросов подбора q и подбора C(A). */
 type BlastSheetInput = {
@@ -1053,6 +1061,23 @@ export const api = {
     generateDocument: (id: string, payload: { revision_id: string; kind: "PROJECT" | "ORDER" | "SCHEDULE" | "PACKAGE"; format: "PDF" | "XLSX" | "ZIP" }) =>
       post<MassBlastDocument>(`${V1}/design/mass-blast-projects/${id}/documents`, payload),
     documentUrl: (documentId: string) => `${V1}/design/mass-blast-projects/documents/${documentId}/download`,
+  },
+
+  // --- паспорт на бурение (TASK-015) ---
+  drillPassport: {
+    list: (designId: string) =>
+      get<DrillPassport[]>(`${DRILL}?design_id=${encodeURIComponent(designId)}`),
+    create: (payload: { design_id: string }) => post<DrillPassport>(DRILL, payload),
+    get: (id: string) => get<DrillPassport>(`${DRILL}/${encodeURIComponent(id)}`),
+    save: (id: string, payload: DrillPassportUpdate) => put<DrillPassport>(`${DRILL}/${encodeURIComponent(id)}`, payload),
+    validate: (id: string) => post<DrillPassportValidation>(`${DRILL}/${encodeURIComponent(id)}/validate`, {}),
+    createRevision: (id: string, payload: { expected_version: number; acknowledged_warnings: string[] }) =>
+      post<DrillPassportRevision>(`${DRILL}/${encodeURIComponent(id)}/revisions`, payload),
+    revision: (revisionId: string) => get<DrillPassportRevision>(`${DRILL}/revisions/${encodeURIComponent(revisionId)}`),
+    previewUrl: (id: string) => `${DRILL}/${encodeURIComponent(id)}/preview.pdf`,
+    fileUrl: (revisionId: string, file: DrillPassportFile) => `${DRILL}/revisions/${encodeURIComponent(revisionId)}/${file}`,
+    stakeoutUrl: (revisionId: string, profile: string) =>
+      `${DRILL}/revisions/${encodeURIComponent(revisionId)}/stakeout?profile=${encodeURIComponent(profile)}`,
   },
 };
 

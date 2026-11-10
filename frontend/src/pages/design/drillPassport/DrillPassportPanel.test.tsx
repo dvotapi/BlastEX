@@ -16,6 +16,17 @@ const api = vi.hoisted(() => ({
   economics: { referenceSnapshot: vi.fn() },
 }));
 vi.mock("../../../api/endpoints", () => ({ api }));
+// onChange окна — чтобы вызвать его так, как окно зовёт его после ответа сервера.
+const captured = vi.hoisted(() => ({ onChange: undefined as undefined | ((passport: unknown) => void) }));
+vi.mock("./DrillPassportDialog", async (original) => {
+  const module = await original<typeof import("./DrillPassportDialog")>();
+  return {
+    DrillPassportDialog: (props: Parameters<typeof module.DrillPassportDialog>[0]) => {
+      captured.onChange = props.onChange as (passport: unknown) => void;
+      return module.DrillPassportDialog(props);
+    },
+  };
+});
 
 import { DrillPassportPanel } from "./DrillPassportPanel";
 
@@ -114,6 +125,23 @@ describe("DrillPassportPanel", () => {
     await new Promise((done) => setTimeout(done, 20));
     expect(screen.queryByText(/№ 66-26\/Б/)).toBeNull();
     expect(screen.queryByRole("dialog", { name: /Паспорт на бурение №/ })).toBeNull();
+  });
+
+  it("паспорт другого блока из окна панель не принимает", async () => {
+    api.drillPassport.list.mockResolvedValue([passport66()]);
+    const user = userEvent.setup();
+    const { rerender } = render(<DrillPassportPanel designId="block-66" designSaved />);
+    await user.click(await screen.findByRole("button", { name: "Открыть паспорт" }));
+    await screen.findByRole("dialog", { name: /Паспорт на бурение №/ });
+    // Окно отдаёт паспорт после того, как открыли другой блок.
+    const onChange = captured.onChange;
+    api.drillPassport.list.mockResolvedValue([]);
+    rerender(<DrillPassportPanel designId="block-67" designSaved />);
+    await screen.findByRole("button", { name: "Создать паспорт" });
+    onChange?.({ ...passport66(), current_revision_id: "rev-1" });
+    await new Promise((done) => setTimeout(done, 20));
+    expect(screen.queryByText(/№ 66-26\/Б/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Создать паспорт" })).toBeTruthy();
   });
 
   it("несохранённый проект блока — предупреждение", async () => {

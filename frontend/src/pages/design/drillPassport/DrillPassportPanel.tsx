@@ -119,7 +119,11 @@ export function DrillPassportPanel({ designId, designSaved }: { designId: string
             setOpen(false);
             setReload((value) => value + 1);
           }}
-          onChange={setPassport}
+          onChange={(next) => {
+            // Ответ окна (сохранение, загрузка, выпуск), пришедший после смены
+            // блока, — про прежний блок: панель его не принимает.
+            if (next.design_id === shownFor.current) setPassport(next);
+          }}
         />
       )}
     </section>

@@ -1219,3 +1219,19 @@ def test_prefilled_texts_fit_passport_limits(client, references):
               "payload": payload, "expected_version": passport["version"]},
     )
     assert saved.status_code == 200, saved.text
+
+
+def test_rig_details_inherited_only_for_same_rig_type(client, references):
+    extra = {
+        **DRILL_REFERENCES,
+        ("equipment_types", "ZEGA"): ("ZEGA D480A", {"kind": "DRILL_RIG"}),
+        ("equipment_assets", "ZEGA-03"): ("ZEGA № 3", {"equipment_type_code": "ZEGA", "inventory_number": "03"}),
+    }
+    references["snapshot"] = _snapshot(site=None, rig=None, extra=extra)
+    _bare(client, rig_number="12", bit_diameter_mm=152)
+    payload = _bare(client, rig_type_code="ZEGA")["payload"]
+    # Другой станок — его название и № из справочников, не от JK830.
+    assert (payload["rig_name"], payload["rig_number"]) == ("ZEGA D480A", "03")
+    assert payload["bit_diameter_mm"] is None
+    same = _bare(client)["payload"]
+    assert (same["rig_type_code"], same["rig_number"]) == ("ZEGA", "03")

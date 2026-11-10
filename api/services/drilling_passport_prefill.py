@@ -29,8 +29,10 @@ from design.models import BlastDesign
 # Поля, которые переходят из прошлого паспорта того же объекта.
 FROM_PREVIOUS = (
     "agreed_by", "approved_by", "compiled_by", "personnel", "basis", "extra_approvals",
-    "tol_depth_m", "tol_collar_m", "w_max_m", "rig_type_code", "rig_name", "rig_number", "bit_diameter_mm",
+    "tol_depth_m", "tol_collar_m", "w_max_m", "rig_type_code",
 )
+# Данные станка — из прошлого паспорта только при том же типе станка.
+RIG_FROM_PREVIOUS = ("rig_name", "rig_number", "bit_diameter_mm")
 # Из прошлого паспорта — только если справочник объекта их не дал.
 FALLBACK_FROM_PREVIOUS = ("object_name", "customer")
 DEFAULT_SHIFT_HOURS = 11.0
@@ -178,6 +180,11 @@ def prefill(
     put("horizon", floor_horizon(design))
     rig_code = str(payload.get("rig_type_code") or "") or ("" if "rig_type_code" in explicit else _rig_type(snapshot, site_code))
     put("rig_type_code", rig_code)
+    if previous is not None and str(previous.get("rig_type_code") or "") == rig_code and rig_code:
+        for key in RIG_FROM_PREVIOUS:
+            value = previous.get(key)
+            if key not in explicit and not _empty(value):
+                payload[key] = value
     rig_item = snapshot.item("equipment_types", rig_code) if snapshot is not None and rig_code else None
     if rig_item is not None:
         put("rig_name", str(rig_item.name or ""))

@@ -232,3 +232,24 @@ def test_back_layout_with_face_row_flag_keeps_generator_numbers():
     scrambled = _scrambled(generated)
     mapping = renumber_map(scrambled, contour, params)
     assert [mapping.get(h.id, h.id) for h in scrambled] == [h.id for h in generated]
+
+
+def test_satellites_do_not_split_face_row_echelons():
+    """Сателлиты генератор добавляет после привязки ряда у бровки — и
+    перенумерация не берёт их в столбцы (ревью Codex PR #172)."""
+    contour = block67_contour()
+    params = {**BASE, "row_azimuth_deg": 0.0, "first_row_follow_face": True, "satellite_holes": True}
+    generated = generate_pattern(contour, params)
+    assert any(h.kind == "satellite" for h in generated)
+    assert renumber_map(generated, contour, params) == {}
+
+
+def test_inferred_azimuth_of_staggered_grid_with_wide_rows():
+    """Шахматка 8 × 3 м: ближайшие соседки — по диагоналям, ряд (8 м) дальше;
+    ряды всё равно вдоль бровки (ревью Codex PR #172)."""
+    contour = _rect([[0, 1]], width=100.0, height=80.0)
+    params = {**BASE, "pattern": "staggered", "spacing_a_m": 8.0, "burden_b_m": 3.0}
+    generated = generate_pattern(contour, params)
+    scrambled = _scrambled(generated)
+    mapping = renumber_map(scrambled, contour, _without_azimuth(params))
+    assert [mapping.get(h.id, h.id) for h in scrambled] == [h.id for h in generated]

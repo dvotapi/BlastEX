@@ -18,9 +18,18 @@ import numpy as np
 from scipy.spatial import cKDTree
 
 from design.geometry import crest_azimuth_deg, local_basis, pattern_origin
-from design.models import FACE_TOE_KIND, BlockContour, Hole, row_family
+from design.models import FACE_TOE_KIND, BlockContour, Hole, main_grid_kind, row_family
 from design.numbering import number_by_position
 from design.pattern import face_row_numbering_xy, uses_back_layout
+
+# Вставки, которые генератор добавляет после ряда у бровки (`pattern._finish_pattern`).
+_ADDED_AFTER_LAYOUT = ("buffer", "stab", "satellite", "infill")
+
+
+def _in_generated_layout(hole: Hole, main_kind: str) -> bool:
+    """Скважина раскладки до вставок: не ручная и не вставка (кроме вида основной сетки)."""
+    return hole.source != "manual" and (hole.kind not in _ADDED_AFTER_LAYOUT or hole.kind == main_kind)
+
 
 class RenumberConflict(ValueError):
     """Новые номера совпали бы у разных скважин (например, пара у откоса без
@@ -46,17 +55,17 @@ def _axial_mean(angles: list[float]) -> float:
 def _lattice_azimuth(holes: list[Hole], contour: BlockContour) -> float:
     """Азимут рядов по самим скважинам — когда в параметрах сетки его нет.
 
-    Направления решётки: на ближайших соседей основной сетки (по модулю 180°)
-    и, у каждой скважины, на ближайшую соседку не по первому направлению —
-    иначе у прямоугольной сетки с шагом вдоль ряда больше 1,5 ЛСП ряды не
-    видны. Градусные корзины только находят направление, само оно — среднее
+    Направления решётки (по модулю 180°) — на 8 ближайших соседок каждой
+    скважины основной сетки (`holes` — уже без ручных и вставок), без отсечки
+    по расстоянию: у прямоугольной и шахматной сетки с широким шагом ряд
+    дальше диагоналей и глубины. Градусные корзины только находят направление, само оно — среднее
     точных углов (округление до градуса сдвинуло бы эшелон на 10 м на 7 см
     при допуске 5 см). Ряды — направление, ближайшее к бровке; нет бровки —
-    самое частое.
+    самое частое среди ближайших соседок.
     """
 
     points = np.array(
-        [(h.collar.x, h.collar.y) for h in holes if row_family(h.kind) == "grid" and h.kind != FACE_TOE_KIND and h.source != "manual"],
+        [(h.collar.x, h.collar.y) for h in holes if row_family(h.kind) == "grid" and h.kind != FACE_TOE_KIND],
         dtype=float,
     )
     if len(points) < 3:
@@ -88,16 +97,21 @@ def _lattice_azimuth(holes: list[Hole], contour: BlockContour) -> float:
     if not found:
         return 0.0
     first = found[0][0]
-    # Второе направление решётки: у каждой скважины ближайшая соседка не по первому.
-    second = []
+    # Направления решётки — на 8 ближайших соседок без отсечки по расстоянию:
+    # у прямоугольной и шахматной сетки с широким шагом ряд дальше диагоналей
+    # и глубины. Скважина голосует за направление один раз (иначе соседки на
+    # одной линии — на 3, 6, 9 м — перевешивают); шум у краёв блока отсекает
+    # порог в половину главного.
+    lattice_angles: list[float] = []
     for row in range(len(points)):
+        seen: set[int] = set()
         for other in indices[row, 1:]:
             value = angle(row, int(other))
-            if _axial_gap(value, first) >= 20.0:
-                second.append(value)
-                break
-    candidates = [direction for direction, count in found if count * 2 >= found[0][1]]
-    candidates += [direction for direction, _ in peaks(second)[:1]]
+            if round(value) % 180 not in seen:
+                seen.add(round(value) % 180)
+                lattice_angles.append(value)
+    lattice = peaks(lattice_angles)
+    candidates = [direction for direction, count in lattice if count * 2 >= lattice[0][1]]
     crest = crest_azimuth_deg(contour)
     if crest is None:
         return first
@@ -115,17 +129,20 @@ def renumber_map(holes: list[Hole], contour: BlockContour, pattern_params: Mappi
     """
 
     params = pattern_params or {}
+    main_kind = main_grid_kind(dict(params))
+    layout = [hole for hole in holes if _in_generated_layout(hole, main_kind)]
     if "row_azimuth_deg" in params:
         row_azimuth = float(params["row_azimuth_deg"])
     else:
-        row_azimuth = _lattice_azimuth(holes, contour)
+        row_azimuth = _lattice_azimuth(layout, contour)
     row_dir, advance_dir = local_basis(row_azimuth)
     _origin, deep_dir = pattern_origin(contour, row_dir, advance_dir)
     # Как у генератора: ряд вдоль бровки привязывается к столбцам, только когда
     # он построен («Первый ряд вдоль бровки», свободная поверхность есть, сетка
-    # не «от тыла»); столбцы — по построенным скважинам, без ручных.
+    # не «от тыла»); столбцы — по скважинам, которые были у генератора к этому
+    # месту: без ручных и без вставок, добавленных после (`_finish_pattern`).
     face_row = (
-        face_row_numbering_xy([h for h in holes if h.source != "manual"], row_dir, {})
+        face_row_numbering_xy(layout, row_dir, {})
         if params.get("first_row_follow_face") and contour.free_faces and not uses_back_layout(contour, params)
         else {}
     )

@@ -55,7 +55,7 @@ from design.reporting.drill.archive import build_zip
 from design.reporting.drill.coords_pdf import render_coords_pdf
 from design.reporting.drill.coords_xlsx import render_coords_xlsx
 from design.reporting.drill.pdf import render_passport_pdf
-from design.models import BlastDesign
+from design.models import BlastDesign, BlockContour
 from design.spatial.cad.repository import CadSourceNotFound
 
 
@@ -228,6 +228,28 @@ def _apply_site_profile(payload: dict[str, Any], explicit: set[str], snapshot) -
             payload[key] = texts[key]
 
 
+# Имя контура по умолчанию (`BlockContour.name`): не номер блока.
+DEFAULT_CONTOUR_NAME = BlockContour().name
+_BLOCK_NUMBER = re.compile(r"^\s*блок\s*№?\s*(.+?)\s*$", re.IGNORECASE)
+
+
+def _block_label(design: BlastDesign) -> str:
+    """«Блок» нового паспорта: имя контура, если оно задано (не «Блок» по
+    умолчанию), иначе номер из названия проекта («Блок 67» → «67»), иначе
+    само название; не длиннее поля паспорта."""
+
+    contour = (design.contour.name or "").strip()
+    if contour and contour != DEFAULT_CONTOUR_NAME:
+        label = contour
+    else:
+        name = (design.name or "").strip()
+        match = _BLOCK_NUMBER.match(name)
+        # Без номера в названии («Новый паспорт», «Блок») — поле пустым, а не
+        # «блок № Новый паспорт» в шапке PDF.
+        label = match.group(1) if match else (name if any(ch.isdigit() for ch in name) else "")
+    return label[: TEXT_LIMITS["block"]]
+
+
 def default_passport_no(block: str, passport_date: str) -> str:
     """№ паспорта по умолчанию: «{блок}-{гг}/Б»."""
 
@@ -248,7 +270,7 @@ def create_passport(
     if not payload["block"]:
         # Имя контура не ограничено, а блок паспорта — да: иначе черновик не
         # сохранить повторно (предел проверяется при записи).
-        payload["block"] = (design.contour.name or design.name or "").strip()[: TEXT_LIMITS["block"]]
+        payload["block"] = _block_label(design)
     passports = list(repository.list_passports(organization_id, None))
     if not payload["site_code"] and "site_code" not in explicit:
         # Активный объект организации; не определился — объект последнего

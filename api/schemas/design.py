@@ -1172,6 +1172,19 @@ class HoleRecomputeResponse(BaseModel):
     toe_line: ToeLineSchema | None = None
 
 
+class HoleRenumberRequest(BaseModel):
+    """Перенумерация скважин по правилу эшелонов: скважины, контур, параметры сетки."""
+
+    holes: list[HoleSchema] = Field(min_length=1, max_length=MAX_RECOMPUTE_HOLES)
+    contour: BlockContourSchema
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class HoleRenumberResponse(BaseModel):
+    # Старый номер → новый; скважины, номер которых не меняется, не перечислены.
+    mapping: dict[str, str] = Field(default_factory=dict)
+
+
 class HoleInsertRequest(BaseModel):
     contour: BlockContourSchema
     x: float

@@ -174,6 +174,7 @@ import { MovementPanel } from "./MovementPanel";
 import { PassportPanel } from "./PassportPanel";
 import { MassBlastPanel } from "./MassBlastPanel";
 import { DrillPassportPanel } from "./drillPassport/DrillPassportPanel";
+import { remapHoleId, remapHoleIds, renumberParams } from "./holeRenumber";
 
 // three.js — крупная зависимость, нужная только вкладке «3D»: грузим лениво,
 // чтобы не раздувать основной бандл для остальных режимов редактора.
@@ -688,6 +689,58 @@ export function DesignPage({
       setPlans(result.items);
     } catch {
       // Список паспортов не критичен для работы редактора — молча пропускаем.
+    }
+  }
+
+  // Номера скважин по правилу эшелонов без перестроения сетки: для проектов,
+  // построенных до нумерации по эшелонам (PR #167). Ссылки (заряды, сеть,
+  // исполнение) переписываются одним шагом отмены.
+  async function renumberHoles() {
+    if (rejectLocked("designed")) return;
+    if (!document.holes.length) {
+      setError("В проекте нет скважин.");
+      return;
+    }
+    if (!window.confirm("Перенумеровать скважины по правилу эшелонов? Скважины останутся на месте, заряды, связи и исполнение — при своих скважинах. Паспорт на бурение возьмёт новые номера с новой ревизией.")) return;
+    setPatternBusy(true);
+    setError("");
+    try {
+      const holes = document.holes;
+      const { mapping } = await api.design.renumberHoles({
+        holes,
+        contour: document.contour,
+        params: renumberParams(document),
+      });
+      if (holesRef.current !== holes) {
+        // Пока шёл запрос, открыли другой проект или правили скважины:
+        // соответствие посчитано не для них.
+        setNotice("Скважины изменились во время перенумерации — нажмите ещё раз.");
+        return;
+      }
+      const count = Object.keys(mapping).length;
+      if (!count) {
+        setNotice("Номера скважин уже по правилу.");
+        return;
+      }
+      dispatch({ type: "RENUMBER_HOLES", mapping, holes });
+      // Состояние страницы с номерами скважин — на новые номера (старый номер
+      // теперь у другой скважины); анализ сбросит useStaleAnalysisReset,
+      // сравнения с фактом — как при перестроении сетки.
+      setSelected((previous) => new Set(remapHoleIds(previous, mapping)));
+      setInspectHoleId((previous) => remapHoleId(previous, mapping));
+      setPendingTieFromId((previous) => remapHoleId(previous, mapping));
+      setMeasureState((previous) => ({ ...previous, holeIds: remapHoleIds(previous.holeIds, mapping) }));
+      setHoleMenu(null);
+      setAsDrilledResult(null);
+      setAsChargedResult(null);
+      setAsFiredResult(null);
+      setExecutionResult(null);
+      setBlastResultCompare(null);
+      setNotice(`Перенумеровано скважин: ${count}. Сохраните проект и выпустите новую ревизию паспорта на бурение.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось перенумеровать скважины.");
+    } finally {
+      setPatternBusy(false);
     }
   }
 
@@ -2949,7 +3002,7 @@ export function DesignPage({
           )}
           {workflowStage === "pattern" && (
             <fieldset className="workstation-lock" disabled={designedLocked}>
-              <PatternPanel params={patternParams} onChange={(patch) => setPatternParams((prev) => ({ ...prev, ...patch }))} onGenerate={generatePattern} busy={patternBusy} contour={document.contour} />
+              <PatternPanel params={patternParams} onChange={(patch) => setPatternParams((prev) => ({ ...prev, ...patch }))} onGenerate={generatePattern} busy={patternBusy} contour={document.contour} onRenumber={document.holes.length ? () => void renumberHoles() : undefined} />
             </fieldset>
           )}
           {/* Вне блокировки: показ вариантов и «Остановить» доступны и у закрытого

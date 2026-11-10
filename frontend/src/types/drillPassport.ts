@@ -36,8 +36,6 @@ export type DrillPassportPayload = {
   alpha_deg: number | null;
   gamma_deg: number | null;
   axis_offset_m: number | null;
-  first_row_offset_m: number | null;
-  w_max_m: number | null;
   bench_height_for_s_m: number | null;
 };
 
@@ -76,7 +74,10 @@ export type FirstRowCheck = {
   prism_m: number | null;
   s_m: number | null;
   c_min_m: number | null;
+  /** Наименьшее расстояние устья первого ряда до верхней бровки по проекту. */
   c_m: number | null;
+  /** Наибольшее расстояние устья первого ряда до верхней бровки по проекту. */
+  c_max_m?: number | null;
   w_m: number | null;
   w_max_m: number | null;
   hs_m: number | null;

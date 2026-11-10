@@ -47,6 +47,7 @@ export function PatternPanel({
   onGenerate,
   busy,
   contour = null,
+  onRenumber,
 }: {
   params: PatternParams;
   onChange: (patch: Partial<PatternParams>) => void;
@@ -54,6 +55,8 @@ export function PatternPanel({
   busy: boolean;
   // Контур блока: по нему «от тыла» ставит азимут рядов
   contour?: BlockContour | null;
+  // Перенумерация готовых скважин по правилу эшелонов (без перестроения сетки)
+  onRenumber?: () => void;
 }) {
   const [azimuthBusy, setAzimuthBusy] = useState(false);
   // Параметры на момент ответа сервера: правки, сделанные, пока шёл запрос, не перезаписываются
@@ -412,6 +415,18 @@ export function PatternPanel({
           {busy ? "Строим сетку…" : "Сгенерировать сетку"}
         </button>
         <small>Ручные скважины сохраняются. Устье сажается на кровлю уступа.</small>
+        {onRenumber && (
+          <>
+            <button type="button" className="secondary-button" onClick={onRenumber} disabled={busy}>
+              Перенумеровать скважины по правилу
+            </button>
+            <small>
+              Для сетки, построенной до нумерации по эшелонам: номера — «1-01» у бровки на левом фланге (с
+              откоса вглубь), внутри эшелона — от бровки. Перенумерация не двигает скважины; заряды, связи
+              и исполнение остаются при своих скважинах.
+            </small>
+          </>
+        )}
       </div>
     </section>
   );

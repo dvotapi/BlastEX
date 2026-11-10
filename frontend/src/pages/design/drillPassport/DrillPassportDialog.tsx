@@ -44,7 +44,7 @@ const STATUS_LABEL: Record<DrillPassport["status"], string> = {
 
 // Величины, у которых сервер называет источник (`provenance`).
 const SOURCED = new Set<ScalarKey>([
-  "alpha_deg", "gamma_deg", "axis_offset_m", "bench_height_for_s_m", "first_row_offset_m", "w_max_m", "block_area_m2",
+  "alpha_deg", "gamma_deg", "axis_offset_m", "bench_height_for_s_m", "block_area_m2",
 ]);
 
 function referenceOptions(snapshot: EconomicsReferenceSnapshot, section: ReferenceSection): EconomicsReferenceItem[] {
@@ -554,7 +554,7 @@ export function DrillPassportDialog({
             ) : (
               <small>Проверяем…</small>
             )}
-            <small>Для инженера: в паспорт печатается только s.</small>
+            <small>Для инженера: в паспорт печатается только s; расстояние от бровки и ЛСПП — по проекту блока.</small>
           </section>
 
           <section>

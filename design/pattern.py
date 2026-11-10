@@ -4,7 +4,7 @@ from __future__ import annotations
 import bisect
 import math
 from dataclasses import replace
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 import numpy as np
 import shapely
@@ -72,6 +72,31 @@ FACE_PAIR_AZIMUTH_MAX_DEVIATION_DEG = 15.0
 # `design/back_layout.py`. Только квадратная и прямоугольная сетки.
 LAYOUT_ANCHOR_BACK = "back"
 LAYOUT_ANCHOR_PATTERNS = ("square", "rectangular")
+
+
+def layout_row_kind(params: Mapping[str, Any], row: int) -> str:
+    """Вид скважин ряда решётки, как его даёт генератор: `default_kind`, у
+    variable — строка `row_params` (`_row_config`)."""
+
+    pattern = str(params.get("pattern", "square"))
+    if pattern not in PATTERN_TYPES:
+        pattern = "square"
+    default_kind = _normalize_kind(params.get("default_kind", "production"), "production")
+    return _row_config(dict(params), pattern, max(row, 0), 1.0, 1.0, 0.0, default_kind)[3]
+
+
+def uses_back_layout(contour: BlockContour, params: Mapping[str, Any]) -> bool:
+    """Сетка строится шаблоном «от тыла»: ключ `layout_anchor`, квадратная или
+    прямоугольная сетка и тыл у блока. Тогда ряда вдоль бровки нет."""
+
+    pattern = str(params.get("pattern", "square"))
+    if pattern not in PATTERN_TYPES:
+        pattern = "square"
+    if params.get("layout_anchor") != LAYOUT_ANCHOR_BACK or pattern not in LAYOUT_ANCHOR_PATTERNS:
+        return False
+    from design.back_layout import back_side
+
+    return back_side(contour) is not None
 
 
 def generate_pattern(
@@ -153,19 +178,18 @@ def generate_pattern(
     row_dir, advance_dir = local_basis(row_azimuth_deg)
     origin, advance_dir = pattern_origin(contour, row_dir, advance_dir)
 
-    if params.get("layout_anchor") == LAYOUT_ANCHOR_BACK and pattern in LAYOUT_ANCHOR_PATTERNS:
-        from design.back_layout import back_boundary, back_grid, back_side
+    if uses_back_layout(contour, params):
+        from design.back_layout import back_boundary, back_grid
 
-        if back_side(contour) is not None:
-            # «Отступ от контура» у «от тыла» — только боковые стороны.
-            boundary = back_boundary(contour, edge_margin)
-            if len(boundary) < 3:
-                return _keep_manual(existing_holes)
-            return _finish_pattern(
-                back_grid(contour, params, boundary, surfaces),
-                contour, params, existing_holes, surfaces, boundary, origin, row_dir, advance_dir,
-                spacing_a, burden_b, diameter_mm, subdrill_m, angle_deg, azimuth_deg, depth_override,
-            )
+        # «Отступ от контура» у «от тыла» — только боковые стороны.
+        boundary = back_boundary(contour, edge_margin)
+        if len(boundary) < 3:
+            return _keep_manual(existing_holes)
+        return _finish_pattern(
+            back_grid(contour, params, boundary, surfaces),
+            contour, params, existing_holes, surfaces, boundary, origin, row_dir, advance_dir,
+            spacing_a, burden_b, diameter_mm, subdrill_m, angle_deg, azimuth_deg, depth_override,
+        )
 
     us = [(vx - origin[0]) * row_dir[0] + (vy - origin[1]) * row_dir[1] for vx, vy in verts]
     vs = [
@@ -464,7 +488,7 @@ def generate_pattern(
         holes = _off_crest(holes, contour, min_crest_offset_m(params))
 
     if skip_regular_first:
-        lattice_xy.update(_face_row_numbering_xy(holes, row_dir, lattice_xy))
+        lattice_xy.update(face_row_numbering_xy(holes, row_dir, lattice_xy))
 
     return _finish_pattern(
         holes, contour, params, existing_holes, surfaces, boundary, origin, row_dir, advance_dir,
@@ -473,7 +497,67 @@ def generate_pattern(
     )
 
 
-def _face_row_numbering_xy(
+def taper_numbering_xy(
+    holes: list[Hole],
+    contour: BlockContour,
+    params: Mapping[str, Any],
+    advance_dir: tuple[float, float],
+    face_row_count: int,
+) -> dict[int, tuple[float, float]]:
+    """Место в сетке до сдвига плавного перехода — для готовой сетки (перенумерация).
+
+    `_taper_front_rows` сдвигает устья рангов k ≥ 2 столбца к откосу на
+    H·(tg α₁ − tg α_k) и нумерует их по месту до сдвига. Здесь сдвиг
+    восстанавливается: столбцы — по устьям (сдвиг вдоль столбца их не
+    меняет), tg α₁ — наклон к откосу первой скважины столбца (у ряда вдоль
+    бровки — ближайшей по оси ряда его скважины), α_k — наклон к откосу самой
+    скважины (α₁/2 у ранга 2 при двух рядах перехода, иначе 0). `holes` — основная сетка, ряд вдоль бровки
+    (`face_row_count`) — первым. Перехода нет — пусто.
+    """
+
+    tilt_count, _tilt_deg = _front_rows_tilt(dict(params))
+    mode = front_rows_mode(dict(params), tilt_count) if contour.free_faces else None
+    pattern = str(params.get("pattern", "square"))
+    if mode != FRONT_ROWS_MODE_TAPER or tilt_count <= 0 or pattern == "staggered" or uses_back_layout(contour, params):
+        return {}
+    if not holes:
+        return {}
+    direction = (-advance_dir[0], -advance_dir[1])
+    height = contour.bench.height_m
+    spacing_a = float(params.get("spacing_a_m", 5.0))
+    collars = np.asarray([(h.collar.x, h.collar.y) for h in holes], dtype=float)
+
+    def tan_toward(hole: Hole) -> float:
+        drop = hole.collar.z - hole.toe.z
+        if drop <= 1e-9 or not _front_rows_member(hole):
+            return 0.0
+        run = (hole.toe.x - hole.collar.x) * direction[0] + (hole.toe.y - hole.collar.y) * direction[1]
+        return max(run / drop, 0.0)
+
+    face_across = collars[:face_row_count, 0] * -direction[1] + collars[:face_row_count, 1] * direction[0]
+    result: dict[int, tuple[float, float]] = {}
+    tolerance = TAPER_COLUMN_TOLERANCE_RATIO * spacing_a
+    for column in _taper_columns(collars, direction, tolerance, face_row_count):
+        if face_row_count:
+            across = collars[column[0], 0] * -direction[1] + collars[column[0], 1] * direction[0]
+            head = int(np.argmin(np.abs(face_across - across)))
+            members = column
+        else:
+            head = column[0]
+            members = column[1:]
+        tan_1 = tan_toward(holes[head])
+        if tan_1 <= 1e-12:
+            continue
+        for i in members:
+            # α_k — по самой скважине: ранг по оставшимся скважинам не тот, если
+            # генератор потом снял скважину столбца (`_off_crest`, за контуром).
+            shift = height * (tan_1 - tan_toward(holes[i]))
+            if shift > 1e-12:
+                result[id(holes[i])] = (float(collars[i, 0] - shift * direction[0]), float(collars[i, 1] - shift * direction[1]))
+    return result
+
+
+def face_row_numbering_xy(
     holes: list[Hole], row_dir: tuple[float, float], lattice_xy: dict[int, tuple[float, float]]
 ) -> dict[int, tuple[float, float]]:
     """Место для нумерации у ряда вдоль бровки (ряд 0): на линии ближайшего столбца.

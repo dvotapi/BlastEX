@@ -24,7 +24,7 @@ from design.lifecycle import designed_sha256
 from design.mass_blast import ValidationIssue
 from design.models import BlastDesign, Point3, in_main_grid
 from design.pattern import front_row_ranks
-from design.toe_line import crest_geometry, crest_polylines, floor_point, grid_steps_m, toe_line
+from design.toe_line import crest_geometry, crest_polylines, floor_burdens, floor_point, grid_steps_m, toe_line
 
 DRILL_FORMULA_VERSION = "drill-v1"
 
@@ -147,6 +147,9 @@ class FirstRowCheck:
     # Высота уступа, по которой посчитан s (Hs), и её происхождение.
     hs_m: float | None = None
     hs_source: str | None = None
+    # Наибольшее расстояние устья первого ряда до верхней бровки по проекту
+    # (`c_m` — наименьшее); None — бровки нет.
+    c_max_m: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -159,6 +162,7 @@ class FirstRowCheck:
             "w_max_m": self.w_max_m,
             "hs_m": self.hs_m,
             "hs_source": self.hs_source,
+            "c_max_m": self.c_max_m,
             "issues": [issue.to_dict() for issue in self.issues],
         }
 
@@ -386,17 +390,22 @@ def first_row_check(
     alpha_deg: float | None,
     gamma_deg: float | None,
     e_m: float | None,
-    c_m: float | None,
-    w_max_m: float | None,
     *,
     hs_m: float | None = None,
     hs_source: str = "MANUAL_OVERRIDE",
+    crest_m: Mapping[str, float] | None = None,
+    burdens: Mapping[str, tuple[float, float | None, bool]] | None = None,
 ) -> FirstRowCheck:
-    """Расстояние s от бровки и проверка ЛСПП первого ряда.
+    """Расстояние s от бровки и проверка первого ряда по проекту блока.
 
     s считается по проектной высоте уступа Hs (`hs_m`; не задана — H₁,
-    источник CALCULATED), W — по фактической высоте каждой скважины первого
-    ряда. Принятое расстояние c до оси первого ряда не задано — берётся c_min.
+    источник CALCULATED). c и W — из проекта (доработки 10.11.2026, ручного
+    ввода нет): `crest_m` — расстояние устья каждой скважины первого ряда до
+    верхней бровки, `burdens` — её ЛСП у подошвы, допустимая (W проекта +
+    3 %, `toe_line.floor_burdens`) и признак «выходит в откос»; показываются
+    ЛСП и допуск скважины с наибольшим превышением (у доменов допуски разные).
+    Нет бровки (`crest_m` None) — c и W не
+    измерить, предупреждение `first_row_not_measured`.
     Ошибка только одна — нет углов α, γ: без них s не считается. Остальное —
     предупреждения: выпуск не блокируют, требуют отметки «просмотрено».
     """
@@ -405,7 +414,7 @@ def first_row_check(
     first = [row for row in rows if row.first_row]
     if not first:
         issues.append(_issue("error", "first_row_empty", "В паспорте нет скважин первого ряда.", "holes"))
-        return FirstRowCheck(None, None, None, None, c_m, None, w_max_m, issues, hs_m, hs_source if hs_m is not None else None)
+        return FirstRowCheck(None, None, None, None, None, None, None, issues, hs_m, hs_source if hs_m is not None else None)
     h1 = max(row.bench_height_m for row in first)
     if hs_m is None:
         hs_m, hs_source = h1, "CALCULATED"
@@ -425,6 +434,74 @@ def first_row_check(
             )
         )
 
+    # Измерено по проекту — не зависит от углов.
+    c_values = {row.number: crest_m[row.number] for row in first if crest_m is not None and row.number in crest_m}
+    c_low = min(c_values.values()) if c_values else None
+    c_high = max(c_values.values()) if c_values else None
+    measured = {row.number: burdens[row.number] for row in first if burdens is not None and row.number in burdens}
+    beyond = [number for number, (_, _, out) in measured.items() if out]
+    inside = {number: (value, allowed) for number, (value, allowed, out) in measured.items() if not out}
+    # Скважина с наибольшим превышением допуска (без допуска — с наибольшей ЛСП).
+    governing = max(
+        inside.items(),
+        key=lambda item: (item[1][1] is not None, item[1][0] - (item[1][1] or 0.0)),
+        default=None,
+    )
+    w = governing[1][0] if governing else None
+    w_max = governing[1][1] if governing else None
+    if crest_m is None:
+        issues.append(
+            _issue(
+                "warning",
+                "first_row_not_measured",
+                "У блока нет верхней бровки: расстояние первого ряда от бровки и ЛСПП у подошвы "
+                "по проекту не измерить.",
+                "holes",
+            )
+        )
+    elif not measured:
+        issues.append(
+            _issue(
+                "warning",
+                "first_row_burden_not_measured",
+                "ЛСПП первого ряда у подошвы по проекту не посчитана: нет линии подошвы откоса.",
+                "holes",
+            )
+        )
+    elif inside and all(allowed is None for _, allowed in inside.values()):
+        issues.append(
+            _issue(
+                "warning",
+                "w_max_missing",
+                "В проекте блока не задана W (шаг сетки): допустимая ЛСПП не известна, проверка ЛСПП пропущена.",
+                "holes",
+            )
+        )
+    else:
+        over = sorted(
+            ((value - allowed, number) for number, (value, allowed) in inside.items() if allowed is not None and value > allowed + _EPS),
+            key=lambda item: -item[0],
+        )
+        if over:
+            issues.append(
+                _issue(
+                    "warning",
+                    "first_row_burden",
+                    f"ЛСПП первого ряда у подошвы до {w:.2f} м больше допустимой {w_max:.2f} м "
+                    f"(W проекта + 3 %); скважины: {_listed([number for _, number in over])}.",
+                    "holes",
+                )
+            )
+    if beyond:
+        issues.append(
+            _issue(
+                "warning",
+                "first_row_beyond_toe",
+                f"Скважины первого ряда выходят в откос (точка на подошве за линией подошвы): {_listed(beyond)}.",
+                "holes",
+            )
+        )
+
     if alpha_deg is None or gamma_deg is None or gamma_deg >= alpha_deg or gamma_deg <= 0:
         issues.append(
             _issue(
@@ -435,7 +512,7 @@ def first_row_check(
                 "alpha_deg",
             )
         )
-        return FirstRowCheck(h1, None, None, None, c_m, None, w_max_m, issues, hs_m, hs_source)
+        return FirstRowCheck(h1, None, None, None, c_low, w, w_max, issues, hs_m, hs_source, c_high)
 
     prism = hs_m * (_ctg(gamma_deg) - _ctg(alpha_deg))
     s = round_up_tenth(max(MIN_CREST_DISTANCE_M, prism))
@@ -453,7 +530,6 @@ def first_row_check(
         )
     c_min = s - (e_m or 0.0)
     if c_min < 0.0:
-        # Ось скважины не может стоять за бровкой: c_min < 0 занизил бы W.
         issues.append(
             _issue(
                 "warning",
@@ -464,69 +540,47 @@ def first_row_check(
             )
         )
         c_min = 0.0
-    accepted_c = c_m if c_m is not None else c_min
-    if c_m is not None and c_min is not None and c_m < c_min - _EPS:
+    close = sorted((value, number) for number, value in c_values.items() if value < c_min - _EPS)
+    if close:
         issues.append(
             _issue(
                 "warning",
                 "first_row_too_close",
-                f"Ось первого ряда в {c_m:.1f} м от бровки, а нужно не менее c_min = {c_min:.1f} м.",
-                "first_row_offset_m",
-            )
-        )
-
-    unknown = [row.number for row in first if row.face_shift_m is None]
-    if unknown:
-        issues.append(
-            _issue(
-                "warning",
-                "first_row_tilt_direction_unknown",
-                "Направление наклона к откосу не определено (нет бровки): ЛСПП посчитана как при "
-                f"наклоне к откосу и может быть занижена; скважины: {_listed(unknown)}.",
+                f"Устья первого ряда ближе c_min = {c_min:.1f} м к бровке (от {close[0][0]:.1f} м); "
+                f"скважины: {_listed([number for _, number in close])}.",
                 "holes",
             )
         )
-
-    w: float | None = None
-    if accepted_c is not None:  # c_min считается всегда, когда есть s
-        burdens = [
-            (row.bench_height_m * _ctg(alpha_deg) + accepted_c - _assumed_face_shift(row), row) for row in first
-        ]
-        w = max(item[0] for item in burdens)
-        if w_max_m is not None and w > w_max_m + _EPS:
-            over = sorted(
-                (item for item in burdens if item[0] > w_max_m + _EPS),
-                key=lambda item: (-item[1].bench_height_m, -item[0]),
-            )
-            issues.append(
-                _issue(
-                    "warning",
-                    "first_row_burden",
-                    f"ЛСПП первого ряда у подошвы W = {w:.2f} м больше допустимой {w_max_m:.2f} м; "
-                    f"скважины: {_listed([item[1].number for item in over])}.",
-                    "w_max_m",
-                )
-            )
-    if w_max_m is None:
-        issues.append(
-            _issue(
-                "warning",
-                "w_max_missing",
-                "Не задана допустимая ЛСПП Wпред: проверка ЛСПП первого ряда пропущена.",
-                "w_max_m",
-            )
-        )
-    return FirstRowCheck(h1, prism, s, c_min, accepted_c, w, w_max_m, issues, hs_m, hs_source)
+    return FirstRowCheck(h1, prism, s, c_min, c_low, w, w_max, issues, hs_m, hs_source, c_high)
 
 
-def _assumed_face_shift(row: DrillHoleRow) -> float:
-    """Смещение к откосу; не известно — как у наклона к откосу (формула §2.2)."""
+def _first_row_measures(
+    design: BlastDesign, rows: list[DrillHoleRow]
+) -> tuple[dict[str, float] | None, dict[str, tuple[float, float | None, bool]]]:
+    """Расстояние устья первого ряда до верхней бровки и ЛСП у подошвы по проекту.
 
-    if row.face_shift_m is not None:
-        return row.face_shift_m
-    if row.dip_deg <= _EPS or row.dip_deg >= VERTICAL_DIP_DEG:
-        return 0.0
-    return row.bench_height_m * _ctg(row.dip_deg)
+    Нет бровки — (None, {}). ЛСП — `toe_line.floor_burdens`: та же, что у
+    проверки сетки (наклон скважины, линия подошвы по съёмке или по углу);
+    допустимая — W проекта + 3 %; третье — скважина выходит в откос.
+    """
+
+    crest = crest_geometry(design.contour)
+    if crest is None:
+        return None, {}
+    first = {row.number for row in rows if row.first_row}
+    holes = [hole for hole in _passport_holes(design) if hole.id in first]
+    if not holes:
+        # Первого ряда нет (скважины выключены) — об этом скажет проверка
+        # `first_row_empty`/`no_holes`; меры считать не по чему.
+        return {}, {}
+    distances = shapely.distance(shapely.points([(hole.collar.x, hole.collar.y) for hole in holes]), crest)
+    crest_m = {hole.id: float(distance) for hole, distance in zip(holes, distances)}
+    burdens: dict[str, tuple[float, float | None, bool]] = {}
+    for hole_id, item in floor_burdens(design).items():
+        if hole_id in first:
+            allowed = None if item.allowed_m is None else float(item.allowed_m)
+            burdens[hole_id] = (float(item.value_m), allowed, bool(item.beyond_toe))
+    return crest_m, burdens
 
 
 # --- исходные величины ----------------------------------------------------
@@ -590,8 +644,6 @@ def resolve_inputs(
             (_number(payload, "bench_height_for_s_m"), manual),
             (_number(site, "design_bench_height_m"), "REFERENCE"),
         ),
-        "first_row_offset_m": _first_source((_number(payload, "first_row_offset_m"), manual)),
-        "w_max_m": _first_source((_number(payload, "w_max_m"), manual)),
         "block_area_m2": _first_source(
             (_number(payload, "block_area_m2"), manual),
             (contour_area if contour_area > 0 else None, "DESIGN"),
@@ -669,24 +721,26 @@ def passport_context(
         issues.append(
             _issue("warning", "block_area_missing", "Не задана площадь блока: объём и выход не посчитаны.", "block_area_m2")
         )
+    crest_m, burdens = _first_row_measures(design, rows)
     check = first_row_check(
         rows,
         values["alpha_deg"],
         values["gamma_deg"],
         values["axis_offset_m"],
-        values["first_row_offset_m"],
-        values["w_max_m"],
         hs_m=values["bench_height_for_s_m"],
         hs_source=provenance["bench_height_for_s_m"] or "CALCULATED",
+        crest_m=crest_m,
+        burdens=burdens,
     )
     if provenance["bench_height_for_s_m"] is None and check.hs_m is not None:
         # Проектная высота не задана — s посчитан по H₁.
         values["bench_height_for_s_m"] = check.hs_m
         provenance["bench_height_for_s_m"] = "CALCULATED"
-    if provenance["first_row_offset_m"] is None and check.c_m is not None:
-        provenance["first_row_offset_m"] = "CALCULATED"
-    for key in ("s_m", "c_min_m", "w_m"):
+    for key in ("s_m", "c_min_m"):
         provenance[key] = "CALCULATED" if getattr(check, key) is not None else None
+    # c, W и Wпред — измерены по проекту блока.
+    for key in ("c_m", "w_m", "w_max_m"):
+        provenance[key] = "DESIGN" if getattr(check, key) is not None else None
     return {
         "formula_version": DRILL_FORMULA_VERSION,
         "design_id": design.design_id,

@@ -138,7 +138,12 @@ def _snapshot(site=SITE, rig=RIG, stakeout_profiles=None, extra=None):
 
 @pytest.fixture(scope="module")
 def block66():
-    return _block66_design()
+    # W проекта 6,0 м (сетка 3,7 × 6,0): ЛСПП первого ряда у подошвы (до 5,94 м)
+    # в допуске — у выпуска нет предупреждения `first_row_burden`. С исходной
+    # квадратной 3,7 оно есть (см. `test_revision_needs_acknowledged_warnings`).
+    design = _block66_design()
+    design.pattern_params = {"pattern": "rectangular", "spacing_a_m": 3.7, "burden_b_m": 6.0}
+    return design
 
 
 @pytest.fixture()
@@ -171,7 +176,7 @@ def client(monkeypatch, repository, references, block66) -> TestClient:
     return TestClient(app)
 
 
-PAYLOAD = {"site_code": "ZHK", "rig_type_code": "JK830", "block_area_m2": 2790, "w_max_m": 6.0, "bit_diameter_mm": 140}
+PAYLOAD = {"site_code": "ZHK", "rig_type_code": "JK830", "block_area_m2": 2790, "bit_diameter_mm": 140}
 
 
 def _create(client, payload=PAYLOAD) -> dict:
@@ -217,8 +222,17 @@ def test_missing_angles_block_the_revision(client, references):
     assert response.status_code == 422
 
 
-def test_revision_needs_acknowledged_warnings(client):
-    passport = _create(client, {**PAYLOAD, "first_row_offset_m": 2.0, "w_max_m": 4.9})
+def test_revision_needs_acknowledged_warnings(client, block66):
+    # Квадратная 3,7: ЛСПП первого ряда до 5,94 м больше W проекта + 3 % = 3,81 м.
+    block66.pattern_params = {"pattern": "square", "spacing_a_m": 3.7}
+    try:
+        _check_acknowledged_warnings(client)
+    finally:
+        block66.pattern_params = {"pattern": "rectangular", "spacing_a_m": 3.7, "burden_b_m": 6.0}
+
+
+def _check_acknowledged_warnings(client):
+    passport = _create(client)
     url = f"{BASE}/{passport['id']}/revisions"
 
     refused = client.post(url, json={"expected_version": passport["version"]})
@@ -242,7 +256,7 @@ def test_revision_is_immutable_and_hash_repeats(client):
 
     # Черновик правят после выпуска — выпущенная ревизия не меняется.
     original = passport["payload"]
-    changed = {**original, "w_max_m": 4.9, "first_row_offset_m": 2.0}
+    changed = {**original, "horizon": "+398"}
     put = client.put(
         f"{BASE}/{passport['id']}",
         json={"passport_no": "66-26/Б", "passport_date": "2026-11-09", "payload": changed, "expected_version": 2},
@@ -250,7 +264,7 @@ def test_revision_is_immutable_and_hash_repeats(client):
     assert put.status_code == 200, put.text
     stored = client.get(f"{BASE}/revisions/{first['id']}").json()
     assert stored == first
-    assert stored["context"]["passport"]["payload"]["w_max_m"] == 6.0
+    assert stored["context"]["passport"]["payload"]["horizon"] == original["horizon"]
 
     # Вернули прежние поля — тот же снимок: новая ревизия не выпускается,
     # возвращается последняя (один PDF — один номер ревизии).
@@ -333,7 +347,7 @@ def test_too_long_passport_number_is_422(client):
     assert response.status_code == 422
 
 
-@pytest.mark.parametrize("field", ["w_max_m", "block_area_m2", "first_row_offset_m", "bit_diameter_mm"])
+@pytest.mark.parametrize("field", ["block_area_m2", "bit_diameter_mm", "alpha_deg"])
 def test_infinite_number_is_422(client, field):
     # 1e400 в JSON — бесконечность: в JSONB её не записать, ответ не сериализовать.
     body = '{"design_id": "block-66", "payload": {"%s": 1e400}}' % field
@@ -1160,7 +1174,7 @@ def test_new_draft_copies_previous_passport_of_site(client, references):
         "approved_by": {"position": "Директор", "organization": "ООО «Комплексные решения»", "name": "Петров П. П."},
         "compiled_by": {"position": "Инженер БВР", "organization": "", "name": "Сидоров С. С."},
         "personnel": [{"name": "Кузнецов", "position": "машинист"}],
-        "basis": "проект БВР № 12", "w_max_m": 6.5, "rig_number": "12", "bit_diameter_mm": 152,
+        "basis": "проект БВР № 12", "rig_number": "12", "bit_diameter_mm": 152,
         "extra_approvals": ["маркшейдер Орлова"], "tol_depth_m": 0.2,
     }
     _bare(client, **people)
@@ -1174,10 +1188,10 @@ def test_new_draft_copies_previous_passport_of_site(client, references):
 def test_previous_passport_of_other_site_is_not_copied(client, references):
     extra = {**DRILL_REFERENCES, ("sites", "OTHER"): ("Другой карьер", {})}
     references["snapshot"] = _snapshot(site=None, rig=None, extra=extra)
-    _bare(client, site_code="OTHER", basis="проект другого карьера", w_max_m=9.0)
+    _bare(client, site_code="OTHER", basis="проект другого карьера", rig_number="99")
     payload = _bare(client)["payload"]
     assert payload["basis"] == ""
-    assert payload["w_max_m"] is None
+    assert payload["rig_number"] == "07"
 
 
 def test_explicit_fields_are_kept(client, references):
@@ -1235,3 +1249,41 @@ def test_rig_details_inherited_only_for_same_rig_type(client, references):
     assert payload["bit_diameter_mm"] is None
     same = _bare(client)["payload"]
     assert (same["rig_type_code"], same["rig_number"]) == ("ZEGA", "03")
+
+
+
+def test_old_draft_with_manual_c_and_w_max_opens_and_saves(client, repository):
+    # До доработок 10.11.2026 c и Wпред вводились вручную: ключи старого
+    # черновика игнорируются, расчёт — по проекту блока.
+    passport = _create(client)
+    repository.passports[passport["id"]]["payload"].update(first_row_offset_m=2.0, w_max_m=4.9)
+    stored = client.get(f"{BASE}/{passport['id']}").json()
+    assert "w_max_m" not in stored["payload"]
+    saved = client.put(
+        f"{BASE}/{passport['id']}",
+        json={"passport_no": stored["passport_no"], "passport_date": stored["passport_date"],
+              "payload": {**stored["payload"], "w_max_m": 4.9}, "expected_version": stored["version"]},
+    )
+    assert saved.status_code == 200, saved.text
+    check = client.post(f"{BASE}/{passport['id']}/validate").json()["first_row_check"]
+    assert check["w_max_m"] == pytest.approx(6.0 * 1.03)
+
+
+@pytest.mark.parametrize(
+    ("contour_name", "design_name", "expected"),
+    [
+        ("Блок", "Блок 67", "67"),  # имя контура по умолчанию — номер из названия проекта
+        ("Блок", "блок №67-2", "67-2"),
+        ("Блок", "Уступ 120", "Уступ 120"),
+        ("Блок", "Новый паспорт", ""),  # в названии нет номера — поле пустое, а не «блок № Новый паспорт»
+        ("Блок", "Блок", ""),
+        ("66", "Блок 66", "66"),  # имя контура задано — оно
+        ("Блок", "", ""),
+    ],
+)
+def test_block_of_new_passport_skips_default_contour_name(client, block66, monkeypatch, contour_name, design_name, expected):
+    monkeypatch.setattr(block66.contour, "name", contour_name)
+    monkeypatch.setattr(block66, "name", design_name)
+    response = client.post(BASE, json={"design_id": "block-66", "passport_date": "2026-11-09", "payload": {"site_code": "ZHK"}})
+    assert response.status_code == 201, response.text
+    assert response.json()["payload"]["block"] == expected

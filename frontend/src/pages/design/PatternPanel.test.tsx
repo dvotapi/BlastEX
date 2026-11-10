@@ -376,3 +376,20 @@ describe("PatternPanel: опора сетки «от тыла»", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 });
+
+describe("PatternPanel: перенумерация скважин по правилу", () => {
+  it("кнопка зовёт перенумерацию, подсказка — без перестроения сетки", () => {
+    const onRenumber = vi.fn();
+    render(
+      <PatternPanel params={DEFAULT_PATTERN_PARAMS} onChange={() => {}} onGenerate={() => {}} busy={false} onRenumber={onRenumber} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Перенумеровать скважины по правилу" }));
+    expect(onRenumber).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/не двигает скважины/)).toBeTruthy();
+  });
+
+  it("без обработчика кнопки нет", () => {
+    render(<PatternPanel params={DEFAULT_PATTERN_PARAMS} onChange={() => {}} onGenerate={() => {}} busy={false} />);
+    expect(screen.queryByRole("button", { name: "Перенумеровать скважины по правилу" })).toBeNull();
+  });
+});

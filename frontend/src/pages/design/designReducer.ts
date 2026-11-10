@@ -2,6 +2,7 @@
 // useReducer + стек undo/redo. Камера, выделение и режим инструмента — вне
 // документа (не должны попадать в историю правок).
 import { faceAngleForImportedBlock } from "../../lib/faceAngle";
+import { renameHoleIds } from "./holeRenumber";
 import { isRecordFrozen } from "../../lib/lifecycle";
 import { collarZFromSurfaces } from "../../lib/surfaces";
 import type { CadCrs } from "../../types/cad";
@@ -42,6 +43,8 @@ export type DesignAction =
    * пор открыт другой паспорт, ответ устарел и не применяется.
    */
   | { type: "LOAD"; design: BlastDesign; base?: BlastDesign }
+  /** Новые номера скважин по правилу эшелонов: id и все ссылки на них, один шаг отмены. */
+  | { type: "RENUMBER_HOLES"; mapping: Record<string, string> }
   /** Ответ сервера на сохранение открытого паспорта: история правок остаётся. */
   | { type: "SAVED"; design: BlastDesign; base?: BlastDesign }
   | { type: "SET_NAME"; name: string }
@@ -354,6 +357,8 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
         as_fired_holes: [],
         blast_result: null,
       };
+    case "RENUMBER_HOLES":
+      return renameHoleIds(document, action.mapping);
     case "APPLY_LAYOUT": {
       // Как новая сетка: заряды и исполнение прежней раскладки сбрасываются.
       const cleared = reduceDocument(document, { type: "SET_HOLES", holes: action.holes });
@@ -574,6 +579,7 @@ const UNDOABLE: DesignAction["type"][] = [
   "CLEAR_SURFACE",
   "SET_HOLES",
   "APPLY_LAYOUT",
+  "RENUMBER_HOLES",
   "MOVE_HOLES",
   "UPDATE_HOLE",
   "ADD_HOLE",

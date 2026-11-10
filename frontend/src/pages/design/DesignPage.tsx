@@ -691,6 +691,36 @@ export function DesignPage({
     }
   }
 
+  // Номера скважин по правилу эшелонов без перестроения сетки: для проектов,
+  // построенных до нумерации по эшелонам (PR #167). Ссылки (заряды, сеть,
+  // исполнение) переписываются одним шагом отмены.
+  async function renumberHoles() {
+    if (rejectLocked("designed")) return;
+    if (!document.holes.length) {
+      setError("В проекте нет скважин.");
+      return;
+    }
+    if (!window.confirm("Перенумеровать скважины по правилу эшелонов? Скважины останутся на месте, заряды, связи и исполнение — при своих скважинах. Паспорт на бурение возьмёт новые номера с новой ревизией.")) return;
+    setPatternBusy(true);
+    setError("");
+    try {
+      const params = (document.pattern_params && Object.keys(document.pattern_params).length ? document.pattern_params : patternParams) as Record<string, unknown>;
+      const { mapping } = await api.design.renumberHoles({ holes: document.holes, contour: document.contour, params });
+      const count = Object.keys(mapping).length;
+      if (!count) {
+        setNotice("Номера скважин уже по правилу.");
+        return;
+      }
+      dispatch({ type: "RENUMBER_HOLES", mapping });
+      setSelected(new Set());
+      setNotice(`Перенумеровано скважин: ${count}. Сохраните проект и выпустите новую ревизию паспорта на бурение.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось перенумеровать скважины.");
+    } finally {
+      setPatternBusy(false);
+    }
+  }
+
   async function generatePattern() {
     if (rejectLocked("designed")) return;
     if (document.contour.vertices.length < 3) {
@@ -2949,7 +2979,7 @@ export function DesignPage({
           )}
           {workflowStage === "pattern" && (
             <fieldset className="workstation-lock" disabled={designedLocked}>
-              <PatternPanel params={patternParams} onChange={(patch) => setPatternParams((prev) => ({ ...prev, ...patch }))} onGenerate={generatePattern} busy={patternBusy} contour={document.contour} />
+              <PatternPanel params={patternParams} onChange={(patch) => setPatternParams((prev) => ({ ...prev, ...patch }))} onGenerate={generatePattern} busy={patternBusy} contour={document.contour} onRenumber={document.holes.length ? () => void renumberHoles() : undefined} />
             </fieldset>
           )}
           {/* Вне блокировки: показ вариантов и «Остановить» доступны и у закрытого

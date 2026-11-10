@@ -572,6 +572,9 @@ export const api = {
       surfaces: SurfaceSet;
       params: Record<string, unknown>;
     }) => post<HoleRecomputeResponse>(`${V1}/design/holes/recompute`, payload),
+    /** Номера скважин по правилу эшелонов: «старый → новый», скважины не двигаются. */
+    renumberHoles: (payload: { holes: Hole[]; contour: BlockContour; params: Record<string, unknown> }) =>
+      post<{ mapping: Record<string, string> }>(`${V1}/design/holes/renumber`, payload),
     importSurface: (payload: {
       content: string;
       filename: string;

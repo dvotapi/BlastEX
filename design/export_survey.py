@@ -66,6 +66,7 @@ __all__ = [
     "holes_dxf",
     "point_name",
     "stakeout_file",
+    "stakeout_issue",
     "stakeout_profile",
     "stakeout_snapshot",
 ]
@@ -495,8 +496,15 @@ def _stakeout_points(context: Mapping[str, Any], include_toe: bool) -> list[_Sta
             points.append(_StakeoutPoint(number, name + TOE_SUFFIX, *_toe(row), TOE_DESCRIPTION))
     long = [f"{p.number} ({p.name})" for p in points if len(p.name) > POINT_NAME_MAX]
     if long:
+        hint = (
+            f" Имя — «блок-номер»: сократите поле «Блок» паспорта (сейчас «{block.strip()}») "
+            "и выпустите новую ревизию."
+            if block.strip()
+            else " Сократите номера скважин."
+        )
         raise StakeoutError(
-            f"Имя точки длиннее {POINT_NAME_MAX} знаков — приёмник его не примет: {', '.join(long[:MAX_LISTED])}."
+            f"Имя точки длиннее {POINT_NAME_MAX} знаков — приёмник его не примет: "
+            f"{', '.join(long[:MAX_LISTED])}.{hint}"
         )
     by_name: dict[str, list[str]] = {}
     for point in points:
@@ -527,6 +535,20 @@ def _stakeout_dxf(points: list[_StakeoutPoint], elevation: bool) -> bytes:
         stream = io.StringIO()
         doc.write(stream)
     return stream.getvalue().encode("ascii")
+
+
+def stakeout_issue(context: Mapping[str, Any]) -> str | None:
+    """Почему файл выноса по профилю объекта не сформируется; None — сформируется.
+
+    Имена точек известны до ревизии: проверка паспорта показывает это заранее.
+    """
+
+    try:
+        _, profile = stakeout_profile(context, None)
+        _stakeout_points(context, bool(profile.get("include_toe", False)))
+    except StakeoutError as exc:
+        return str(exc)
+    return None
 
 
 def stakeout_file(context: Mapping[str, Any], profile: Mapping[str, Any]) -> bytes:

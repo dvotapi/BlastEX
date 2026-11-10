@@ -280,6 +280,14 @@ def _system_items() -> dict[str, tuple[ReferenceItem, ...]]:
             _item("CUSTOMER_ALL_HOLES", "Заказчик выносит все скважины", {"contractor_share": 0}),
             _item("CONTRACTOR_ALL_HOLES", "Подрядчик выносит все скважины", {"contractor_share": 1}),
         ),
+        # Встроенные профили файла выноса GNSS (TASK-015, PR 5): записями —
+        # чтобы их можно было выбрать профилем объекта.
+        "stakeout_profiles": (
+            _item("PNEZD_CSV", "CSV: точка, север, восток, отметка, описание", {"format": "PNEZD_CSV"}),
+            _item("PENZD_CSV", "CSV: точка, восток, север, отметка, описание", {"format": "PENZD_CSV"}),
+            _item("PNEZ_TXT", "TXT через пробел: точка, север, восток, отметка", {"format": "PNEZ_TXT"}),
+            _item("DXF_POINTS", "DXF: точки и номера скважин", {"format": "DXF_POINTS"}),
+        ),
         "site_infrastructure": (
             _item("REFUELING", "Заправка бурового станка", {"required_fields": ["available", "provider", "price_rub"]}),
             _item("MAINTENANCE_BOX", "Бокс для ТОиР", {"required_fields": ["available", "capacity", "price_rub"]}),

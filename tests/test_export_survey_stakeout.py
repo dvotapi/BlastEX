@@ -217,3 +217,24 @@ def test_dxf_points_opens_in_libreoffice(tmp_path) -> None:
     pdf = convert(source, "pdf", tmp_path)
     text = subprocess.run(["pdftotext", str(pdf), "-"], check=True, capture_output=True, text=True).stdout
     assert sum(1 for word in text.split() if word.startswith("66-")) == 196
+
+
+def test_long_block_error_names_the_field() -> None:
+    context = context66()
+    context["passport"]["payload"]["block"] = "Уступ 120/108"
+    with pytest.raises(StakeoutError, match="«Блок»"):
+        _file(context, "PNEZD_CSV")
+
+
+def test_builtin_profiles_are_reference_records() -> None:
+    from cost.v2.models import ReferenceItem
+    from cost.v2.references import default_reference_sections, validate_reference_sections
+
+    sections = dict(default_reference_sections())
+    assert [item.code for item in sections["stakeout_profiles"]] == list(BUILTIN_PROFILES)
+    assert {item.code: item.payload["format"] for item in sections["stakeout_profiles"]} == {
+        code: code for code in BUILTIN_PROFILES
+    }
+    sections["sites"] = (ReferenceItem(code="ZHK", name="Жуков Камень", payload={"stakeout_profile_code": "DXF_POINTS"}),)
+    issues = [issue for issue in validate_reference_sections(sections) if issue.section == "sites" and "DXF_POINTS" in issue.message]
+    assert issues == []

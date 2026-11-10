@@ -936,3 +936,28 @@ def test_stakeout_and_coords_use_revision_snapshot_only(client, references):
     )
     references["snapshot"] = _snapshot(site={**SITE, "stakeout_profile_code": "PNEZ_TXT"})
     assert {name: client.get(f"{base}/{name}").content for name in before} == before
+
+
+def test_long_block_name_is_warned_before_revision(client):
+    passport = _create(client, {**PAYLOAD, "block": "Уступ 120/108"})
+    body = client.post(f"{BASE}/{passport['id']}/validate").json()
+    issues = {issue["code"]: issue for issue in body["issues"]}
+    assert "stakeout_names_invalid" in issues
+    assert "«Блок»" in issues["stakeout_names_invalid"]["message"]
+
+
+def test_package_without_stakeout_explains_why(client, repository):
+    import io
+    import zipfile
+
+    revision = _revision(client)
+    holes = repository.revisions[revision["id"]]["context"]["holes"]
+    holes[0]["number"], holes[1]["number"] = "Р1", "R1"
+    response = client.get(f"{BASE}/revisions/{revision['id']}/package.zip")
+    assert response.status_code == 200, response.text
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        names = archive.namelist()
+        assert not any(name.endswith(".csv") for name in names)
+        note = archive.read("Файл выноса не сформирован.txt").decode("utf-8")
+    assert "Р1" in note
+    assert len(names) == 5

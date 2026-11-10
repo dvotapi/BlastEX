@@ -44,7 +44,9 @@ from design.export_survey import (
     ascii_name,
     holes_dwg,
     holes_dxf,
+    StakeoutError,
     stakeout_file,
+    stakeout_issue,
     stakeout_profile,
     stakeout_snapshot,
 )
@@ -341,6 +343,11 @@ def _context(
         "payload": payload,
     }
     context["stakeout"] = refs.stakeout
+    problem = stakeout_issue(context)
+    if problem:
+        context["issues"].append(
+            _warning("stakeout_names_invalid", f"Файл выноса для приёмника не сформируется. {problem}", "block")
+        )
     context["reference_revision_id"] = refs.revision_id
     return context
 
@@ -467,6 +474,7 @@ def holes_drawing(
 
 STAKEOUT_MEDIA_TYPES = {"csv": "text/csv", "txt": "text/plain", "dxf": "image/vnd.dxf"}
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+STAKEOUT_MISSING_NOTE = "Файл выноса не сформирован.txt"
 
 
 def _stakeout(context: Mapping[str, Any], revision_no: int, profile: str | None) -> tuple[bytes, str, str]:
@@ -522,7 +530,12 @@ def package_zip(
     context = revision["context"]
     number = int(revision["revision_no"])
     stem = f"{_file_stem(context)} rev{number}"
-    stakeout, stakeout_name, _ = _stakeout(context, number, None)
+    try:
+        stakeout, stakeout_name, _ = _stakeout(context, number, None)
+    except StakeoutError as exc:
+        # Паспорт, чертёж и ведомость от имён точек не зависят: архив
+        # выдаётся и без файла выноса — с причиной вместо него.
+        stakeout_name, stakeout = STAKEOUT_MISSING_NOTE, f"{exc}\n".encode("utf-8")
     entries = [
         (f"Паспорт на бурение {stem}.pdf", render_passport_pdf(context, revision_no=number)),
         (f"Скважины {stem}.dxf", holes_dxf(context, revision_no=number)),

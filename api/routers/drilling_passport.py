@@ -1,8 +1,8 @@
 """REST API паспорта на бурение (TASK-015): черновик, проверка, ревизия, PDF, DXF / DWG,
 файл выноса для GNSS, ведомость координат и архив.
 
-Подключается только при включённом флаге `drill_passport`
-(`BLASTEX_DRILL_PASSPORT_ENABLED`); без него маршрутов нет — 404.
+Подключается при включённом флаге `drill_passport` (`BLASTEX_DRILL_PASSPORT_ENABLED`,
+с PR 6 включён по умолчанию); выключен — маршрутов нет, 404.
 """
 from __future__ import annotations
 

@@ -30,6 +30,7 @@ INTELLIGENCE_PREFIXES: tuple[str, ...] = (
 )
 
 _TRUE_VALUES = {"1", "true", "yes", "on", "да"}
+_FALSE_VALUES = {"0", "false", "no", "off", "нет"}
 
 MISSING_DATABASE_URL = (
     f"{DATABASE_URL_ENV} не задан: BlastEX хранит справочники, паспорта и "
@@ -57,9 +58,13 @@ def intelligence_enabled() -> bool:
 
 
 def drill_passport_enabled() -> bool:
-    """Включён ли паспорт на бурение (TASK-015). По умолчанию выключен."""
+    """Включён ли паспорт на бурение (TASK-015).
 
-    return os.getenv(DRILL_PASSPORT_ENABLED_ENV, "").strip().lower() in _TRUE_VALUES
+    С PR 6 по умолчанию включён: выключает только явное «нет»
+    (`0`, `false`, `no`, `off`, `нет`).
+    """
+
+    return os.getenv(DRILL_PASSPORT_ENABLED_ENV, "").strip().lower() not in _FALSE_VALUES
 
 
 def dwg_export_enabled() -> bool:

@@ -209,7 +209,7 @@ function blastSheetPayload(input: BlastSheetInput) {
 
 export const api = {
   /** Какие модули включены в этой установке (ML-слой за фича-флагом). */
-  features: () => get<{ intelligence: boolean }>(`${V1}/features`),
+  features: () => get<{ intelligence: boolean; drill_passport?: boolean }>(`${V1}/features`),
   // --- auth ---
   me: () => get<User>(`${V1}/auth/me`),
   login: (email: string, password: string) =>

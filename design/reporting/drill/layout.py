@@ -116,6 +116,36 @@ def block_and_horizon(payload: Mapping[str, Any]) -> tuple[str, str]:
     return block, horizon
 
 
+def passport_header(context: Mapping[str, Any]) -> str:
+    """Шапка страниц: «Паспорт на бурение № 66-26/Б · блок № 66 · гор. +410,0»."""
+
+    passport = context.get("passport") or {}
+    payload = passport.get("payload") or {}
+    block, horizon = _text(payload.get("block")), _text(payload.get("horizon"))
+    return " · ".join(
+        part for part in (
+            f"Паспорт на бурение № {_text(passport.get('passport_no'))}",
+            f"блок № {block}" if block else "",
+            f"гор. {horizon}" if horizon else "",
+        ) if part
+    )
+
+
+def crs_line(crs: Mapping[str, Any] | None) -> str:
+    """СК и система высот снимка — для `BLX_INFO` чертежа и ведомости координат."""
+
+    if crs is None:
+        return "СК не сохранена в ревизии"
+    name = str(crs.get("name") or "").strip()
+    epsg = crs.get("epsg")
+    heights = str(crs.get("height_system") or "").strip()
+    if (not name or name == "local") and not epsg:
+        line = "СК не задана (условная)"
+    else:
+        line = f"СК: {name or 'EPSG'}" + (f" (EPSG {epsg})" if epsg else "")
+    return line + (f"; высоты: {heights}" if heights else "; система высот не задана")
+
+
 def _title(passport: Mapping[str, Any], payload: Mapping[str, Any], summary: Mapping[str, Any]) -> TitlePage:
     block, horizon = block_and_horizon(payload)
     block_line = " / ".join(part for part in (block, horizon) if part) or fmt.DASH
@@ -248,16 +278,8 @@ def build_layout(
     depth_pages = _depth_pages(context, payload, profile, rows_per_column, columns)
     before_plan = 2 + len(depth_pages)
     blank = (before_plan + 1) % 2 == 1
-    block, horizon = _text(payload.get("block")), _text(payload.get("horizon"))
-    header = " · ".join(
-        part for part in (
-            f"Паспорт на бурение № {_text(passport.get('passport_no'))}",
-            f"блок № {block}" if block else "",
-            f"гор. {horizon}" if horizon else "",
-        ) if part
-    )
     return PassportLayout(
-        header=header,
+        header=passport_header(context),
         title=_title(passport, payload, summary),
         safety=_safety(payload, profile, context.get("first_row_check") or {}),
         depth_pages=depth_pages,

@@ -804,3 +804,26 @@ def test_drill_passport_profile_limits_keep_page_readable() -> None:
     DrillPassportProfilePayload.model_validate(
         {"safety_items": [{"text": "т" * 133}] * 12, "drilling_technology": "т" * 300, "safety_basis": "т" * 200}
     )
+
+
+def test_stakeout_profile_section() -> None:
+    from cost.v2.schemas.organization import SitePayload
+    from cost.v2.schemas.stakeout_profile import StakeoutProfilePayload
+
+    assert SECTION_SCHEMAS["stakeout_profiles"] is StakeoutProfilePayload
+    definition = REFERENCE_SECTION_DEFINITIONS["stakeout_profiles"]
+    assert definition["label"] == "Профиль файла выноса GNSS"
+    assert definition["group"] == "drilling"
+    profile = StakeoutProfilePayload.model_validate({})
+    assert (profile.format, profile.header, profile.elevation, profile.include_toe) == ("PNEZD_CSV", False, True, False)
+    with pytest.raises(ValidationError):
+        StakeoutProfilePayload.model_validate({"format": "GSI"})
+    schema = section_json_schema("stakeout_profiles")
+    assert schema["properties"]["format"]["title"] == "Формат"
+    site = SitePayload.model_validate({"stakeout_profile_code": "TRIMBLE"})
+    assert site.stakeout_profile_code == "TRIMBLE"
+    assert section_json_schema("sites")["properties"]["stakeout_profile_code"]["x-ref"] == "stakeout_profiles"
+    issues = validate_reference_sections(
+        {"stakeout_profiles": [_item("TRIMBLE", {"format": "PENZD_CSV", "header": True}, "Trimble Access")]}
+    )
+    assert [issue for issue in issues if issue.section == "stakeout_profiles"] == []

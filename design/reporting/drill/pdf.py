@@ -63,8 +63,6 @@ CELL_PAD_X = 4
 CELL_PAD_Y = 2
 ACQUAINTANCE_ROW_H = 7.2 * mm
 LOGO_W = 34 * mm
-# Шапка справа от логотипа: от конца логотипа с зазором до правого поля.
-HEADER_W = FRAME_W - LOGO_W - 8 * mm
 
 
 def _register_fonts() -> None:
@@ -379,29 +377,44 @@ def _page_titles(layout: PassportLayout) -> list[str]:
     return titles
 
 
-def _decorate(layout: PassportLayout, titles: list[str]):
-    logo = str(ASSETS / "logo.png")
+def draw_page_frame(
+    canvas, *, page_w: float, page_h: float, margin_x: float, header: str, title: str, footer: str
+) -> None:
+    """Оформление листа документов паспорта: логотип, красная линия, справа
+    шапка (серым, обрезается по ширине) и название листа, подвал по центру.
+    Пустая шапка или название не рисуются. Общее для паспорта и ведомости."""
 
+    canvas.saveState()
+    logo = str(ASSETS / "logo.png")
+    canvas.drawImage(logo, margin_x, page_h - 17 * mm, width=LOGO_W, height=LOGO_W * 738 / 2400, mask="auto")
+    canvas.setStrokeColor(RED)
+    canvas.setLineWidth(1.2)
+    canvas.line(margin_x, page_h - 20 * mm, page_w - margin_x, page_h - 20 * mm)
+    if header:
+        canvas.setFillColor(GREY)
+        canvas.setFont(FONT, 7.5)
+        header_w = page_w - 2 * margin_x - LOGO_W - 8 * mm
+        canvas.drawRightString(page_w - margin_x, page_h - 11.5 * mm, fit_text(header, FONT, 7.5, header_w))
+    if title:
+        canvas.setFillColor(GRAPHITE)
+        canvas.setFont(FONT_BOLD, 8.5)
+        canvas.drawRightString(page_w - margin_x, page_h - 16.5 * mm, title)
+    canvas.setFillColor(GREY)
+    canvas.setFont(FONT, 7)
+    canvas.drawCentredString(page_w / 2, 8 * mm, footer)
+    canvas.restoreState()
+
+
+def _decorate(layout: PassportLayout, titles: list[str]):
     def on_page(canvas, _doc) -> None:
         number = canvas.getPageNumber()
-        canvas.saveState()
-        canvas.drawImage(logo, MARGIN_X, PAGE_H - 17 * mm, width=LOGO_W, height=LOGO_W * 738 / 2400, mask="auto")
-        canvas.setStrokeColor(RED)
-        canvas.setLineWidth(1.2)
-        canvas.line(MARGIN_X, PAGE_H - 20 * mm, PAGE_W - MARGIN_X, PAGE_H - 20 * mm)
-        if number > 1:
-            canvas.setFillColor(GREY)
-            canvas.setFont(FONT, 7.5)
-            canvas.drawRightString(PAGE_W - MARGIN_X, PAGE_H - 11.5 * mm, fit_text(layout.header, FONT, 7.5, HEADER_W))
-            title = titles[number - 1] if number - 1 < len(titles) else ""
-            if title:
-                canvas.setFillColor(GRAPHITE)
-                canvas.setFont(FONT_BOLD, 8.5)
-                canvas.drawRightString(PAGE_W - MARGIN_X, PAGE_H - 16.5 * mm, title)
-        canvas.setFillColor(GREY)
-        canvas.setFont(FONT, 7)
-        canvas.drawCentredString(PAGE_W / 2, 8 * mm, FOOTER.format(page=number, total=layout.page_count))
-        canvas.restoreState()
+        # Шапка и название — со стр. 2: на титуле их нет.
+        title = titles[number - 1] if 1 < number <= len(titles) else ""
+        draw_page_frame(
+            canvas, page_w=PAGE_W, page_h=PAGE_H, margin_x=MARGIN_X,
+            header=layout.header if number > 1 else "", title=title,
+            footer=FOOTER.format(page=number, total=layout.page_count),
+        )
 
     return on_page
 

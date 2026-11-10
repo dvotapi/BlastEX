@@ -18,6 +18,7 @@ from cost.v2.models import (
     ReferenceSnapshot,
 )
 from cost.v2.schemas import SECTION_SCHEMAS, field_label, reference_paths
+from cost.v2.schemas.stakeout_profile import STAKEOUT_FORMAT_LABELS
 from cost.v2.packages import (
     DEFAULT_OPERATIONS,
     DEFAULT_PACKAGES,
@@ -137,6 +138,7 @@ REFERENCE_SECTION_DEFINITIONS: dict[str, dict[str, Any]] = {
     },
     "site_infrastructure": {"group": "drilling", "label": "Инфраструктура объекта", "columns": ["name"]},
     "drill_passport_profiles": {"group": "drilling", "label": "Профиль паспорта на бурение", "columns": ["name"]},
+    "stakeout_profiles": {"group": "drilling", "label": "Профиль файла выноса GNSS", "columns": ["name", "format"]},
     "cost_centers": {"group": "costs", "label": "Центры затрат", "columns": ["name", "production_unit_code", "kind"]},
     "cost_items": {"group": "costs", "label": "Статьи затрат", "columns": ["name", "kind", "cost_center_code"]},
     "cost_rules": {
@@ -278,6 +280,11 @@ def _system_items() -> dict[str, tuple[ReferenceItem, ...]]:
             _item("CUSTOMER_CONTROL_POINTS", "Заказчик выносит опорные скважины", {"contractor_share": 0.85}),
             _item("CUSTOMER_ALL_HOLES", "Заказчик выносит все скважины", {"contractor_share": 0}),
             _item("CONTRACTOR_ALL_HOLES", "Подрядчик выносит все скважины", {"contractor_share": 1}),
+        ),
+        # Встроенные профили файла выноса GNSS (TASK-015, PR 5): записями —
+        # чтобы их можно было выбрать профилем объекта.
+        "stakeout_profiles": tuple(
+            _item(code, label, {"format": code}) for code, label in STAKEOUT_FORMAT_LABELS.items()
         ),
         "site_infrastructure": (
             _item("REFUELING", "Заправка бурового станка", {"required_fields": ["available", "provider", "price_rub"]}),

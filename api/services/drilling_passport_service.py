@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import re
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from functools import lru_cache
 from threading import Lock
@@ -37,7 +37,22 @@ from design.drilling_passport_repository import (
     PostgresDrillingPassportRepository,
 )
 from design.mass_blast import content_sha256
-from design.export_survey import DWG_DISABLED_WARNING, DwgExport, holes_dwg, holes_dxf
+from design.export_survey import (
+    DWG_DISABLED_WARNING,
+    STAKEOUT_EXTENSIONS,
+    DwgExport,
+    ascii_name,
+    holes_dwg,
+    holes_dxf,
+    StakeoutError,
+    stakeout_file,
+    stakeout_issue,
+    stakeout_profile,
+    stakeout_snapshot,
+)
+from design.reporting.drill.archive import build_zip
+from design.reporting.drill.coords_pdf import render_coords_pdf
+from design.reporting.drill.coords_xlsx import render_coords_xlsx
 from design.reporting.drill.pdf import render_passport_pdf
 from design.models import BlastDesign
 from design.spatial.cad.repository import CadSourceNotFound
@@ -94,6 +109,8 @@ class _References:
     rig: dict[str, Any] | None = None
     profile: dict[str, Any] | None = None
     profile_code: str = ""
+    # Профили файла выноса GNSS (PR 5): встроенные, справочника и профиль объекта.
+    stakeout: dict[str, Any] = field(default_factory=lambda: stakeout_snapshot({}, None))
     revision_id: str | None = None
     issues: tuple[dict[str, str], ...] = ()
 
@@ -146,11 +163,27 @@ def _reference_inputs(
                 "profile_code",
             )
         )
+    site_stakeout = str((site.payload or {}).get("stakeout_profile_code") or "") if site else ""
+    stakeout_records = {
+        item.code: {"name": item.name, **dict(item.payload or {})}
+        for item in snapshot.active_items("stakeout_profiles")
+    }
+    stakeout = stakeout_snapshot(stakeout_records, site_stakeout or None)
+    if site_stakeout and stakeout["default"] != site_stakeout:
+        issues.append(
+            _warning(
+                "stakeout_profile_not_found",
+                f"Профиль файла выноса «{site_stakeout}» объекта не найден в справочнике: "
+                "файл для приёмника — CSV «точка, север, восток, отметка, описание».",
+                "site_code",
+            )
+        )
     return _References(
         site=dict(site.payload) if site else None,
         rig=dict(rig.payload) if rig else None,
         profile=dict(profile.payload) if profile else None,
         profile_code=profile_code if profile else "",
+        stakeout=stakeout,
         revision_id=snapshot.revision_id,
         issues=tuple(issues),
     )
@@ -309,6 +342,12 @@ def _context(
         "passport_date": passport["passport_date"],
         "payload": payload,
     }
+    context["stakeout"] = refs.stakeout
+    problem = stakeout_issue(context)
+    if problem:
+        context["issues"].append(
+            _warning("stakeout_names_invalid", f"Файл выноса для приёмника не сформируется. {problem}", "block")
+        )
     context["reference_revision_id"] = refs.revision_id
     return context
 
@@ -431,6 +470,81 @@ def holes_drawing(
     else:
         exported = DwgExport(dxf, "dxf")
     return exported, f"Скважины {_file_stem(context)} rev{number}.{exported.format}"
+
+
+STAKEOUT_MEDIA_TYPES = {"csv": "text/csv", "txt": "text/plain", "dxf": "image/vnd.dxf"}
+XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+STAKEOUT_MISSING_NOTE = "Файл выноса не сформирован.txt"
+
+
+def _stakeout(context: Mapping[str, Any], revision_no: int, profile: str | None) -> tuple[bytes, str, str]:
+    code, options = stakeout_profile(context, profile)
+    data = stakeout_file(context, options)
+    extension = STAKEOUT_EXTENSIONS[options["format"]]
+    payload = (context.get("passport") or {}).get("payload") or {}
+    # Имя тоже ASCII: файл копируют на контроллер (спека §5).
+    parts = (
+        ascii_name(str(payload.get("site_code") or "")),
+        ascii_name(str(payload.get("block") or "")),
+        ascii_name(_file_stem(context)),
+        f"r{revision_no}",
+        ascii_name(code),
+    )
+    return data, "_".join(part for part in parts if part) + f".{extension}", STAKEOUT_MEDIA_TYPES[extension]
+
+
+def stakeout_export(
+    repository: PostgresDrillingPassportRepository, organization_id: str, revision_id: str, profile: str | None
+) -> tuple[bytes, str, str]:
+    """Файл выноса для GNSS-приёмника (TASK-015, PR 5): данные, имя, тип — только из снимка.
+
+    Профиль — из снимка ревизии; `None` — профиль объекта. Неизвестный
+    профиль и повтор имён точек — `StakeoutError` (422).
+    """
+
+    revision = repository.get_revision(organization_id, revision_id)
+    return _stakeout(revision["context"], int(revision["revision_no"]), profile)
+
+
+def _coords(context: Mapping[str, Any], revision_no: int, fmt: Literal["pdf", "xlsx"]) -> tuple[bytes, str]:
+    render = render_coords_pdf if fmt == "pdf" else render_coords_xlsx
+    return render(context, revision_no=revision_no), f"Ведомость координат {_file_stem(context)} rev{revision_no}.{fmt}"
+
+
+def coords_document(
+    repository: PostgresDrillingPassportRepository, organization_id: str, revision_id: str, fmt: Literal["pdf", "xlsx"]
+) -> tuple[bytes, str]:
+    """Ведомость координат скважин (PDF по эталону v0.6 или XLSX маркшейдера) из снимка ревизии."""
+
+    revision = repository.get_revision(organization_id, revision_id)
+    return _coords(revision["context"], int(revision["revision_no"]), fmt)
+
+
+def package_zip(
+    repository: PostgresDrillingPassportRepository, organization_id: str, revision_id: str
+) -> tuple[bytes, str]:
+    """Всё вместе (спека §6): паспорт PDF, DXF скважин, файл выноса по профилю
+    объекта, ведомость PDF и XLSX — те же байты, что у отдельных маршрутов."""
+
+    revision = repository.get_revision(organization_id, revision_id)
+    context = revision["context"]
+    number = int(revision["revision_no"])
+    stem = f"{_file_stem(context)} rev{number}"
+    try:
+        stakeout, stakeout_name, _ = _stakeout(context, number, None)
+    except StakeoutError as exc:
+        # Паспорт, чертёж и ведомость от имён точек не зависят: архив
+        # выдаётся и без файла выноса — с причиной вместо него.
+        stakeout_name, stakeout = STAKEOUT_MISSING_NOTE, f"{exc}\n".encode("utf-8")
+    entries = [
+        (f"Паспорт на бурение {stem}.pdf", render_passport_pdf(context, revision_no=number)),
+        (f"Скважины {stem}.dxf", holes_dxf(context, revision_no=number)),
+        (stakeout_name, stakeout),
+    ]
+    for kind in ("pdf", "xlsx"):
+        data, name = _coords(context, number, kind)
+        entries.append((name, data))
+    return build_zip(entries), f"Паспорт на бурение {stem}.zip"
 
 
 def repository_error(exc: Exception) -> HTTPException:

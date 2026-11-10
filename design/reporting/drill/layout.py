@@ -26,7 +26,7 @@ WORK_ORDER_FIELDS = (
     ("Порядок обуривания", "drilling_order"),
     ("Въезд и перегон", "access_route"),
     ("ЛЭП и кабели", "power_lines"),
-    ("Соседние работы", "adjacent_works"),
+    ("Совмещённые работы", "adjacent_works"),
     ("Приёмка блока", "acceptance"),
 )
 

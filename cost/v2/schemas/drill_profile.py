@@ -52,7 +52,7 @@ class DrillPassportProfilePayload(ReferencePayload):
     drilling_order: str = Field(default="", title="Порядок обуривания", description=_WORK_ORDER_HINT, max_length=300)
     access_route: str = Field(default="", title="Въезд и перегон", description=_WORK_ORDER_HINT, max_length=300)
     power_lines: str = Field(default="", title="ЛЭП и кабели", description=_WORK_ORDER_HINT, max_length=300)
-    adjacent_works: str = Field(default="", title="Соседние работы", description=_WORK_ORDER_HINT, max_length=300)
+    adjacent_works: str = Field(default="", title="Совмещённые работы", description=_WORK_ORDER_HINT, max_length=300)
     acceptance: str = Field(default="", title="Приёмка блока", description=_WORK_ORDER_HINT, max_length=300)
 
     @model_validator(mode="after")

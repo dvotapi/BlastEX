@@ -69,7 +69,7 @@ class DrillingPassportPayload(BaseModel):
     drilling_order: str = Field(default=DEFAULT_WORK_ORDER["drilling_order"], description="Порядок обуривания")
     access_route: str = Field(default=DEFAULT_WORK_ORDER["access_route"], description="Въезд и перегон")
     power_lines: str = Field(default=DEFAULT_WORK_ORDER["power_lines"], description="ЛЭП и кабели")
-    adjacent_works: str = Field(default=DEFAULT_WORK_ORDER["adjacent_works"], description="Соседние работы")
+    adjacent_works: str = Field(default=DEFAULT_WORK_ORDER["adjacent_works"], description="Совмещённые работы")
     acceptance: str = Field(default=DEFAULT_WORK_ORDER["acceptance"], description="Приёмка блока")
     extra_approvals: list[ApprovalLine] = Field(
         default_factory=lambda: list(DEFAULT_EXTRA_APPROVALS),

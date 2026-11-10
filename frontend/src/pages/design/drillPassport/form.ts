@@ -100,7 +100,7 @@ export const FIELD_GROUPS: { title: string; fields: FieldSpec[] }[] = [
       area("drilling_order", "Порядок обуривания"),
       area("access_route", "Въезд и перегон"),
       area("power_lines", "ЛЭП и кабели"),
-      area("adjacent_works", "Соседние работы"),
+      area("adjacent_works", "Совмещённые работы"),
       area("acceptance", "Приёмка блока"),
     ],
   },

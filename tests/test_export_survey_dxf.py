@@ -251,3 +251,17 @@ def test_revision_before_pr3():
 def test_same_bytes():
     context = context66()
     assert _dxf(context) == _dxf(deepcopy(context))
+
+
+def test_info_is_wholly_above_the_block(msp):
+    # Нижняя строка MTEXT (межстрочный интервал AutoCAD — 5/3 высоты) не
+    # налезает на контур и скважины: между ними — не меньше 3 м.
+    context = context66()
+    top_y = max(
+        [p[1] for p in context["plan"]["contour"]] + [row["collar"]["y"] for row in context["holes"]]
+    )
+    info = msp.query('MTEXT[layer=="BLX_INFO"]')[0]
+    lines = info.text.count("\\P") + 1
+    bottom = info.dxf.insert.y - lines * info.dxf.char_height * 5 / 3
+    assert bottom >= top_y + 3.0 - 1e-6
+    assert info.dxf.insert.x == pytest.approx(min(p[0] for p in context["plan"]["contour"]))

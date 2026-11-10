@@ -79,6 +79,9 @@ TEXT_HEIGHT_M = 0.4
 TEXT_GAP_M = 0.15
 INFO_HEIGHT_M = 1.0
 INFO_GAP_M = 3.0
+# Межстрочный интервал MTEXT в AutoCAD — 5/3 высоты букв: по нему надпись
+# ставится так, чтобы её нижняя строка была на INFO_GAP_M выше блока.
+INFO_LINE_FACTOR = 5 / 3
 # Строки DWG R2000 — в кодовой странице чертежа; для русских программ — 1251.
 CODEPAGE = "ANSI_1251"
 TEXT_FONT = "arial.ttf"
@@ -264,12 +267,14 @@ def _build(context: Mapping[str, Any], revision_no: int | None) -> str:
             msp.add_line(collar, toe, dxfattribs={"layer": "BLX_TOE"})
             msp.add_point(toe, dxfattribs={"layer": "BLX_TOE"})
 
+    lines = _info_lines(context, revision_no)
     info = msp.add_mtext(
-        "\\P".join(_mtext_escape(line) for line in _info_lines(context, revision_no)),
+        "\\P".join(_mtext_escape(line) for line in lines),
         dxfattribs={"layer": "BLX_INFO", "char_height": INFO_HEIGHT_M},
     )
     if xs:
-        info.set_location((min(xs), max(ys) + INFO_GAP_M + INFO_HEIGHT_M * 6), attachment_point=MTextEntityAlignment.TOP_LEFT)
+        top = max(ys) + INFO_GAP_M + len(lines) * INFO_HEIGHT_M * INFO_LINE_FACTOR
+        info.set_location((min(xs), top), attachment_point=MTextEntityAlignment.TOP_LEFT)
 
     stream = io.StringIO()
     doc.write(stream)

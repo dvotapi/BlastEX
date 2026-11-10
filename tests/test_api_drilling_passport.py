@@ -1267,3 +1267,21 @@ def test_old_draft_with_manual_c_and_w_max_opens_and_saves(client, repository):
     assert saved.status_code == 200, saved.text
     check = client.post(f"{BASE}/{passport['id']}/validate").json()["first_row_check"]
     assert check["w_max_m"] == pytest.approx(6.0 * 1.03)
+
+
+@pytest.mark.parametrize(
+    ("contour_name", "design_name", "expected"),
+    [
+        ("Блок", "Блок 67", "67"),  # имя контура по умолчанию — номер из названия проекта
+        ("Блок", "блок №67-2", "67-2"),
+        ("Блок", "Уступ 120", "Уступ 120"),
+        ("66", "Блок 66", "66"),  # имя контура задано — оно
+        ("Блок", "", ""),
+    ],
+)
+def test_block_of_new_passport_skips_default_contour_name(client, block66, monkeypatch, contour_name, design_name, expected):
+    monkeypatch.setattr(block66.contour, "name", contour_name)
+    monkeypatch.setattr(block66, "name", design_name)
+    response = client.post(BASE, json={"design_id": "block-66", "passport_date": "2026-11-09", "payload": {"site_code": "ZHK"}})
+    assert response.status_code == 201, response.text
+    assert response.json()["payload"]["block"] == expected

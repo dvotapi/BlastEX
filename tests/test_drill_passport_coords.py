@@ -224,3 +224,31 @@ def test_coords_xlsx_opens_in_libreoffice(tmp_path) -> None:
     values = [float(value.replace(",", ".")) for value in rows[0][1:8]]
     assert rows[0][0] == "1"
     assert values == pytest.approx([1472880.04, 593722.99, 419.21, 10.7, 1.5, 9.2, 408.51], abs=0.001)
+
+
+def test_coords_xlsx_does_not_depend_on_clock(monkeypatch) -> None:
+    """openpyxl при сохранении ставит «изменён» — текущее время; в файле его быть не должно."""
+
+    import datetime as dt
+
+    import openpyxl.writer.excel as excel
+
+    first = render_coords_xlsx(context66(), revision_no=1)
+
+    class _Later(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return dt.datetime(2031, 5, 6, 7, 8, 9, tzinfo=tz)
+
+    monkeypatch.setattr(excel.datetime, "datetime", _Later)
+    assert render_coords_xlsx(context66(), revision_no=1) == first
+    workbook, _ = _sheet(first)
+    assert workbook.properties.modified.date().isoformat() == "2026-10-05"
+
+
+def test_coords_xlsx_hole_number_is_never_a_formula() -> None:
+    context = context66()
+    context["holes"][0]["number"] = '=HYPERLINK("http://example.com","1")'
+    _, sheet = _sheet(render_coords_xlsx(context, revision_no=1))
+    cell = next(row[0] for row in sheet.iter_rows() if row[0].value == '=HYPERLINK("http://example.com","1")')
+    assert cell.data_type == "s"

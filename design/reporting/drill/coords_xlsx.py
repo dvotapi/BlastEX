@@ -13,11 +13,13 @@ Z забоя, угол β и азимут (у вертикальных пуст�
 from __future__ import annotations
 
 import io
+import zipfile
 from datetime import datetime
 from typing import Any, Mapping
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.writer.excel import ExcelWriter
 
 from design.reporting.drill.archive import fixed_zip
 from design.reporting.drill.coords import coords_header, coords_rows
@@ -91,7 +93,11 @@ def render_coords_xlsx(context: Mapping[str, Any], *, revision_no: int | None = 
             None if row.azimuth_deg is None else round(row.azimuth_deg) % 360,
         ])
         for cell, number_format in zip(sheet[sheet.max_row], FORMATS):
-            if not isinstance(cell.value, str):
+            if isinstance(cell.value, str):
+                # Номер скважины — всегда текст: «=…» из ручного номера
+                # openpyxl иначе записал бы формулой.
+                cell.data_type = "s"
+            else:
                 cell.number_format = number_format if number_format != "@" else "General"
     for index, width in enumerate(WIDTHS):
         sheet.column_dimensions[chr(ord("A") + index)].width = width
@@ -109,5 +115,8 @@ def render_coords_xlsx(context: Mapping[str, Any], *, revision_no: int | None = 
     workbook.properties.created = created
     workbook.properties.modified = created
     output = io.BytesIO()
-    workbook.save(output)
+    # Не `workbook.save`: он ставит «изменён» — текущее время, и байты
+    # повторного выпуска расходились бы.
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
+        ExcelWriter(workbook, archive).save()
     return fixed_zip(output.getvalue())

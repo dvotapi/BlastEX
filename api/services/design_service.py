@@ -52,6 +52,8 @@ from api.schemas.design import (
     HoleInsertResponse,
     HoleRecomputeRequest,
     HoleRecomputeResponse,
+    HoleRenumberRequest,
+    HoleRenumberResponse,
     MicSchema,
     BackAzimuthRequest,
     BackAzimuthResponse,
@@ -110,6 +112,7 @@ from design.reporting.html import passport_html
 from design.geometry import block_volume, crest_azimuth_deg, mean_bench_height
 from design.geology import apply_domains_to_holes, assign_domain_polygon
 from design.hole_recompute import recompute_holes as run_recompute_holes
+from design.renumber import renumber_map
 from design.maps import engineering_maps
 from design.layout_search.evaluate import wired_wall_holes
 from design.layout_search.jobs import LayoutSearchJobs
@@ -1002,6 +1005,14 @@ def recompute_holes(request: HoleRecomputeRequest) -> HoleRecomputeResponse:
         mean_height_m=round(mean_bench_height(contour, surfaces), 3),
         toe_line=_toe_line_schema(contour),
     )
+
+
+def renumber_holes(request: HoleRenumberRequest) -> HoleRenumberResponse:
+    """Новые номера скважин по правилу эшелонов, без сдвига скважин (`design.renumber`)."""
+
+    contour = BlockContour.from_dict(request.contour.model_dump())
+    holes = [Hole.from_dict(h.model_dump()) for h in request.holes]
+    return HoleRenumberResponse(mapping=renumber_map(holes, contour, request.params))
 
 
 def _toe_line_schema(contour: BlockContour) -> ToeLineSchema | None:

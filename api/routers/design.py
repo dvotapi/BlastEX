@@ -30,6 +30,8 @@ from api.schemas.design import (
     HoleInsertResponse,
     HoleRecomputeRequest,
     HoleRecomputeResponse,
+    HoleRenumberRequest,
+    HoleRenumberResponse,
     LayoutSearchStartRequest,
     LayoutSearchStatusResponse,
     PatternGenerateRequest,
@@ -135,6 +137,12 @@ def post_hole_geometry(request: HoleGeometryEditRequest) -> HoleGeometryEditResp
 def post_holes_recompute(request: HoleRecomputeRequest) -> HoleRecomputeResponse:
     """Устья и длины скважин по кровле и подошве (TASK-013, PR 3)."""
     return design_service.recompute_holes(request)
+
+
+@router.post("/holes/renumber", response_model=HoleRenumberResponse)
+def post_holes_renumber(request: HoleRenumberRequest) -> HoleRenumberResponse:
+    """Номера скважин по правилу эшелонов для проекта, построенного до него (скважины не двигаются)."""
+    return design_service.renumber_holes(request)
 
 
 @router.post("/holes/insert", response_model=HoleInsertResponse)

@@ -20,6 +20,13 @@ DXF X — восток (внутренний `x`), Y — север (`y`), Z —
 результат обратно `dwg2dxf`: число сущностей слоёв `BLX_*`, тексты, атрибуты
 скважин и координаты (устья, забои, вставки, вершины полилиний, концы линий)
 должны совпасть, координаты — с допуском 1 мм. Не вышло — отдаётся DXF с предупреждением (§4).
+
+`stakeout_file` (PR 5, §5) пишет файл выноса устьев для GNSS-приёмника по
+профилю из снимка (`context["stakeout"]`, `stakeout_profile`): CSV / TXT —
+ASCII без BOM, CRLF, точка, 3 знака, N — север (`y`), E — восток (`x`);
+`DXF_POINTS` — DXF R12 с точками и именами. Имя точки — блок и номер скважины
+паспорта (`point_name`, решение владельца 10.11.2026), не длиннее 16 знаков и
+без повторов, иначе `StakeoutError`.
 """
 from __future__ import annotations
 
@@ -27,6 +34,7 @@ import hashlib
 import io
 import logging
 import math
+import re
 import threading
 from collections import Counter
 from collections.abc import Iterator, Mapping, Sequence
@@ -44,14 +52,22 @@ from design.reporting.drill.plan import hole_circle_mm
 from design.spatial.dwg import dwg_to_dxf, dxf_to_dwg
 
 __all__ = [
+    "BUILTIN_PROFILES",
     "DEFAULT_CIRCLE_MM",
+    "DEFAULT_STAKEOUT_PROFILE",
     "DWG_DISABLED_WARNING",
     "DWG_FALLBACK_WARNING",
     "DwgExport",
     "HOLE_ATTRIBUTES",
     "HOLE_LAYERS",
+    "STAKEOUT_EXTENSIONS",
+    "StakeoutError",
     "holes_dwg",
     "holes_dxf",
+    "point_name",
+    "stakeout_file",
+    "stakeout_profile",
+    "stakeout_snapshot",
 ]
 
 logger = logging.getLogger(__name__)
@@ -404,6 +420,158 @@ def stakeout_snapshot(records: Mapping[str, Mapping[str, Any]], default_code: st
         profiles[code] = _profile_options(record, code)
     default = default_code if default_code in profiles else DEFAULT_STAKEOUT_PROFILE
     return {"default": default, "profiles": profiles}
+
+
+class StakeoutError(ValueError):
+    """Файл выноса не выпустить: профиль не найден, имена точек повторяются или длинны."""
+
+
+STAKEOUT_EXTENSIONS = {"PNEZD_CSV": "csv", "PENZD_CSV": "csv", "PNEZ_TXT": "txt", "DXF_POINTS": "dxf"}
+# Многие контроллеры обрезают или отвергают более длинные имена точек.
+POINT_NAME_MAX = 16
+TOE_SUFFIX = "_T"
+# Сколько номеров перечислять в ошибке выгрузки.
+MAX_LISTED = 10
+TOE_DESCRIPTION = "TOE"
+POINT_TEXT_HEIGHT_M = 0.4
+
+# Транслитерация кириллицы (ГОСТ 7.79, система Б, без диакритики): в файле
+# для приёмника — только ASCII.
+_CYRILLIC = dict(
+    zip(
+        "абвгдеёжзийклмнопрстуфхцчшщъыьэюя",
+        ["a", "b", "v", "g", "d", "e", "yo", "zh", "z", "i", "j", "k", "l", "m", "n", "o", "p", "r", "s", "t",
+         "u", "f", "x", "c", "ch", "sh", "shh", "", "y", "", "e", "yu", "ya"],
+    )
+)
+_UNSAFE = re.compile(r"[^A-Za-z0-9._-]")
+
+
+def ascii_name(text: str) -> str:
+    """Латиница, цифры, «.», «_», «-»: кириллица транслитерируется, прочее — «_»."""
+
+    out = []
+    for char in text.strip():
+        latin = _CYRILLIC.get(char.lower())
+        if latin is None:
+            out.append(char)
+        else:
+            out.append(latin.upper() if char.isupper() else latin)
+    return _UNSAFE.sub("_", "".join(out))
+
+
+def point_name(block: str, number: str) -> str:
+    """Имя точки: «{блок}-{номер}»; номер из одних цифр — три знака («66-001»)."""
+
+    number = str(number).strip()
+    part = f"{int(number):03d}" if number.isascii() and number.isdigit() else ascii_name(number)
+    prefix = ascii_name(block)
+    return f"{prefix}-{part}" if prefix else part
+
+
+def stakeout_profile(context: Mapping[str, Any], code: str | None) -> tuple[str, dict[str, Any]]:
+    """Код и опции профиля из снимка; `None` — профиль объекта; ревизия до PR 5 — встроенные."""
+
+    stakeout = context.get("stakeout") or stakeout_snapshot({}, None)
+    chosen = code or stakeout["default"]
+    profiles = stakeout["profiles"]
+    if chosen not in profiles:
+        raise StakeoutError(f"Профиль файла выноса «{chosen}» не найден. Доступны: {', '.join(profiles)}.")
+    return chosen, dict(profiles[chosen])
+
+
+@dataclass(frozen=True)
+class _StakeoutPoint:
+    number: str
+    name: str
+    x: float
+    y: float
+    z: float
+    description: str
+
+
+def _description(row: Mapping[str, Any]) -> str:
+    text = f"L{float(row['length_m']):.1f}"
+    if row.get("azimuth_deg") is not None:
+        text += f" A{round(float(row['dip_deg']))} AZ{round(float(row['azimuth_deg'])) % 360}"
+    return f"R1 {text}" if row.get("first_row") else text
+
+
+def _stakeout_points(context: Mapping[str, Any], include_toe: bool) -> list[_StakeoutPoint]:
+    block = str(((context.get("passport") or {}).get("payload") or {}).get("block") or "")
+    points: list[_StakeoutPoint] = []
+    for row in context.get("holes") or []:
+        number = str(row["number"])
+        name = point_name(block, number)
+        points.append(_StakeoutPoint(number, name, *_xyz(row["collar"]), _description(row)))
+        if include_toe and row.get("azimuth_deg") is not None:
+            points.append(_StakeoutPoint(number, name + TOE_SUFFIX, *_toe(row), TOE_DESCRIPTION))
+    long = [f"{p.number} ({p.name})" for p in points if len(p.name) > POINT_NAME_MAX]
+    if long:
+        raise StakeoutError(
+            f"Имя точки длиннее {POINT_NAME_MAX} знаков — приёмник его не примет: {', '.join(long[:MAX_LISTED])}."
+        )
+    by_name: dict[str, list[str]] = {}
+    for point in points:
+        by_name.setdefault(point.name, []).append(point.number)
+    clashes = [f"{name}: {', '.join(numbers)}" for name, numbers in by_name.items() if len(numbers) > 1]
+    if clashes:
+        raise StakeoutError(
+            "Номера скважин дают одинаковые имена точек — переименуйте скважины: "
+            + "; ".join(clashes[:MAX_LISTED])
+            + "."
+        )
+    return points
+
+
+
+def _stakeout_dxf(points: list[_StakeoutPoint], elevation: bool) -> bytes:
+    with _fixed_metadata():
+        # R12: его читают все контроллеры, которые выносят точки из DXF.
+        doc = ezdxf.new("R12")
+        doc.layers.add("BLX_HOLE", color=LAYER_COLORS["BLX_HOLE"])
+        msp = doc.modelspace()
+        for point in points:
+            z = point.z if elevation else 0.0
+            msp.add_point((point.x, point.y, z), dxfattribs={"layer": "BLX_HOLE"})
+            msp.add_text(point.name, height=POINT_TEXT_HEIGHT_M, dxfattribs={"layer": "BLX_HOLE"}).set_placement(
+                (point.x + TEXT_GAP_M, point.y + TEXT_GAP_M, z)
+            )
+        stream = io.StringIO()
+        doc.write(stream)
+    return stream.getvalue().encode("ascii")
+
+
+def stakeout_file(context: Mapping[str, Any], profile: Mapping[str, Any]) -> bytes:
+    """Файл выноса устьев для GNSS-приёмника по профилю (спека §5).
+
+    ASCII без BOM, CRLF, разделитель «,» (у TXT — пробел), точка, 3 знака;
+    N — север (`y`), E — восток (`x`). Порядок полей — только по профилю.
+    """
+
+    fmt_code = str(profile.get("format") or DEFAULT_STAKEOUT_PROFILE)
+    elevation = bool(profile.get("elevation", True))
+    points = _stakeout_points(context, bool(profile.get("include_toe", False)))
+    if fmt_code == "DXF_POINTS":
+        return _stakeout_dxf(points, elevation)
+    if fmt_code not in STAKEOUT_EXTENSIONS:
+        raise StakeoutError(f"Формат файла выноса «{fmt_code}» не поддерживается.")
+    lines: list[str] = []
+    if fmt_code == "PNEZ_TXT":
+        if profile.get("header"):
+            lines.append("Point Northing Easting" + (" Elevation" if elevation else ""))
+        for p in points:
+            fields = [p.name, f"{p.y:.3f}", f"{p.x:.3f}"] + ([f"{p.z:.3f}"] if elevation else [])
+            lines.append(" ".join(fields))
+    else:
+        east_first = fmt_code == "PENZD_CSV"
+        if profile.get("header"):
+            lines.append("Point,Easting,Northing,Elevation,Description" if east_first else "Point,Northing,Easting,Elevation,Description")
+        for p in points:
+            north, east = f"{p.y:.3f}", f"{p.x:.3f}"
+            plane = [east, north] if east_first else [north, east]
+            lines.append(",".join([p.name, *plane, f"{p.z:.3f}" if elevation else "", p.description]))
+    return ("\r\n".join(lines) + "\r\n").encode("ascii")
 
 
 def holes_dwg(dxf: bytes) -> DwgExport:

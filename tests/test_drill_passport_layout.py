@@ -52,10 +52,10 @@ def test_safety_page(layout66):
     safety = layout66.safety
     assert len(safety.items) == 10
     assert safety.items[0].startswith("Работать только по утверждённому паспорту")
-    assert safety.basis == "Основание: ФНП 505 пп. 989–991, 993; ФНП 494 п. 187."
+    assert safety.basis == "Основание: ФНП 505 пп. 968, 989–991, 993; ФНП 494 п. 187."
     assert [label for label, _ in safety.work_order] == [
         "Подготовка площадки", "Вынос точек", "Порядок обуривания", "Въезд и перегон",
-        "ЛЭП и кабели", "Соседние работы", "Приёмка блока",
+        "ЛЭП и кабели", "Совмещённые работы", "Приёмка блока",
     ]
     assert dict(safety.work_order)["ЛЭП и кабели"] == "нет"
     assert safety.s_text == "s = 2,0 м"

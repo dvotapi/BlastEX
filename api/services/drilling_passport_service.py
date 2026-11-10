@@ -28,9 +28,10 @@ from api.schemas.drilling_passport import (
 )
 from api.services.cad_service import active_work_object_name, get_cad_repository, resolve_site_code
 from api.services.cad_situation_service import source_situation
+from api.services.drilling_passport_prefill import drilling_condition, prefill, previous_of_site
 from cost.v2.repository import EconomicsRepository, EconomicsRepositoryError
 from design import persistence as design_persistence
-from design.drilling_passport import has_errors, passport_context, warning_codes
+from design.drilling_passport import DEFAULT_WORK_ORDER, has_errors, passport_context, warning_codes, work_order_texts
 from design.drilling_passport_repository import (
     DrillingPassportConflictError,
     DrillingPassportNotFoundError,
@@ -163,6 +164,17 @@ def _reference_inputs(
                 "profile_code",
             )
         )
+    if rig is not None:
+        condition = drilling_condition(snapshot, rig_code, site_code)
+        if not condition or not condition.get("tech_speed_m_per_h"):
+            issues.append(
+                _warning(
+                    "drilling_norm_missing",
+                    f"Нет норматива бурения станка «{rig.name or rig_code}» в «Условиях бурения»: плановое окончание "
+                    "бурения не рассчитано — проверьте дату.",
+                    "drilling_end",
+                )
+            )
     site_stakeout = str((site.payload or {}).get("stakeout_profile_code") or "") if site else ""
     stakeout_records = {
         item.code: {"name": item.name, **dict(item.payload or {})}
@@ -189,11 +201,31 @@ def _reference_inputs(
     )
 
 
-def _default_site_code(economics_repository: EconomicsRepository | None, organization_id: str) -> str:
+def _default_site_code(economics_repository: EconomicsRepository | None, organization_id: str, snapshot) -> str:
     if economics_repository is None:
         return ""
-    snapshot = _snapshot(economics_repository, organization_id)
     return resolve_site_code(snapshot, active_work_object_name(economics_repository, organization_id))
+
+
+def _apply_site_profile(payload: dict[str, Any], explicit: set[str], snapshot) -> None:
+    """Профиль паспорта объекта и «Порядок работ» нового паспорта (PR 6).
+
+    Тексты порядка работ постоянны из паспорта в паспорт: берутся из профиля
+    (явно заданный в запросе, иначе профиль объекта), пустое поле профиля или
+    нет профиля — текст формы по умолчанию. Заданное в запросе не меняется.
+    """
+
+    code = str(payload.get("profile_code") or "")
+    if "profile_code" not in explicit and not code and snapshot is not None:
+        site = snapshot.item("sites", str(payload.get("site_code") or "")) if payload.get("site_code") else None
+        code = str(((site.payload or {}) if site else {}).get("drill_passport_profile_code") or "")
+    profile = snapshot.item("drill_passport_profiles", code) if code and snapshot is not None else None
+    if "profile_code" not in explicit:
+        payload["profile_code"] = code if profile is not None else ""
+    texts = work_order_texts(dict(profile.payload or {}) if profile is not None else None)
+    for key in DEFAULT_WORK_ORDER:
+        if key not in explicit:
+            payload[key] = texts[key]
 
 
 def default_passport_no(block: str, passport_date: str) -> str:
@@ -211,13 +243,26 @@ def create_passport(
 ) -> dict[str, Any]:
     design = _load_design(organization_id, request.design_id)
     payload = (request.payload or DrillingPassportPayload()).model_dump()
+    explicit = set(request.payload.model_fields_set) if request.payload is not None else set()
+    snapshot = _snapshot(economics_repository, organization_id)
     if not payload["block"]:
         # Имя контура не ограничено, а блок паспорта — да: иначе черновик не
         # сохранить повторно (предел проверяется при записи).
         payload["block"] = (design.contour.name or design.name or "").strip()[: TEXT_LIMITS["block"]]
-    if not payload["site_code"]:
-        payload["site_code"] = _default_site_code(economics_repository, organization_id)
+    passports = list(repository.list_passports(organization_id, None))
+    if not payload["site_code"] and "site_code" not in explicit:
+        # Активный объект организации; не определился — объект последнего
+        # паспорта организации (паспорта одного объекта идут подряд).
+        payload["site_code"] = _default_site_code(economics_repository, organization_id, snapshot) or next(
+            (str((item.get("payload") or {}).get("site_code") or "") for item in passports
+             if (item.get("payload") or {}).get("site_code")),
+            "",
+        )
+    _apply_site_profile(payload, explicit, snapshot)
     passport_date = request.passport_date or date.today().isoformat()
+    # Остальные поля — справочники и прошлый паспорт того же объекта (PR 6).
+    previous = previous_of_site(passports, str(payload.get("site_code") or ""))
+    prefill(payload, explicit, snapshot=snapshot, design=design, previous=previous, passport_date=passport_date)
     passport_no = request.passport_no or default_passport_no(payload["block"], passport_date)
     if len(passport_no) > PASSPORT_NO_MAX_LENGTH:
         raise ValueError(
@@ -350,6 +395,33 @@ def _context(
         )
     context["reference_revision_id"] = refs.revision_id
     return context
+
+
+def list_passports(
+    repository: PostgresDrillingPassportRepository, organization_id: str, design_id: str
+) -> list[dict[str, Any]]:
+    """Паспорта проекта блока в организации, последний изменённый первым."""
+
+    return list(repository.list_passports(organization_id, design_id))
+
+
+def preview_pdf(
+    repository: PostgresDrillingPassportRepository,
+    economics_repository: EconomicsRepository | None,
+    organization_id: str,
+    passport_id: str,
+) -> tuple[bytes, str]:
+    """PDF текущего черновика с пометкой «черновик» — только предпросмотр (PR 6).
+
+    Ревизия не выпускается; с ошибками проверки PDF не строится (422).
+    """
+
+    passport = repository.get_passport(organization_id, passport_id)
+    context = _context(passport, economics_repository, organization_id)
+    if has_errors(context["issues"]):
+        messages = "; ".join(issue["message"] for issue in context["issues"] if issue["level"] == "error")
+        raise ValueError(f"Предпросмотр недоступен: {messages}")
+    return render_passport_pdf(context, draft=True), f"Паспорт на бурение {_file_stem(context)} черновик.pdf"
 
 
 def validate_passport(

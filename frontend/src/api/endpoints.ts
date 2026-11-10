@@ -1,4 +1,4 @@
-import { del, errorMessage, get, patch, post, postFile, postForm, put, requestSvg } from "./client";
+import { del, downloadFile, errorMessage, get, patch, post, postFile, postForm, put, requestSvg } from "./client";
 import type {
   AggregatedCostResult,
   BlastGeometryResponse,
@@ -117,6 +117,13 @@ import type {
   Point3,
 } from "../types/design";
 import type {
+  DrillPassport,
+  DrillPassportFile,
+  DrillPassportRevision,
+  DrillPassportUpdate,
+  DrillPassportValidation,
+} from "../types/drillPassport";
+import type {
   CalculationRun,
   EconomicScenario,
   EconomicsReferenceItem,
@@ -176,6 +183,7 @@ import type {
 } from "../types/cad";
 
 const V1 = "/api/v1";
+const DRILL = `${V1}/design/drilling-passports`;
 
 /** Порода, ВВ и уступ листа — общая часть запросов подбора q и подбора C(A). */
 type BlastSheetInput = {
@@ -209,7 +217,7 @@ function blastSheetPayload(input: BlastSheetInput) {
 
 export const api = {
   /** Какие модули включены в этой установке (ML-слой за фича-флагом). */
-  features: () => get<{ intelligence: boolean }>(`${V1}/features`),
+  features: () => get<{ intelligence: boolean; drill_passport?: boolean }>(`${V1}/features`),
   // --- auth ---
   me: () => get<User>(`${V1}/auth/me`),
   login: (email: string, password: string) =>
@@ -319,19 +327,9 @@ export const api = {
     exportReferences: async (format: "xlsx" | "json", revisionId?: string) => {
       const query = new URLSearchParams({ format });
       if (revisionId) query.set("revision_id", revisionId);
-      const response = await fetch(`${V1}/economics/references/export?${query}`, { credentials: "include" });
-      if (!response.ok) throw new Error(await errorMessage(response, "Не удалось экспортировать справочники."));
-      const disposition = response.headers.get("content-disposition") ?? "";
-      const match = /filename="([^"]+)"/.exec(disposition);
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = match?.[1] ?? `references.${format}`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
+      await downloadFile(`${V1}/economics/references/export?${query}`, `references.${format}`, {
+        errorText: "Не удалось экспортировать справочники.",
+      });
     },
     importReferences: (file: File) =>
       postFile<ReferenceImportResult>(`${V1}/economics/references/import`, file),
@@ -1003,17 +1001,10 @@ export const api = {
     forkPlan: (designId: string, name = "") =>
       post<BlastDesign>(`${V1}/design/plans/${designId}/fork`, { name }),
     exportCsv: async (designId: string, fileName: string) => {
-      const response = await fetch(`${V1}/design/plans/${designId}/export.csv`, { credentials: "include" });
-      if (!response.ok) throw new Error("Не удалось экспортировать паспорт.");
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
+      await downloadFile(`${V1}/design/plans/${designId}/export.csv`, fileName, {
+        filename: fileName,
+        errorText: "Не удалось экспортировать паспорт.",
+      });
     },
   },
 
@@ -1053,6 +1044,23 @@ export const api = {
     generateDocument: (id: string, payload: { revision_id: string; kind: "PROJECT" | "ORDER" | "SCHEDULE" | "PACKAGE"; format: "PDF" | "XLSX" | "ZIP" }) =>
       post<MassBlastDocument>(`${V1}/design/mass-blast-projects/${id}/documents`, payload),
     documentUrl: (documentId: string) => `${V1}/design/mass-blast-projects/documents/${documentId}/download`,
+  },
+
+  // --- паспорт на бурение (TASK-015) ---
+  drillPassport: {
+    list: (designId: string) =>
+      get<DrillPassport[]>(`${DRILL}?design_id=${encodeURIComponent(designId)}`),
+    create: (payload: { design_id: string }) => post<DrillPassport>(DRILL, payload),
+    get: (id: string) => get<DrillPassport>(`${DRILL}/${encodeURIComponent(id)}`),
+    save: (id: string, payload: DrillPassportUpdate) => put<DrillPassport>(`${DRILL}/${encodeURIComponent(id)}`, payload),
+    validate: (id: string) => post<DrillPassportValidation>(`${DRILL}/${encodeURIComponent(id)}/validate`, {}),
+    createRevision: (id: string, payload: { expected_version: number; acknowledged_warnings: string[] }) =>
+      post<DrillPassportRevision>(`${DRILL}/${encodeURIComponent(id)}/revisions`, payload),
+    revision: (revisionId: string) => get<DrillPassportRevision>(`${DRILL}/revisions/${encodeURIComponent(revisionId)}`),
+    previewUrl: (id: string) => `${DRILL}/${encodeURIComponent(id)}/preview.pdf`,
+    fileUrl: (revisionId: string, file: DrillPassportFile) => `${DRILL}/revisions/${encodeURIComponent(revisionId)}/${file}`,
+    stakeoutUrl: (revisionId: string, profile: string) =>
+      `${DRILL}/revisions/${encodeURIComponent(revisionId)}/stakeout?profile=${encodeURIComponent(profile)}`,
   },
 };
 

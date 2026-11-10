@@ -4,9 +4,11 @@ import { api } from "../api/endpoints";
 export type Features = {
   /** ML-слой: датасеты, калибровка, реестр моделей, дрифт, оптимизация. */
   intelligence: boolean;
+  /** Паспорт на бурение (TASK-015): панель в «Отчёте» «Проектирования». */
+  drill_passport: boolean;
 };
 
-const DISABLED: Features = { intelligence: false };
+const DISABLED: Features = { intelligence: false, drill_passport: false };
 
 /**
  * Состав включённых модулей установки.
@@ -22,7 +24,9 @@ export function useFeatures(): Features {
     api
       .features()
       .then((value) => {
-        if (!cancelled) setFeatures({ intelligence: Boolean(value.intelligence) });
+        if (!cancelled) {
+          setFeatures({ intelligence: Boolean(value.intelligence), drill_passport: Boolean(value.drill_passport) });
+        }
       })
       .catch(() => {
         if (!cancelled) setFeatures(DISABLED);

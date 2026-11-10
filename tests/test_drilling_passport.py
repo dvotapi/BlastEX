@@ -460,7 +460,13 @@ def test_context_carries_print_data(block66):
     assert len(profile["safety_items"]) == 10
     assert profile["safety_items"][2].startswith("Устанавливать станок не ближе безопасного расстояния")
     assert " s " not in profile["safety_items"][2]
-    assert profile["safety_basis"] == "Основание: ФНП 505 пп. 989–991, 993; ФНП 494 п. 187."
+    # П. 4 — решение владельца 10.11.2026: запрет — без достаточного освещения
+    # (ФНП 505 п. 968, табл. 16: место буровых работ — не менее 10 лк).
+    assert profile["safety_items"][3] == (
+        "Работа на первом ряду в тёмное время суток без достаточного освещения (не менее 10 лк на высоту станка) "
+        "запрещена. Находиться в призме возможного обрушения запрещено."
+    )
+    assert profile["safety_basis"] == "Основание: ФНП 505 пп. 968, 989–991, 993; ФНП 494 п. 187."
     assert profile["drilling_technology"].startswith("В раздробленных и обводнённых породах")
 
 
@@ -610,3 +616,19 @@ def test_context_carries_named_coordinate_system():
     design.coordinate_system = CoordinateSystem(name="МСК-66 зона 1", epsg=None, height_system="Балтийская 1977")
     crs = passport_context(design, {}, None, None)["crs"]
     assert crs == {"name": "МСК-66 зона 1", "epsg": None, "height_system": "Балтийская 1977"}
+
+
+def test_floor_horizon_from_holes(block66):
+    from design.drilling_passport import floor_horizon
+
+    # Подошва — устье минус высота уступа скважины; медиана, до 1 м.
+    assert floor_horizon(block66) == "+410"
+
+
+def test_drilling_days_by_norm():
+    from design.drilling_passport import drilling_days
+
+    assert drilling_days(2280.5, speed_m_per_h=25, unproductive_h=1.5, shift_hours=11) == 5
+    assert drilling_days(100, speed_m_per_h=25, unproductive_h=1.5, shift_hours=11) == 1
+    assert drilling_days(100, speed_m_per_h=0, unproductive_h=1.5, shift_hours=11) is None
+    assert drilling_days(100, speed_m_per_h=25, unproductive_h=11, shift_hours=11) is None

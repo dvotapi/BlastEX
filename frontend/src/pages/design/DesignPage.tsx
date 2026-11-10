@@ -173,6 +173,7 @@ import { SpatialPanel } from "./SpatialPanel";
 import { MovementPanel } from "./MovementPanel";
 import { PassportPanel } from "./PassportPanel";
 import { MassBlastPanel } from "./MassBlastPanel";
+import { DrillPassportPanel } from "./drillPassport/DrillPassportPanel";
 
 // three.js — крупная зависимость, нужная только вкладке «3D»: грузим лениво,
 // чтобы не раздувать основной бандл для остальных режимов редактора.
@@ -208,7 +209,7 @@ export function DesignPage({
   const document = state.present;
   // ML-слой (BDX-011…BDX-023) выключается флагом на сервере: пока он выключен,
   // его панели не показываются, а маршруты отдают 501.
-  const { intelligence: intelligenceEnabled } = useFeatures();
+  const { intelligence: intelligenceEnabled, drill_passport: drillPassportEnabled } = useFeatures();
 
   const [mode, setMode] = useState<"contour" | "holes" | "charge" | "tie" | "timing">("contour");
   const [viewMode, setViewMode] = useState<"plan" | "3d" | "section">("plan");
@@ -3348,6 +3349,7 @@ export function DesignPage({
             result={passportResult}
           />
           <MassBlastPanel designId={document.design_id} designName={document.name} />
+          {drillPassportEnabled && <DrillPassportPanel designId={document.design_id} designSaved={!unsavedChanges} />}
           </>}
         </div>
             </StageInspector>

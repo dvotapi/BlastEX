@@ -1,7 +1,8 @@
 """Профиль паспорта на бурение (TASK-015, PR 2): тексты, которые печатает паспорт.
 
-Меры безопасности и технология бурения у карьеров разные, поэтому это данные
-справочника, а не код. Пустое поле — текст формы v0.7 по умолчанию
+Меры безопасности, технология бурения и порядок работ у карьеров разные,
+поэтому это данные справочника, а не код. Порядок работ (PR 6) подставляется
+в новый паспорт объекта и правится в нём. Пустое поле — текст формы v0.7 по умолчанию
 (`design/drilling_passport.py`); в ревизию паспорта тексты попадают копией.
 """
 from __future__ import annotations
@@ -17,6 +18,7 @@ __all__ = ["DrillPassportProfilePayload", "SafetyItem"]
 MAX_SAFETY_ITEMS = 12
 MAX_SAFETY_ITEM_CHARS = 250
 MAX_SAFETY_TOTAL_CHARS = 1600
+_WORK_ORDER_HINT = "Текст «Порядка работ» нового паспорта (в паспорте правится); пусто — текст формы по умолчанию"
 
 
 class SafetyItem(ReferencePayload):
@@ -33,7 +35,7 @@ class DrillPassportProfilePayload(ReferencePayload):
     safety_basis: str = Field(
         default="",
         title="Основание",
-        description="Строка под мерами безопасности; пусто — «Основание: ФНП 505 пп. 989–991, 993; ФНП 494 п. 187.»",
+        description="Строка под мерами безопасности; пусто — «Основание: ФНП 505 пп. 968, 989–991, 993; ФНП 494 п. 187.»",
         max_length=200,
     )
     drilling_technology: str = Field(
@@ -42,6 +44,16 @@ class DrillPassportProfilePayload(ReferencePayload):
         description="Текст строки «Технология бурения» на странице параметров; пусто — текст формы по умолчанию",
         max_length=300,
     )
+
+    # «Порядок работ» нового паспорта (PR 6): постоянны из паспорта в паспорт,
+    # в паспорте редактируются; пусто — текст формы v0.7 по умолчанию.
+    site_preparation: str = Field(default="", title="Подготовка площадки", description=_WORK_ORDER_HINT, max_length=300)
+    stakeout: str = Field(default="", title="Вынос точек", description=_WORK_ORDER_HINT, max_length=300)
+    drilling_order: str = Field(default="", title="Порядок обуривания", description=_WORK_ORDER_HINT, max_length=300)
+    access_route: str = Field(default="", title="Въезд и перегон", description=_WORK_ORDER_HINT, max_length=300)
+    power_lines: str = Field(default="", title="ЛЭП и кабели", description=_WORK_ORDER_HINT, max_length=300)
+    adjacent_works: str = Field(default="", title="Совмещённые работы", description=_WORK_ORDER_HINT, max_length=300)
+    acceptance: str = Field(default="", title="Приёмка блока", description=_WORK_ORDER_HINT, max_length=300)
 
     @model_validator(mode="after")
     def _total_length(self) -> "DrillPassportProfilePayload":

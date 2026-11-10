@@ -82,7 +82,7 @@ def test_other_routes_keep_working_while_module_is_disabled(monkeypatch) -> None
 
 
 def test_drill_passport_routes_follow_the_flag(monkeypatch) -> None:
-    """Паспорт на бурение (TASK-015) до PR 6 за флагом: выключен — маршрутов нет, 404."""
+    """Паспорт на бурение (TASK-015) за флагом: выключен — маршрутов нет, 404."""
 
     disabled = _client(monkeypatch, intelligence=False)
     assert disabled.post("/api/v1/design/drilling-passports", json={"design_id": "x"}).status_code == 404
@@ -99,3 +99,26 @@ def test_drill_passport_routes_follow_the_flag(monkeypatch) -> None:
     assert "/api/v1/design/drilling-passports/revisions/{revision_id}/holes.dxf" in paths
     assert "/api/v1/design/drilling-passports/revisions/{revision_id}/holes.dwg" in paths
     assert enabled.get("/api/v1/features").json()["drill_passport"] is True
+
+
+def test_drill_passport_enabled_by_default(monkeypatch) -> None:
+    """С PR 6 паспорт на бурение включён: без переменной маршруты есть."""
+
+    _client(monkeypatch, intelligence=False)
+    monkeypatch.delenv(config.DRILL_PASSPORT_ENABLED_ENV, raising=False)
+    module = importlib.reload(importlib.import_module("api.main"))
+    client = TestClient(module.app, headers={"X-API-Key": "test-api-key"})
+    assert client.get("/api/v1/features").json()["drill_passport"] is True
+    assert "/api/v1/design/drilling-passports/{passport_id}/preview.pdf" in client.get("/openapi.json").json()["paths"]
+
+
+@pytest.mark.parametrize("value", ["0", "false", "no", "off", "нет", " False "])
+def test_drill_passport_can_be_switched_off(monkeypatch, value: str) -> None:
+    monkeypatch.setenv(config.DRILL_PASSPORT_ENABLED_ENV, value)
+    assert config.drill_passport_enabled() is False
+
+
+@pytest.mark.parametrize("value", ["", "1", "true", "да", "что-то"])
+def test_drill_passport_other_values_keep_it_on(monkeypatch, value: str) -> None:
+    monkeypatch.setenv(config.DRILL_PASSPORT_ENABLED_ENV, value)
+    assert config.drill_passport_enabled() is True

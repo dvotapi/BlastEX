@@ -336,8 +336,9 @@ s = roundup(max(2,0; Hs·(ctg γ − ctg α)), 0,1 м) — округление 
 Хранение — `drilling_passports` и неизменяемые `drilling_passport_revisions`
 (`design/drilling_passport_repository.py`, `content_sha256` по
 `canonical_json`), API — `/design/drilling-passports` за флагом
-`drill_passport` (`BLASTEX_DRILL_PASSPORT_ENABLED`). Полей в `BlastDesign` не
-добавлять. PDF (PR 2) — `design/reporting/drill/`: `layout.py` раскладывает
+`drill_passport` (`BLASTEX_DRILL_PASSPORT_ENABLED`; с PR 6 включён по
+умолчанию, выключает только явное `0`/`false`/`no`/`off`/`нет`). Полей в
+`BlastDesign` не добавлять. PDF (PR 2) — `design/reporting/drill/`: `layout.py` раскладывает
 только снимок ревизии (`context`) в страницы, `pdf.py` рисует ReportLab
 (`invariant=1` — без времени в metadata, повтор — те же байты; одна страница
 раскладки — одна страница PDF), `rig_scheme.py` — схема станка с одним
@@ -393,6 +394,38 @@ AutoCAD 2022 не открыл, а сверка той же LibreDWG этого 
 постоянным временем, `archive.fixed_zip`). Маршруты — `/stakeout?profile=`,
 `/coords.pdf`, `/coords.xlsx`, `/package.zip`. Ход работ —
 `Docs/plans/TASK-015-progress.md`.
+
+Интерфейс (PR 6) — `frontend/src/pages/design/drillPassport/`: панель
+«Паспорт на бурение» в «Отчёте» рядом с «Проект МВ» (паспорт проекта —
+`GET /design/drilling-passports?design_id=`, последний изменённый; документы
+ревизии — `DownloadBar`, профили файла выноса — из `context.stakeout`
+ревизии) и окно `DrillPassportDialog` (форма — `form.ts`, поля и пределы
+длины как в схеме API; пустое число — значение из справочника, подсказка —
+значение и источник `provenance`; замечание — у поля своего `path`;
+«Проверка первого ряда» — `checkRows`; выпуск — только с отметкой
+«просмотрено» у каждого предупреждения, правки формы сначала сохраняются;
+предпросмотр — `GET /{id}/preview.pdf`: PDF черновика с пометкой
+«ЧЕРНОВИК — не для работы» на каждой странице, `render_passport_pdf(...,
+draft=True)`, с ошибками проверки — 422; PDF ревизии без пометки, байты
+прежние). Справка «?» — `DrillPassportHelp`. «Порядок работ» постоянен из
+паспорта в паспорт (решение владельца 10.11.2026): новый паспорт берёт его из
+профиля паспорта (`drill_passport_profiles`, поля `site_preparation` …
+`acceptance`) — заданного в запросе или профиля объекта
+(`drill_passport_profile_code`), пустое поле профиля — `DEFAULT_WORK_ORDER`
+(`work_order_texts`); в снимок ревизии тексты идут полями паспорта, не
+профилем. Выбор объекта или профиля в окне подставляет непустые тексты
+профиля (`applyProfileWorkOrder`). Остальные поля нового паспорта заполняются сами
+(`api/services/drilling_passport_prefill.py`, решение владельца
+10.11.2026): объект — активный объект организации, иначе объект последнего
+паспорта организации; название и заказчик — справочник объекта, горизонт —
+`floor_horizon` (медиана подошвы скважин), люди, «Составлен на основании»,
+допуски, Wпред и станок — прошлый паспорт того же объекта (главнее
+умолчаний кода), иначе станок — «Условия бурения» объекта или единственный
+буровой, № — единица техники, диаметр — коронка нормы бурения
+(`cost.model.drilling.pick_condition`); начало бурения — дата паспорта,
+окончание — `drilling_days` (объём / (скорость × чистое время смены × 2
+смены)), без нормы — дата начала и предупреждение `drilling_norm_missing`.
+Заданное в запросе не меняется.
 
 ## Нумерация скважин
 

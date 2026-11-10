@@ -50,6 +50,14 @@ class _Repository:
     def get_passport(self, organization_id, passport_id):
         return self._public(self._get(organization_id, passport_id))
 
+    def list_passports(self, organization_id, design_id=None):
+        # Как у PostgreSQL — последний изменённый первым (здесь — последний созданный).
+        items = [
+            item for item in self.passports.values()
+            if item["organization_id"] == organization_id and (not design_id or item["design_id"] == design_id)
+        ]
+        return tuple(self._public(item) for item in reversed(items))
+
     def create_passport(self, organization_id, actor, design_id, passport_no, passport_date, payload):
         passport_id = str(uuid4())
         self.passports[passport_id] = {
@@ -102,15 +110,25 @@ PROFILE = {
 }
 
 
-def _snapshot(site=SITE, rig=RIG, stakeout_profiles=None):
-    items = {("sites", "ZHK"): site, ("equipment_types", "JK830"): rig, ("drill_passport_profiles", "KGOK"): PROFILE}
+def _snapshot(site=SITE, rig=RIG, stakeout_profiles=None, extra=None):
+    """Справочники теста; `extra` — {(раздел, код): (название, payload)}."""
+
+    items = {
+        ("sites", "ZHK"): site, ("equipment_types", "JK830"): rig, ("drill_passport_profiles", "KGOK"): PROFILE,
+        # Норматив станка: без него проверка предупреждает `drilling_norm_missing`.
+        ("drilling_conditions", "JK830"): {"equipment_type_code": "JK830", "tech_speed_m_per_h": "25"},
+    }
+    names: dict[tuple[str, str], str] = {}
     for code, (name, payload) in (stakeout_profiles or {}).items():
         items[("stakeout_profiles", code)] = payload
-    names = {code: name for code, (name, _) in (stakeout_profiles or {}).items()}
+        names[("stakeout_profiles", code)] = name
+    for key, (name, payload) in (extra or {}).items():
+        items[key] = payload
+        names[key] = name
 
     def item(section, code):
         payload = items.get((section, code))
-        return SimpleNamespace(code=code, name=names.get(code, code), payload=payload) if payload is not None else None
+        return SimpleNamespace(code=code, name=names.get((section, code), code), payload=payload) if payload is not None else None
 
     def active_items(section):
         return tuple(item(sec, code) for sec, code in items if sec == section)
@@ -961,3 +979,259 @@ def test_package_without_stakeout_explains_why(client, repository):
         note = archive.read("Файл выноса не сформирован.txt").decode("utf-8")
     assert "Р1" in note
     assert len(names) == 5
+
+
+# --- список паспортов проекта и PDF черновика (PR 6) ----------------------
+
+def _pdf_text(pdf: bytes, tmp_path) -> str:
+    import subprocess
+
+    source = tmp_path / "preview.pdf"
+    source.write_bytes(pdf)
+    # -raw: повёрнутая пометка черновика в обычном режиме рвётся на буквы.
+    return subprocess.run(["pdftotext", "-raw", str(source), "-"], check=True, capture_output=True).stdout.decode()
+
+
+def test_list_passports_of_design(client):
+    first = _create(client)
+    second = _create(client)
+    items = client.get(BASE, params={"design_id": "block-66"}).json()
+    assert [item["id"] for item in items] == [second["id"], first["id"]]
+    assert items[0]["payload"]["site_code"] == "ZHK"
+    assert client.get(BASE, params={"design_id": "other"}).json() == []
+
+
+def test_list_passports_of_foreign_organization_is_empty(client, repository):
+    passport = _create(client)
+    repository.passports[passport["id"]]["organization_id"] = "org-b"
+    assert client.get(BASE, params={"design_id": "block-66"}).json() == []
+
+
+@pytest.mark.skipif(__import__("shutil").which("pdftotext") is None, reason="нет pdftotext (poppler)")
+def test_draft_preview_pdf_is_marked(client, tmp_path):
+    passport = _create(client)
+    response = client.get(f"{BASE}/{passport['id']}/preview.pdf")
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "application/pdf"
+    disposition = response.headers["content-disposition"]
+    assert disposition.startswith("inline;")
+    assert "%D1%87%D0%B5%D1%80%D0%BD%D0%BE%D0%B2%D0%B8%D0%BA.pdf" in disposition  # «черновик.pdf»
+    assert "ЧЕРНОВИК" in _pdf_text(response.content, tmp_path)
+    assert client.get(f"{BASE}/{passport['id']}").json()["current_revision_id"] is None
+
+
+def test_draft_preview_with_errors_is_422(client, references):
+    references["snapshot"] = _snapshot(site={})
+    passport = _create(client)
+    response = client.get(f"{BASE}/{passport['id']}/preview.pdf")
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail.startswith("Предпросмотр недоступен:")
+    assert "угол откоса" in detail
+
+
+def test_draft_preview_of_foreign_passport_is_404(client, repository):
+    passport = _create(client)
+    repository.passports[passport["id"]]["organization_id"] = "org-b"
+    assert client.get(f"{BASE}/{passport['id']}/preview.pdf").status_code == 404
+
+
+def test_list_passports_needs_design(client):
+    # Весь список организации с payload фронту не нужен: только паспорт проекта.
+    _create(client)
+    assert client.get(BASE).status_code == 422
+    assert client.get(BASE, params={"design_id": ""}).status_code == 422
+
+
+# --- «Порядок работ» нового паспорта: профиль объекта или умолчания (PR 6) --
+
+WORK_ORDER_V07 = {
+    "site_preparation": "бульдозером под руководством горного мастера заказчика; приём площадки по акту",
+    "stakeout": "маркшейдерская служба заказчика по листу «Координаты скважин»",
+    "drilling_order": (
+        "с левого фланга вглубь массива, рядами; скважины, ближайшие к бровке, обуривать с соблюдением "
+        "мер предосторожности, преимущественно в светлое время суток"
+    ),
+    "access_route": "по съезду, мачта в транспортном положении",
+    "power_lines": "нет",
+    "adjacent_works": "нет",
+    "acceptance": "исполнительная съёмка маркшейдерской службой заказчика",
+}
+
+
+def test_new_draft_work_order_is_filled_by_default(client):
+    payload = _create(client)["payload"]
+    assert {key: payload[key] for key in WORK_ORDER_V07} == WORK_ORDER_V07
+    assert payload["profile_code"] == ""
+
+
+def test_new_draft_takes_work_order_from_site_profile(client, references):
+    profile = {**PROFILE, "drilling_order": "с левого фланга, рядами", "power_lines": "ЛЭП 6 кВ в 40 м — по наряду-допуску"}
+    snapshot = _snapshot(site={**SITE, "drill_passport_profile_code": "KGOK"})
+    item = snapshot.item
+    snapshot.item = lambda section, code: (
+        SimpleNamespace(code=code, name="КГОК", payload=profile) if (section, code) == ("drill_passport_profiles", "KGOK") else item(section, code)
+    )
+    references["snapshot"] = snapshot
+    payload = _create(client)["payload"]
+    assert payload["profile_code"] == "KGOK"
+    assert payload["drilling_order"] == "с левого фланга, рядами"
+    assert payload["power_lines"] == "ЛЭП 6 кВ в 40 м — по наряду-допуску"
+    # Пустое поле профиля — текст по умолчанию.
+    assert payload["stakeout"] == WORK_ORDER_V07["stakeout"]
+
+
+def test_new_draft_keeps_explicit_work_order_and_profile(client, references):
+    references["snapshot"] = _snapshot(site={**SITE, "drill_passport_profile_code": "KGOK"})
+    payload = _create(client, {**PAYLOAD, "power_lines": "ЛЭП 10 кВ", "profile_code": ""})["payload"]
+    assert payload["power_lines"] == "ЛЭП 10 кВ"
+    # Явно пустой профиль в запросе — профиль объекта не подставляется.
+    assert payload["profile_code"] == ""
+
+
+def test_unknown_site_profile_falls_back_to_defaults(client, references):
+    references["snapshot"] = _snapshot(site={**SITE, "drill_passport_profile_code": "NOPE"})
+    payload = _create(client)["payload"]
+    assert payload["profile_code"] == ""
+    assert payload["drilling_order"] == WORK_ORDER_V07["drilling_order"]
+
+
+
+# --- остальные поля нового паспорта: справочники и прошлый паспорт (PR 6) --
+
+DRILL_REFERENCES = {
+    ("sites", "ZHK"): ("Жуков Камень", {**SITE, "customer_legal_name": "АО «КГОК»", "shift_hours": "11"}),
+    ("equipment_types", "JK830"): ("JK 830-2", {**RIG, "kind": "DRILL_RIG"}),
+    ("equipment_assets", "JK830-07"): ("JK 830-2 № 7", {"equipment_type_code": "JK830", "inventory_number": "07"}),
+    ("drilling_conditions", "JK830-ZHK"): (
+        "JK830 на Жуковом Камне",
+        {"equipment_type_code": "JK830", "site_code": "ZHK", "tech_speed_m_per_h": "25", "unproductive_h_per_shift": "1.5",
+         "bit_material_code": "BIT140"},
+    ),
+    ("materials", "BIT140"): ("Коронка 140 мм", {"diameter_mm": "140"}),
+}
+
+
+def _bare(client, site_code="ZHK", **extra):
+    response = client.post(
+        BASE, json={"design_id": "block-66", "passport_date": "2026-11-10", "payload": {"site_code": site_code, **extra}}
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def test_new_draft_prefilled_from_references(client, references):
+    references["snapshot"] = _snapshot(site=None, rig=None, extra=DRILL_REFERENCES)
+    payload = _bare(client)["payload"]
+    assert payload["object_name"] == "Жуков Камень"
+    assert payload["customer"] == "АО «КГОК»"
+    assert payload["horizon"] == "+410"
+    assert (payload["rig_type_code"], payload["rig_name"], payload["rig_number"]) == ("JK830", "JK 830-2", "07")
+    assert payload["bit_diameter_mm"] == 140
+    # 2 280,5 п. м / (25 м/ч × (11 − 1,5) ч × 2 смены) = 4,8 → 5 суток: 10.11 … 14.11.
+    assert (payload["drilling_start"], payload["drilling_end"]) == ("2026-11-10", "2026-11-14")
+
+
+def test_customer_from_counterparty(client, references):
+    extra = {**DRILL_REFERENCES, ("sites", "ZHK"): ("Жуков Камень", {**SITE, "customer_code": "KGOK"}),
+             ("counterparties", "KGOK"): ("АО «Качканарский ГОК»", {})}
+    references["snapshot"] = _snapshot(site=None, rig=None, extra=extra)
+    assert _bare(client)["payload"]["customer"] == "АО «Качканарский ГОК»"
+
+
+def test_without_drilling_norm_end_is_start_and_warned(client, references):
+    extra = {key: value for key, value in DRILL_REFERENCES.items() if key[0] != "drilling_conditions"}
+    references["snapshot"] = _snapshot(site=None, rig=None, extra=extra)
+    snapshot = references["snapshot"]
+    item, active = snapshot.item, snapshot.active_items
+    snapshot.item = lambda section, code: None if section == "drilling_conditions" else item(section, code)
+    snapshot.active_items = lambda section: () if section == "drilling_conditions" else active(section)
+    passport = _bare(client, rig_type_code="JK830")
+    assert passport["payload"]["drilling_end"] == passport["payload"]["drilling_start"] == "2026-11-10"
+    issues = client.post(f"{BASE}/{passport['id']}/validate").json()["issues"]
+    norm = [issue for issue in issues if issue["code"] == "drilling_norm_missing"]
+    assert norm and norm[0]["path"] == "drilling_end"
+
+
+def test_new_draft_copies_previous_passport_of_site(client, references):
+    references["snapshot"] = _snapshot(site=None, rig=None, extra=DRILL_REFERENCES)
+    people = {
+        "agreed_by": {"position": "Главный инженер", "organization": "АО «КГОК»", "name": "Иванов И. И."},
+        "approved_by": {"position": "Директор", "organization": "ООО «Комплексные решения»", "name": "Петров П. П."},
+        "compiled_by": {"position": "Инженер БВР", "organization": "", "name": "Сидоров С. С."},
+        "personnel": [{"name": "Кузнецов", "position": "машинист"}],
+        "basis": "проект БВР № 12", "w_max_m": 6.5, "rig_number": "12", "bit_diameter_mm": 152,
+        "extra_approvals": ["маркшейдер Орлова"], "tol_depth_m": 0.2,
+    }
+    _bare(client, **people)
+    payload = _bare(client)["payload"]
+    for key, value in people.items():
+        assert payload[key] == value, key
+    # Тип станка и паспорта на других объектах не мешают.
+    assert payload["rig_type_code"] == "JK830"
+
+
+def test_previous_passport_of_other_site_is_not_copied(client, references):
+    extra = {**DRILL_REFERENCES, ("sites", "OTHER"): ("Другой карьер", {})}
+    references["snapshot"] = _snapshot(site=None, rig=None, extra=extra)
+    _bare(client, site_code="OTHER", basis="проект другого карьера", w_max_m=9.0)
+    payload = _bare(client)["payload"]
+    assert payload["basis"] == ""
+    assert payload["w_max_m"] is None
+
+
+def test_explicit_fields_are_kept(client, references):
+    references["snapshot"] = _snapshot(site=None, rig=None, extra=DRILL_REFERENCES)
+    payload = _bare(client, horizon="+398", object_name="Блок у дороги", drilling_end="2026-11-30")["payload"]
+    assert (payload["horizon"], payload["object_name"], payload["drilling_end"]) == ("+398", "Блок у дороги", "2026-11-30")
+
+
+def test_without_active_site_takes_site_of_last_passport(client, references, monkeypatch):
+    # Активный объект не определился (кнопка «Создать паспорт» шлёт только проект):
+    # объект — у последнего паспорта организации, дальше — его справочники и люди.
+    monkeypatch.setattr(drilling_passport_service, "_default_site_code", lambda *args: "")
+    references["snapshot"] = _snapshot(site=None, rig=None, extra=DRILL_REFERENCES)
+    _bare(client, basis="проект БВР № 12")
+    response = client.post(BASE, json={"design_id": "block-66", "passport_date": "2026-11-11"})
+    payload = response.json()["payload"]
+    assert payload["site_code"] == "ZHK"
+    assert payload["object_name"] == "Жуков Камень"
+    assert payload["basis"] == "проект БВР № 12"
+
+
+def test_prefilled_texts_fit_passport_limits(client, references):
+    # Названия в справочнике — до 300 знаков, поля паспорта короче: черновик
+    # с подставленными значениями должен сохраняться (иначе 422 на любую правку).
+    extra = {
+        **DRILL_REFERENCES,
+        ("sites", "ZHK"): ("К" * 250, {**SITE, "customer_legal_name": "З" * 250}),
+        ("equipment_types", "JK830"): ("С" * 120, {**RIG, "kind": "DRILL_RIG"}),
+        ("equipment_assets", "JK830-07"): ("JK", {"equipment_type_code": "JK830", "inventory_number": "Н" * 60}),
+    }
+    references["snapshot"] = _snapshot(site=None, rig=None, extra=extra)
+    passport = _bare(client)
+    payload = passport["payload"]
+    assert (len(payload["object_name"]), len(payload["customer"])) == (200, 200)
+    assert (len(payload["rig_name"]), len(payload["rig_number"])) == (80, 40)
+    saved = client.put(
+        f"{BASE}/{passport['id']}",
+        json={"passport_no": passport["passport_no"], "passport_date": passport["passport_date"],
+              "payload": payload, "expected_version": passport["version"]},
+    )
+    assert saved.status_code == 200, saved.text
+
+
+def test_rig_details_inherited_only_for_same_rig_type(client, references):
+    extra = {
+        **DRILL_REFERENCES,
+        ("equipment_types", "ZEGA"): ("ZEGA D480A", {"kind": "DRILL_RIG"}),
+        ("equipment_assets", "ZEGA-03"): ("ZEGA № 3", {"equipment_type_code": "ZEGA", "inventory_number": "03"}),
+    }
+    references["snapshot"] = _snapshot(site=None, rig=None, extra=extra)
+    _bare(client, rig_number="12", bit_diameter_mm=152)
+    payload = _bare(client, rig_type_code="ZEGA")["payload"]
+    # Другой станок — его название и № из справочников, не от JK830.
+    assert (payload["rig_name"], payload["rig_number"]) == ("ZEGA D480A", "03")
+    assert payload["bit_diameter_mm"] is None
+    same = _bare(client)["payload"]
+    assert (same["rig_type_code"], same["rig_number"]) == ("ZEGA", "03")

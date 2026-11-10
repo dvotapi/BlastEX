@@ -282,3 +282,24 @@ def test_variable_row_of_insert_kind_stays_in_layout():
     scrambled = _scrambled(generated)
     mapping = renumber_map(scrambled, contour, params)
     assert [mapping.get(h.id, h.id) for h in scrambled] == [h.id for h in generated]
+
+
+TAPER_CASES = {
+    "блок 67, ряд вдоль бровки, переход 2 ряда": (block67_contour, {**BASE, "first_row_follow_face": True, "front_rows_tilt_count": 2}),
+    "блок 67, переход 2 ряда": (block67_contour, {**BASE, "row_azimuth_deg": 0.0, "front_rows_tilt_count": 2}),
+    "блок 67, переход 1 ряд, 25°": (block67_contour, {**BASE, "row_azimuth_deg": 0.0, "front_rows_tilt_count": 1, "front_rows_tilt_deg": 25}),
+    "прямоугольник, переход 2 ряда": (lambda: _rect([[0, 1]], width=40.0, height=30.0), {**BASE, "front_rows_tilt_count": 2}),
+}
+
+
+@pytest.mark.parametrize("name", list(TAPER_CASES))
+def test_taper_keeps_generator_numbers(name):
+    """Плавный переход сдвигает устья к откосу; генератор нумерует по месту до
+    сдвига — и перенумерация тоже (ревью Codex PR #172)."""
+    contour_of, params = TAPER_CASES[name]
+    contour = contour_of()
+    generated = generate_pattern(contour, params)
+    assert renumber_map(generated, contour, params) == {}
+    scrambled = _scrambled(generated)
+    mapping = renumber_map(scrambled, contour, params)
+    assert [mapping.get(h.id, h.id) for h in scrambled] == [h.id for h in generated]

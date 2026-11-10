@@ -18,9 +18,9 @@ import numpy as np
 from scipy.spatial import cKDTree
 
 from design.geometry import crest_azimuth_deg, local_basis, pattern_origin
-from design.models import FACE_TOE_KIND, BlockContour, Hole, in_main_grid, is_main_grid_row
+from design.models import FACE_TOE_KIND, BlockContour, Hole, in_main_grid, is_lattice_hole, is_main_grid_row
 from design.numbering import number_by_position
-from design.pattern import face_row_numbering_xy, layout_row_kind, uses_back_layout
+from design.pattern import face_row_numbering_xy, layout_row_kind, taper_numbering_xy, uses_back_layout
 
 # Вставки, которые генератор добавляет после ряда у бровки (`pattern._finish_pattern`).
 _ADDED_AFTER_LAYOUT = ("buffer", "stab", "satellite", "infill")
@@ -143,16 +143,21 @@ def renumber_map(holes: list[Hole], contour: BlockContour, pattern_params: Mappi
         row_azimuth = _lattice_azimuth(layout, contour)
     row_dir, advance_dir = local_basis(row_azimuth)
     _origin, deep_dir = pattern_origin(contour, row_dir, advance_dir)
-    # Как у генератора: ряд вдоль бровки привязывается к столбцам, только когда
-    # он построен («Первый ряд вдоль бровки», свободная поверхность есть, сетка
-    # не «от тыла»); столбцы — по скважинам, которые были у генератора к этому
-    # месту: без ручных и без вставок, добавленных после (`_finish_pattern`).
-    face_row = (
-        face_row_numbering_xy(layout, row_dir, {})
-        if params.get("first_row_follow_face") and contour.free_faces and not uses_back_layout(contour, params)
-        else {}
+    # Как у генератора: места до сдвига плавного перехода, затем ряд вдоль
+    # бровки на линии ближайшего столбца — только когда этот ряд построен
+    # («Первый ряд вдоль бровки», свободная поверхность есть, сетка не «от
+    # тыла»). Столбцы — по скважинам, которые были у генератора к этому месту:
+    # без ручных и без вставок, добавленных после (`_finish_pattern`).
+    follow_face = bool(params.get("first_row_follow_face") and contour.free_faces and not uses_back_layout(contour, params))
+    grid = [hole for hole in layout if is_lattice_hole(hole)]
+    if follow_face:
+        grid.sort(key=lambda hole: hole.row != 0)
+    lattice_xy = taper_numbering_xy(
+        grid, contour, params, deep_dir, sum(1 for hole in grid if hole.row == 0) if follow_face else 0
     )
-    positions = [face_row.get(id(hole)) for hole in holes] if face_row else None
+    if follow_face:
+        lattice_xy.update(face_row_numbering_xy(layout, row_dir, lattice_xy))
+    positions = [lattice_xy.get(id(hole)) for hole in holes] if lattice_xy else None
     numbered = number_by_position(holes, row_azimuth_deg=row_azimuth, positions=positions, deep_dir=deep_dir)
     repeated = sorted(hole_id for hole_id, count in Counter(h.id for h in numbered).items() if count > 1)
     if repeated:

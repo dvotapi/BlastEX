@@ -82,6 +82,7 @@ from cost.v2.legacy_adapter import LegacyReferences
 from cost.v2.repository import EconomicsRepository
 from design import persistence as design_persistence
 from design.layout_search.jobs import LayoutSearchBusyError, LayoutSearchJobs, get_layout_search_jobs
+from design.renumber import RenumberConflict
 
 router = APIRouter(prefix="/design", tags=["design"])
 
@@ -142,7 +143,10 @@ def post_holes_recompute(request: HoleRecomputeRequest) -> HoleRecomputeResponse
 @router.post("/holes/renumber", response_model=HoleRenumberResponse)
 def post_holes_renumber(request: HoleRenumberRequest) -> HoleRenumberResponse:
     """Номера скважин по правилу эшелонов для проекта, построенного до него (скважины не двигаются)."""
-    return design_service.renumber_holes(request)
+    try:
+        return design_service.renumber_holes(request)
+    except RenumberConflict as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
 
 
 @router.post("/holes/insert", response_model=HoleInsertResponse)

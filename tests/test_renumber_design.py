@@ -158,3 +158,65 @@ def test_staggered_grid_without_face_row_keeps_generator_numbers():
     scrambled = _scrambled(generated)
     mapping = renumber_map(scrambled, contour, params)
     assert [mapping.get(h.id, h.id) for h in scrambled] == [h.id for h in generated]
+
+
+def _without_azimuth(params):
+    return {key: value for key, value in params.items() if key != "row_azimuth_deg"}
+
+
+def test_inferred_azimuth_keeps_sub_degree_precision():
+    """Сетка под 89,6° без сохранённого азимута: округление до градуса сдвинуло бы
+    эшелоны на 7 см на 10 м — больше допуска эшелона 5 см (ревью Codex PR #172)."""
+    contour = _rect([[0, 1]], width=80.0, height=60.0)
+    params = {**BASE, "spacing_a_m": 10.0, "burden_b_m": 10.0, "row_azimuth_deg": 89.6}
+    generated = generate_pattern(contour, params)
+    scrambled = _scrambled(generated)
+    mapping = renumber_map(scrambled, contour, _without_azimuth(params))
+    assert [mapping.get(h.id, h.id) for h in scrambled] == [h.id for h in generated]
+
+
+def test_inferred_azimuth_of_rectangular_grid_with_wide_rows():
+    """Шаг вдоль ряда 8 м, ЛСП 3 м: соседи вдоль ряда дальше 1,5 ближайшего
+    расстояния, но ряды всё равно — вдоль бровки (ревью Codex PR #172)."""
+    contour = _rect([[0, 1]], width=60.0, height=20.0)
+    params = {**BASE, "pattern": "rectangular", "spacing_a_m": 8.0, "burden_b_m": 3.0}
+    generated = generate_pattern(contour, params)
+    scrambled = _scrambled(generated)
+    mapping = renumber_map(scrambled, contour, _without_azimuth(params))
+    assert [mapping.get(h.id, h.id) for h in scrambled] == [h.id for h in generated]
+
+
+def test_orphan_face_pair_collision_is_rejected():
+    """Вертикальную удалили, её пара осталась: перенумерация не должна дать
+    другой скважине тот же номер (ревью Codex PR #172)."""
+    from design.renumber import RenumberConflict
+
+    contour = _rect([[0, 1]])
+    params = {**BASE, "front_rows_mode": "pair"}
+    generated = generate_pattern(contour, params)
+    pairs = [h for h in generated if h.id.endswith("T")]
+    assert len(pairs) >= 2
+    orphan, kept = pairs[0], pairs[1]
+    vertical = orphan.id[:-1]
+    # Вертикальную сироты удалили; «старые» номера: сирота — номер, который
+    # по правилу достанется паре `kept`, остальные — перемешаны.
+    holes = [h for h in generated if h.id not in (vertical, orphan.id)]
+    scrambled = _scrambled(holes) + [replace(orphan, id=kept.id)]
+    with pytest.raises(RenumberConflict, match=kept.id):
+        renumber_map(scrambled, contour, params)
+
+
+def test_renumber_route_conflict_is_422():
+    contour = _rect([[0, 1]])
+    params = {**BASE, "front_rows_mode": "pair"}
+    generated = generate_pattern(contour, params)
+    pairs = [h for h in generated if h.id.endswith("T")]
+    orphan, kept = pairs[0], pairs[1]
+    holes = [h for h in generated if h.id not in (orphan.id[:-1], orphan.id)]
+    scrambled = _scrambled(holes) + [replace(orphan, id=kept.id)]
+    response = _client().post(
+        "/api/v1/design/holes/renumber",
+        json={"holes": [h.to_dict() for h in scrambled], "contour": contour.to_dict(), "params": params},
+    )
+    assert response.status_code == 422
+    assert kept.id in response.json()["detail"]

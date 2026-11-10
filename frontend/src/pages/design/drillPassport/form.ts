@@ -32,6 +32,8 @@ export type FieldSpec = {
   unit?: string;
   section?: ReferenceSection;
   hint?: string;
+  /** Пределы числа — как `gt`/`ge`/`le` схемы API (иначе 422 без русского текста). */
+  range?: { min: number; max?: number; minExclusive?: boolean };
 };
 
 export const MAX_PERSONNEL = 20;
@@ -44,9 +46,10 @@ const text = (key: ScalarKey, label: string, maxLength: number, hint?: string): 
   key, label, kind: "text", maxLength, hint,
 });
 const area = (key: ScalarKey, label: string): FieldSpec => ({ key, label, kind: "textarea", maxLength: 300 });
-const number = (key: ScalarKey, label: string, unit: string, hint?: string): FieldSpec => ({
-  key, label, kind: "number", unit, hint,
+const number = (key: ScalarKey, label: string, unit: string, range: FieldSpec["range"], hint?: string): FieldSpec => ({
+  key, label, kind: "number", unit, range, hint,
 });
+const POSITIVE = { min: 0, minExclusive: true };
 
 export const FIELD_GROUPS: { title: string; fields: FieldSpec[] }[] = [
   {
@@ -64,7 +67,7 @@ export const FIELD_GROUPS: { title: string; fields: FieldSpec[] }[] = [
       text("customer", "Заказчик", 200),
       text("block", "Блок", 40, "Из номера блока складываются имена точек для GNSS-приёмника."),
       text("horizon", "Горизонт", 40),
-      number("block_area_m2", "Площадь блока", "м²"),
+      number("block_area_m2", "Площадь блока", "м²", POSITIVE),
     ],
   },
   {
@@ -73,7 +76,7 @@ export const FIELD_GROUPS: { title: string; fields: FieldSpec[] }[] = [
       { key: "rig_type_code", label: "Тип станка", kind: "reference", section: "equipment_types", maxLength: 80 },
       text("rig_name", "Буровая установка", 80),
       text("rig_number", "№ станка", 40),
-      number("bit_diameter_mm", "Диаметр инструмента", "мм"),
+      number("bit_diameter_mm", "Диаметр инструмента", "мм", POSITIVE),
       text("drilling_start", "Начало бурения", 40),
       text("drilling_end", "Окончание бурения", 40),
     ],
@@ -81,12 +84,12 @@ export const FIELD_GROUPS: { title: string; fields: FieldSpec[] }[] = [
   {
     title: "Первый ряд и безопасное расстояние",
     fields: [
-      number("alpha_deg", "Угол откоса рабочего уступа α", "°"),
-      number("gamma_deg", "Угол устойчивого борта γ", "°"),
-      number("bench_height_for_s_m", "Высота уступа для s, Hs", "м", "Проектная высота рабочего уступа."),
-      number("axis_offset_m", "Вылет оси скважины e", "м"),
-      number("first_row_offset_m", "От бровки до оси первого ряда c", "м"),
-      number("w_max_m", "Допустимая ЛСПП Wпред", "м"),
+      number("alpha_deg", "Угол откоса рабочего уступа α", "°", { min: 30, max: 90 }),
+      number("gamma_deg", "Угол устойчивого борта γ", "°", { min: 20, max: 90 }),
+      number("bench_height_for_s_m", "Высота уступа для s, Hs", "м", { min: 0, max: 30, minExclusive: true }, "Проектная высота рабочего уступа."),
+      number("axis_offset_m", "Вылет оси скважины e", "м", { min: 0, max: 5 }),
+      number("first_row_offset_m", "От бровки до оси первого ряда c", "м", { min: 0 }),
+      number("w_max_m", "Допустимая ЛСПП Wпред", "м", POSITIVE),
     ],
   },
   {
@@ -104,8 +107,8 @@ export const FIELD_GROUPS: { title: string; fields: FieldSpec[] }[] = [
   {
     title: "Допуски",
     fields: [
-      number("tol_depth_m", "По глубине скважины, ±", "м"),
-      number("tol_collar_m", "По положению устья, ±", "м"),
+      number("tol_depth_m", "По глубине скважины, ±", "м", { min: 0, max: 2, minExclusive: true }),
+      number("tol_collar_m", "По положению устья, ±", "м", { min: 0, max: 2, minExclusive: true }),
     ],
   },
   {
@@ -125,7 +128,6 @@ export const SIGNERS: { key: SignerKey; label: string }[] = [
 ];
 
 const FIELDS = FIELD_GROUPS.flatMap((group) => group.fields);
-const NUMBER_KEYS = FIELDS.filter((field) => field.kind === "number").map((field) => field.key);
 const REQUIRED_NUMBERS = new Set<ScalarKey>(["tol_depth_m", "tol_collar_m"]);
 
 export type PassportForm = {
@@ -168,11 +170,32 @@ export function formFromPassport(passport: DrillPassport): PassportForm {
   };
 }
 
-/** Ошибки ввода у полей: только «не число» — пределы проверяет сервер. */
+function rangeText(range: NonNullable<FieldSpec["range"]>): string {
+  const low = range.minExclusive ? `Больше ${range.min}` : `Не меньше ${range.min}`;
+  if (range.max === undefined) return `${low}.`;
+  return range.minExclusive ? `${low} и не больше ${range.max}.` : `От ${range.min} до ${range.max}.`;
+}
+
+function outOfRange(value: number, range: NonNullable<FieldSpec["range"]>): boolean {
+  if (range.minExclusive ? value <= range.min : value < range.min) return true;
+  return range.max !== undefined && value > range.max;
+}
+
+/**
+ * Ошибки ввода у полей — до отправки на сервер: его 422 по пределам схемы
+ * приходит с английскими текстами pydantic, и пользователь не увидел бы, какое
+ * из полей неверно. Пределы — как в `DrillingPassportPayload`.
+ */
 export function formErrors(form: PassportForm): Partial<Record<ScalarKey, string>> {
   const errors: Partial<Record<ScalarKey, string>> = {};
-  for (const key of NUMBER_KEYS) {
-    if (form.values[key].trim() && parseFormNumber(form.values[key]) === null) errors[key] = "Введите число.";
+  for (const key of ["passport_no", "passport_date"] as const) {
+    if (!form.values[key].trim()) errors[key] = "Заполните.";
+  }
+  for (const field of FIELDS) {
+    if (field.kind !== "number" || !form.values[field.key].trim()) continue;
+    const value = parseFormNumber(form.values[field.key]);
+    if (value === null) errors[field.key] = "Введите число.";
+    else if (field.range && outOfRange(value, field.range)) errors[field.key] = rangeText(field.range);
   }
   return errors;
 }
@@ -287,9 +310,17 @@ export function checkRows(validation: DrillPassportValidation): CheckRow[] {
   ];
 }
 
+/**
+ * Ключ отметки «просмотрено» — код и текст предупреждения: тот же код с
+ * другими числами (W, номера скважин) инженер ещё не видел.
+ */
+export function ackKey(issue: DrillPassportIssue): string {
+  return `${issue.code}\u0000${issue.message}`;
+}
+
 /** Ревизию можно выпустить: нет ошибок и все предупреждения отмечены «просмотрено». */
 export function canRelease(validation: DrillPassportValidation | null, acknowledged: Set<string>): boolean {
   if (!validation) return false;
   if (validation.issues.some((issue) => issue.level === "error")) return false;
-  return validation.issues.every((issue) => issue.level !== "warning" || acknowledged.has(issue.code));
+  return validation.issues.every((issue) => issue.level !== "warning" || acknowledged.has(ackKey(issue)));
 }

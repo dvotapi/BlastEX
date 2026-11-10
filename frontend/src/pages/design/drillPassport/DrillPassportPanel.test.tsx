@@ -10,6 +10,7 @@ const api = vi.hoisted(() => ({
     create: vi.fn(),
     revision: vi.fn(),
     validate: vi.fn(),
+    get: vi.fn(),
     previewUrl: (id: string) => `/preview/${id}.pdf`,
   },
   economics: { referenceSnapshot: vi.fn() },
@@ -68,6 +69,15 @@ describe("DrillPassportPanel", () => {
     expect(await screen.findByText(/Ревизия № 2/)).toBeTruthy();
     await waitFor(() => expect(api.drillPassport.revision).toHaveBeenCalledWith("rev-1"));
     expect(screen.getByRole("button", { name: "Паспорт PDF" })).toBeTruthy();
+  });
+
+  it("закрытие окна перечитывает паспорт (версия после выпуска)", async () => {
+    api.drillPassport.list.mockResolvedValue([passport66()]);
+    const user = userEvent.setup();
+    render(<DrillPassportPanel designId="block-66" designSaved />);
+    await user.click(await screen.findByRole("button", { name: "Открыть паспорт" }));
+    await user.click(await screen.findByRole("button", { name: "Закрыть" }));
+    await waitFor(() => expect(api.drillPassport.list).toHaveBeenCalledTimes(2));
   });
 
   it("несохранённый проект блока — предупреждение", async () => {

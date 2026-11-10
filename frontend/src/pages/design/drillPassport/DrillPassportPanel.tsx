@@ -16,11 +16,16 @@ export function DrillPassportPanel({ designId, designSaved }: { designId: string
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // Закрытие окна перечитывает паспорт: выпуск меняет его версию, а окно
+  // могло не успеть её получить (иначе следующее сохранение — 409).
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
-    setPassport(null);
     setError("");
-    if (!designId) return;
+    if (!designId) {
+      setPassport(null);
+      return;
+    }
     let alive = true;
     setLoading(true);
     api.drillPassport
@@ -31,7 +36,7 @@ export function DrillPassportPanel({ designId, designSaved }: { designId: string
     return () => {
       alive = false;
     };
-  }, [designId]);
+  }, [designId, reload]);
 
   const revisionId = passport?.current_revision_id ?? null;
   useEffect(() => {
@@ -96,7 +101,10 @@ export function DrillPassportPanel({ designId, designSaved }: { designId: string
         <DrillPassportDialog
           passport={passport}
           designSaved={designSaved}
-          onClose={() => setOpen(false)}
+          onClose={() => {
+            setOpen(false);
+            setReload((value) => value + 1);
+          }}
           onChange={setPassport}
         />
       )}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DrillPassportIssue } from "../../../types/drillPassport";
 import {
+  ackKey,
   canRelease,
   checkRows,
   FIELD_GROUPS,
@@ -51,6 +52,29 @@ describe("форма ⇄ payload", () => {
     form.values.gamma_deg = "шестьдесят";
     expect(formErrors(form)).toEqual({ gamma_deg: "Введите число." });
     expect(formErrors(formFromPassport(passport66()))).toEqual({});
+  });
+
+  it("пределы чисел — как в схеме API, по-русски", () => {
+    const form = formFromPassport(passport66());
+    form.values.alpha_deg = "25";
+    form.values.gamma_deg = "95";
+    form.values.tol_depth_m = "3";
+    form.values.axis_offset_m = "-1";
+    form.values.block_area_m2 = "0";
+    expect(formErrors(form)).toEqual({
+      alpha_deg: "От 30 до 90.",
+      gamma_deg: "От 20 до 90.",
+      tol_depth_m: "Больше 0 и не больше 2.",
+      axis_offset_m: "От 0 до 5.",
+      block_area_m2: "Больше 0.",
+    });
+  });
+
+  it("№ и дата паспорта обязательны", () => {
+    const form = formFromPassport(passport66());
+    form.values.passport_no = " ";
+    form.values.passport_date = "";
+    expect(formErrors(form)).toEqual({ passport_no: "Заполните.", passport_date: "Заполните." });
   });
 
   it("поля и пределы длины — как в схеме API", () => {
@@ -120,12 +144,19 @@ describe("проверка первого ряда", () => {
 });
 
 describe("выпуск ревизии", () => {
+  it("отметка «просмотрено» — у текста предупреждения: новый текст того же кода — не отмечен", () => {
+    const before = { ...warning("first_row_burden"), message: "W 7,2 м больше 7,0 м" };
+    const after = { ...warning("first_row_burden"), message: "W 7,2 м больше 5,0 м" };
+    expect(canRelease(validation66([before]), new Set([ackKey(before)]))).toBe(true);
+    expect(canRelease(validation66([after]), new Set([ackKey(before)]))).toBe(false);
+  });
+
   it("ошибка блокирует, предупреждения — только отмеченные", () => {
     const error: DrillPassportIssue = { level: "error", code: "slope_angles_required", message: "", path: "alpha_deg" };
     expect(canRelease(validation66([error]), new Set())).toBe(false);
     const two = validation66([warning("w_max_missing"), warning("axis_offset_missing")]);
-    expect(canRelease(two, new Set(["w_max_missing"]))).toBe(false);
-    expect(canRelease(two, new Set(["w_max_missing", "axis_offset_missing"]))).toBe(true);
+    expect(canRelease(two, new Set([ackKey(two.issues[0])]))).toBe(false);
+    expect(canRelease(two, new Set(two.issues.map(ackKey)))).toBe(true);
     expect(canRelease(null, new Set())).toBe(false);
   });
 });

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DrillPassportIssue } from "../../../types/drillPassport";
@@ -187,6 +187,85 @@ describe("DrillPassportDialog", () => {
     await waitFor(() => expect(api.drillPassport.save).toHaveBeenCalled());
     expect((await screen.findAllByText("Нужны углы α и γ.")).length).toBeGreaterThan(0);
     expect(releaseButton()).toHaveProperty("disabled", true);
+  });
+
+  it("конфликт версии — паспорт можно загрузить заново", async () => {
+    const user = userEvent.setup();
+    open();
+    const horizon = await screen.findByLabelText(/^Горизонт/);
+    await user.type(horizon, "1");
+    api.drillPassport.save.mockRejectedValue(
+      Object.assign(new Error("Паспорт изменён другим пользователем. Обновите данные перед выпуском ревизии."), { status: 409 }),
+    );
+    api.drillPassport.get.mockResolvedValue({ ...passport66(), version: 7, payload: { ...passport66().payload, horizon: "+398" } });
+    await user.click(screen.getByRole("button", { name: "Сохранить" }));
+    await user.click(await screen.findByRole("button", { name: "Загрузить сохранённый паспорт" }));
+    await waitFor(() => expect((screen.getByLabelText(/^Горизонт/) as HTMLInputElement).value).toBe("+398"));
+    api.drillPassport.save.mockResolvedValue({ ...passport66(), version: 8 });
+    await user.type(screen.getByLabelText(/^Горизонт/), "2");
+    await user.click(screen.getByRole("button", { name: "Сохранить" }));
+    await waitFor(() => expect(api.drillPassport.save).toHaveBeenLastCalledWith("p1", expect.objectContaining({ expected_version: 7 })));
+  });
+
+  it("409 без новых предупреждений — понятный текст без служебных кодов", async () => {
+    const user = userEvent.setup();
+    open();
+    await waitFor(() => expect(releaseButton()).toHaveProperty("disabled", false));
+    api.drillPassport.createRevision.mockRejectedValue(
+      Object.assign(new Error("Отметьте предупреждения проверки как просмотренные: bit_diameter_missing"), { status: 409 }),
+    );
+    await user.click(releaseButton());
+    expect(await screen.findByRole("button", { name: "Загрузить сохранённый паспорт" })).toBeTruthy();
+    expect(document.body.textContent).not.toContain("bit_diameter_missing");
+  });
+
+  it("Esc при несохранённых правках спрашивает", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(<DrillPassportDialog passport={passport66()} designSaved onClose={onClose} onChange={vi.fn()} />);
+    await user.type(await screen.findByLabelText(/^Горизонт/), "1");
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const dialog = screen.getByRole("dialog", { name: /Паспорт на бурение №/ });
+    const cancel = new Event("cancel", { cancelable: true });
+    fireEvent(dialog, cancel);
+    expect(confirm).toHaveBeenCalled();
+    expect(cancel.defaultPrevented).toBe(true);
+    confirm.mockRestore();
+  });
+
+  it("пока идёт сохранение, подписи и ознакомление не редактируются", async () => {
+    const user = userEvent.setup();
+    open();
+    const horizon = await screen.findByLabelText(/^Горизонт/);
+    await waitFor(() => expect(releaseButton()).toHaveProperty("disabled", false));
+    await user.type(horizon, "1");
+    api.drillPassport.save.mockReturnValue(new Promise(() => undefined));
+    await user.click(releaseButton());
+    // Поле в отключённом fieldset недоступно, хотя его свойство disabled — false.
+    await waitFor(() => expect(screen.getByLabelText("СОГЛАСОВАНО: ФИО").matches(":disabled")).toBe(true));
+    expect(screen.getByRole("button", { name: "Добавить человека" }).matches(":disabled")).toBe(true);
+  });
+
+  it("изменился текст отмеченного предупреждения — выпуск останавливается", async () => {
+    const before = { ...warning("first_row_burden", "w_max_m"), message: "W 7,2 м больше 7,0 м" };
+    api.drillPassport.validate.mockResolvedValue(validation66([before]));
+    const user = userEvent.setup();
+    open();
+    await user.click(await screen.findByRole("checkbox", { name: "просмотрено" }));
+    await user.type(screen.getByLabelText(/Допустимая ЛСПП Wпред/), "5");
+    api.drillPassport.validate.mockResolvedValue(validation66([{ ...before, message: "W 7,2 м больше 5,0 м" }]));
+    await user.click(releaseButton());
+    expect(await screen.findByText(/Отметьте просмотренными новые предупреждения/)).toBeTruthy();
+    expect(api.drillPassport.createRevision).not.toHaveBeenCalled();
+    expect(screen.getByRole("checkbox", { name: "просмотрено" })).toHaveProperty("checked", false);
+  });
+
+  it("с ошибкой проверки предпросмотр недоступен", async () => {
+    const error: DrillPassportIssue = { level: "error", code: "slope_angles_required", message: "Нужны углы.", path: "alpha_deg" };
+    api.drillPassport.validate.mockResolvedValue(validation66([error]));
+    open();
+    await screen.findAllByText("Нужны углы.");
+    expect(screen.getByRole("button", { name: "Показать предпросмотр" })).toHaveProperty("disabled", true);
   });
 
   it("проверка первого ряда со статусами, без JSON", async () => {

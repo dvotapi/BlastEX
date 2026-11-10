@@ -6,10 +6,11 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type SyntheticEvent } from "react";
 import { fetchBlob } from "../../../api/client";
 import { api } from "../../../api/endpoints";
-import type { DrillPassport, DrillPassportValidation } from "../../../types/drillPassport";
+import type { DrillPassport, DrillPassportIssue, DrillPassportValidation } from "../../../types/drillPassport";
 import type { EconomicsReferenceItem, EconomicsReferenceSnapshot } from "../../../types/economics";
 import { DrillPassportHelp } from "./DrillPassportHelp";
 import {
+  ackKey,
   APPROVAL_LIMIT,
   canRelease,
   checkRows,
@@ -28,6 +29,10 @@ import {
   type ReferenceSection,
   type ScalarKey,
 } from "./form";
+
+const CONFLICT_MESSAGE =
+  "Паспорт изменён в другом окне или другим пользователем. Загрузите сохранённый паспорт — правки этого окна пропадут.";
+const isConflict = (reason: unknown) => (reason as { status?: number } | null)?.status === 409;
 
 const STATUS_LABEL: Record<DrillPassport["status"], string> = {
   draft: "черновик",
@@ -74,14 +79,19 @@ export function DrillPassportDialog({
   const [message, setMessage] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState("");
+  // Сохранение или выпуск получили 409 по версии: окно предлагает загрузить паспорт заново.
+  const [conflict, setConflict] = useState(false);
   const previewRef = useRef<string | null>(null);
+  const alive = useRef(true);
 
   const errors = useMemo(() => formErrors(form), [form]);
   const issues = validation?.issues ?? [];
   const warnings = issues.filter((issue) => issue.level === "warning");
   const editable = current.status === "draft";
+  const hasErrors = issues.some((issue) => issue.level === "error");
+  const locked = !editable || busy;
   const releasable =
-    editable && designSaved && !busy && Object.keys(errors).length === 0 && canRelease(validation, acknowledged);
+    editable && designSaved && !busy && !conflict && Object.keys(errors).length === 0 && canRelease(validation, acknowledged);
 
   useEffect(() => {
     const dialog = ref.current;
@@ -102,20 +112,22 @@ export function DrillPassportDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
       if (previewRef.current) URL.revokeObjectURL(previewRef.current);
-    },
-    [],
-  );
+    };
+  }, []);
 
   async function refreshValidation(id: string): Promise<DrillPassportValidation | null> {
     try {
       const result = await api.drillPassport.validate(id);
       setValidation(result);
-      // Отметка живёт, пока предупреждение есть: пропавшее и вернувшееся — заново.
-      const codes = new Set(result.issues.filter((issue) => issue.level === "warning").map((issue) => issue.code));
-      setAcknowledged((previous) => new Set([...previous].filter((code) => codes.has(code))));
+      // Отметка живёт, пока предупреждение с тем же текстом есть: пропавшее,
+      // вернувшееся или с другими числами — отмечается заново.
+      const keys = new Set(result.issues.filter((issue) => issue.level === "warning").map(ackKey));
+      setAcknowledged((previous) => new Set([...previous].filter((key) => keys.has(key))));
       return result;
     } catch (reason) {
       setMessage(errorText(reason, "Не удалось проверить паспорт."));
@@ -144,7 +156,8 @@ export function DrillPassportDialog({
     try {
       saved = await api.drillPassport.save(current.id, toUpdate(form, current.version));
     } catch (reason) {
-      setMessage(errorText(reason, "Не удалось сохранить паспорт."));
+      if (isConflict(reason)) setConflict(true);
+      setMessage(isConflict(reason) ? CONFLICT_MESSAGE : errorText(reason, "Не удалось сохранить паспорт."));
       return null;
     }
     setCurrent(saved);
@@ -152,6 +165,25 @@ export function DrillPassportDialog({
     setDirty(false);
     onChange(saved);
     return { passport: saved, validation: await refreshValidation(saved.id) };
+  }
+
+  // Загрузить паспорт с сервера заново (после конфликта версий).
+  async function onReload() {
+    setBusy(true);
+    try {
+      const fresh = await api.drillPassport.get(current.id);
+      setCurrent(fresh);
+      setForm(formFromPassport(fresh));
+      setDirty(false);
+      setConflict(false);
+      onChange(fresh);
+      setMessage("Загружен сохранённый паспорт.");
+      await refreshValidation(fresh.id);
+    } catch (reason) {
+      setMessage(errorText(reason, "Не удалось загрузить паспорт."));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function onSave() {
@@ -169,24 +201,43 @@ export function DrillPassportDialog({
       if (!result) return;
       const { passport: saved, validation: checked } = result;
       if (!checked) return;
+      if (checked.issues.some((issue) => issue.level === "error")) {
+        setMessage("Ревизию не выпустить: исправьте ошибки проверки.");
+        return;
+      }
       if (!canRelease(checked, acknowledged)) {
         setMessage("Отметьте просмотренными новые предупреждения проверки.");
         return;
       }
       const codes = checked.issues.filter((issue) => issue.level === "warning").map((issue) => issue.code);
+      const previous = current.current_revision_id;
       const revision = await api.drillPassport.createRevision(saved.id, {
         expected_version: saved.version,
         acknowledged_warnings: [...new Set(codes)],
       });
-      const updated = await api.drillPassport.get(saved.id);
-      setCurrent(updated);
-      onChange(updated);
-      setMessage(`Ревизия № ${revision.revision_no} выпущена: документы — на панели «Паспорт на бурение».`);
+      setMessage(
+        revision.id === previous
+          ? `Паспорт не изменился с ревизии № ${revision.revision_no} — новая не выпущена.`
+          : `Ревизия № ${revision.revision_no} выпущена: документы — на панели «Паспорт на бурение».`,
+      );
+      // Выпуск меняет версию черновика; не прочитался — панель перечитает паспорт при закрытии окна.
+      const updated = await api.drillPassport.get(saved.id).catch(() => null);
+      if (updated) {
+        setCurrent(updated);
+        onChange(updated);
+      } else {
+        setConflict(true);
+      }
     } catch (reason) {
-      if ((reason as { status?: number }).status === 409) {
+      if (isConflict(reason)) {
         const checked = await refreshValidation(current.id);
-        const pending = checked?.issues.some((issue) => issue.level === "warning" && !acknowledged.has(issue.code));
-        setMessage(pending ? "Отметьте просмотренными новые предупреждения проверки." : errorText(reason, "Ревизия не выпущена."));
+        const pending = checked?.issues.some((issue: DrillPassportIssue) => issue.level === "warning" && !acknowledged.has(ackKey(issue)));
+        if (pending) {
+          setMessage("Отметьте просмотренными новые предупреждения проверки.");
+        } else {
+          setConflict(true);
+          setMessage(CONFLICT_MESSAGE);
+        }
       } else {
         setMessage(errorText(reason, "Не удалось выпустить ревизию."));
       }
@@ -201,7 +252,9 @@ export function DrillPassportDialog({
     try {
       const saved = dirty ? (await save())?.passport : current;
       if (!saved) return;
-      const url = URL.createObjectURL(await fetchBlob(api.drillPassport.previewUrl(saved.id)));
+      const blob = await fetchBlob(api.drillPassport.previewUrl(saved.id));
+      if (!alive.current) return; // окно закрыли, пока PDF строился
+      const url = URL.createObjectURL(blob);
       if (previewRef.current) URL.revokeObjectURL(previewRef.current);
       previewRef.current = url;
       setPreview(url);
@@ -224,16 +277,22 @@ export function DrillPassportDialog({
     if (event.target === ref.current) requestClose();
   }
 
-  // Esc закрывает окно; `close` вложенной справки сюда не относится.
+  // Esc: при несохранённых правках — тот же вопрос, что у «×».
+  function onDialogCancel(event: SyntheticEvent<HTMLDialogElement>) {
+    if (event.target !== ref.current) return;
+    if (dirty && !window.confirm("В паспорте есть несохранённые правки. Закрыть без сохранения?")) event.preventDefault();
+  }
+
+  // `close` вложенной справки сюда не относится.
   function onDialogClose(event: SyntheticEvent<HTMLDialogElement>) {
     if (event.target === ref.current) onClose();
   }
 
-  function toggle(code: string, checked: boolean) {
+  function toggle(issue: DrillPassportIssue, checked: boolean) {
     setAcknowledged((previous) => {
       const next = new Set(previous);
-      if (checked) next.add(code);
-      else next.delete(code);
+      if (checked) next.add(ackKey(issue));
+      else next.delete(ackKey(issue));
       return next;
     });
   }
@@ -293,7 +352,7 @@ export function DrillPassportDialog({
   }
 
   return (
-    <dialog ref={ref} className="cad-dialog drill-dialog" aria-labelledby="drill-dialog-title" onClose={onDialogClose} onClick={onBackdropClick}>
+    <dialog ref={ref} className="cad-dialog drill-dialog" aria-labelledby="drill-dialog-title" onCancel={onDialogCancel} onClose={onDialogClose} onClick={onBackdropClick}>
       <header>
         <b id="drill-dialog-title">Паспорт на бурение № {current.passport_no}</b>
         <span className="cad-files">
@@ -311,12 +370,12 @@ export function DrillPassportDialog({
       <div className="drill-dialog-body">
         <div className="drill-form">
           {FIELD_GROUPS.map((group) => (
-            <fieldset key={group.title} disabled={!editable}>
+            <fieldset key={group.title} disabled={locked}>
               <legend>{group.title}</legend>
               <div className="drill-grid">{group.fields.map(fieldBlock)}</div>
             </fieldset>
           ))}
-          <fieldset disabled={!editable}>
+          <fieldset disabled={locked}>
             <legend>Подписи</legend>
             {SIGNERS.map((signer) => (
               <div key={signer.key} className="drill-grid">
@@ -360,7 +419,7 @@ export function DrillPassportDialog({
               ))}
             </div>
           </fieldset>
-          <fieldset disabled={!editable}>
+          <fieldset disabled={locked}>
             <legend>Ознакомление</legend>
             {form.personnel.map((person, index) => (
               <div key={index} className="drill-grid drill-person">
@@ -438,9 +497,9 @@ export function DrillPassportDialog({
                     <label className="drill-ack">
                       <input
                         type="checkbox"
-                        checked={acknowledged.has(issue.code)}
-                        disabled={!editable}
-                        onChange={(event) => toggle(issue.code, event.target.checked)}
+                        checked={acknowledged.has(ackKey(issue))}
+                        disabled={locked}
+                        onChange={(event) => toggle(issue, event.target.checked)}
                       />
                       просмотрено
                     </label>
@@ -452,7 +511,7 @@ export function DrillPassportDialog({
           </section>
 
           <div className="plans-actions">
-            <button type="button" className="secondary-button" onClick={onSave} disabled={!editable || busy || !dirty}>
+            <button type="button" className="secondary-button" onClick={onSave} disabled={locked || !dirty || conflict}>
               Сохранить
             </button>
             <button type="button" className="calculate-button" onClick={onRelease} disabled={!releasable}>
@@ -460,12 +519,18 @@ export function DrillPassportDialog({
             </button>
           </div>
           {message && <small className="drill-message">{message}</small>}
+          {conflict && (
+            <button type="button" className="secondary-button" onClick={() => void onReload()} disabled={busy}>
+              Загрузить сохранённый паспорт
+            </button>
+          )}
 
           <section className="drill-preview">
             <h4>Предпросмотр PDF</h4>
-            <button type="button" className="secondary-button" onClick={onPreview} disabled={busy}>
+            <button type="button" className="secondary-button" onClick={onPreview} disabled={busy || hasErrors || conflict}>
               Показать предпросмотр
             </button>
+            {hasErrors && <small>Предпросмотр — после исправления ошибок проверки.</small>}
             {previewError && <small className="form-error">{previewError}</small>}
             {preview && <iframe title="Предпросмотр паспорта" src={preview} />}
           </section>

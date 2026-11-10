@@ -87,7 +87,7 @@ describe("DrillPassportDialog", () => {
     // Пока справочники читаются, поле — текстовое; потом — список.
     await waitFor(() => expect(screen.getByLabelText(/Тип станка/).tagName).toBe("SELECT"));
     const rig = screen.getByLabelText(/Тип станка/);
-    expect(within(rig).getByRole("option", { name: "JK 830-2 (JK830)" })).toBeTruthy();
+    expect(within(rig).getByRole("option", { name: "JK 830-2" })).toBeTruthy();
     expect(within(rig).queryByRole("option", { name: /СЗМ/ })).toBeNull();
     expect((screen.getByLabelText(/^Объект$/) as HTMLSelectElement).value).toBe("ZHK");
   });
@@ -266,6 +266,88 @@ describe("DrillPassportDialog", () => {
     open();
     await screen.findAllByText("Нужны углы.");
     expect(screen.getByRole("button", { name: "Показать предпросмотр" })).toHaveProperty("disabled", true);
+  });
+
+  it("в списках справочников — названия без служебных кодов", async () => {
+    open();
+    await waitFor(() => expect(screen.getByLabelText(/^Объект$/).tagName).toBe("SELECT"));
+    const options = within(screen.getByLabelText(/^Объект$/)).getAllByRole("option").map((option) => option.textContent);
+    expect(options).toEqual(["— не выбран —", "Жуков Камень"]);
+  });
+
+  it("одинаковые названия различаются кодом", async () => {
+    api.economics.referenceSnapshot.mockResolvedValue({
+      ...SNAPSHOT,
+      sections: { ...SNAPSHOT.sections, sites: [...SNAPSHOT.sections.sites, { code: "ZHK2", name: "Жуков Камень", payload: {}, is_active: true }] },
+    });
+    open();
+    await waitFor(() => expect(screen.getByLabelText(/^Объект$/).tagName).toBe("SELECT"));
+    const options = within(screen.getByLabelText(/^Объект$/)).getAllByRole("option").map((option) => option.textContent);
+    expect(options).toEqual(["— не выбран —", "Жуков Камень (ZHK)", "Жуков Камень (ZHK2)"]);
+  });
+
+  it("исправление в форме открывает предпросмотр и выпуск до сохранения", async () => {
+    const error: DrillPassportIssue = { level: "error", code: "slope_angles_required", message: "Нужны углы.", path: "alpha_deg" };
+    api.drillPassport.validate.mockResolvedValue(validation66([error]));
+    const user = userEvent.setup();
+    open();
+    await screen.findAllByText("Нужны углы.");
+    expect(screen.getByRole("button", { name: "Показать предпросмотр" })).toHaveProperty("disabled", true);
+    await user.type(screen.getByLabelText(/Угол откоса рабочего уступа α/), "75");
+    expect(screen.getByRole("button", { name: "Показать предпросмотр" })).toHaveProperty("disabled", false);
+    expect(releaseButton()).toHaveProperty("disabled", false);
+    expect(screen.queryByText(/Предпросмотр — после исправления ошибок/)).toBeNull();
+  });
+
+  it("409 «только из черновика» — паспорт перечитан, понятный текст", async () => {
+    const user = userEvent.setup();
+    open();
+    await waitFor(() => expect(releaseButton()).toHaveProperty("disabled", false));
+    api.drillPassport.createRevision.mockRejectedValue(
+      Object.assign(new Error("Ревизию можно выпустить только из черновика."), { status: 409 }),
+    );
+    api.drillPassport.get.mockResolvedValue({ ...passport66(), status: "approved", version: 9 });
+    await user.click(releaseButton());
+    expect(await screen.findByText(/Паспорт уже не черновик/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Загрузить сохранённый паспорт" })).toBeNull();
+    expect(screen.queryByText(/изменён в другом окне/)).toBeNull();
+  });
+
+  it("Esc (keydown) при правках — свой вопрос, отказ оставляет окно", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(<DrillPassportDialog passport={passport66()} designSaved onClose={onClose} onChange={vi.fn()} />);
+    await user.type(await screen.findByLabelText(/^Горизонт/), "1");
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const dialog = screen.getByRole("dialog", { name: /Паспорт на бурение №/ });
+    const first = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    fireEvent(dialog, first);
+    expect(first.defaultPrevented).toBe(true);
+    const second = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    fireEvent(dialog, second);
+    expect(second.defaultPrevented).toBe(true);
+    expect(confirm).toHaveBeenCalledTimes(2);
+    expect(onClose).not.toHaveBeenCalled();
+    confirm.mockReturnValue(true);
+    fireEvent(dialog, new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    expect(onClose).toHaveBeenCalled();
+    confirm.mockRestore();
+  });
+
+  it("Esc в справке закрывает только справку", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(<DrillPassportDialog passport={passport66()} designSaved onClose={onClose} onChange={vi.fn()} />);
+    await user.type(await screen.findByLabelText(/^Горизонт/), "1");
+    await user.click(screen.getByRole("button", { name: "Справка по паспорту на бурение" }));
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const help = screen.getByRole("dialog", { name: "Паспорт на бурение: справка" });
+    const esc = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    fireEvent(help, esc);
+    expect(confirm).not.toHaveBeenCalled();
+    expect(esc.defaultPrevented).toBe(false);
+    expect(onClose).not.toHaveBeenCalled();
+    confirm.mockRestore();
   });
 
   it("проверка первого ряда со статусами, без JSON", async () => {

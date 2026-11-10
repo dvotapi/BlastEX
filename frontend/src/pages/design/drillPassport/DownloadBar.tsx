@@ -8,6 +8,9 @@ import { api } from "../../../api/endpoints";
 import type { DrillPassportFile, DrillPassportRevision } from "../../../types/drillPassport";
 
 const DEFAULT_PROFILE = "PNEZD_CSV";
+// Расширение файла выноса по формату профиля (`export_survey.STAKEOUT_EXTENSIONS`):
+// запасное имя, если сервер имени не прислал.
+const STAKEOUT_EXTENSIONS: Record<string, string> = { PNEZD_CSV: "csv", PENZD_CSV: "csv", PNEZ_TXT: "txt", DXF_POINTS: "dxf" };
 
 const FILES: { label: string; file: DrillPassportFile }[] = [
   { label: "Паспорт PDF", file: "passport.pdf" },
@@ -67,7 +70,10 @@ export function DownloadBar({ revision }: { revision: DrillPassportRevision }) {
           type="button"
           className="secondary-button"
           disabled={busy}
-          onClick={() => void download(api.drillPassport.stakeoutUrl(revision.id, profile), `${profile}.csv`)}
+          onClick={() => {
+            const extension = STAKEOUT_EXTENSIONS[stakeout.profiles[profile]?.format ?? ""] ?? "csv";
+            void download(api.drillPassport.stakeoutUrl(revision.id, profile), `${profile}.${extension}`);
+          }}
         >
           Файл для GNSS
         </button>

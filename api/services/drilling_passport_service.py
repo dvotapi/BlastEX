@@ -353,9 +353,9 @@ def _context(
 
 
 def list_passports(
-    repository: PostgresDrillingPassportRepository, organization_id: str, design_id: str | None
+    repository: PostgresDrillingPassportRepository, organization_id: str, design_id: str
 ) -> list[dict[str, Any]]:
-    """Паспорта организации (проекта блока, если задан), последний изменённый первым."""
+    """Паспорта проекта блока в организации, последний изменённый первым."""
 
     return list(repository.list_passports(organization_id, design_id))
 

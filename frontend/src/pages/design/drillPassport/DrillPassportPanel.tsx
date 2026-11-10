@@ -2,7 +2,7 @@
 // «Проект МВ» (TASK-015, PR 6): паспорт проекта блока (последний изменённый),
 // его ревизия и документы; форма, проверка и выпуск — в окне
 // `DrillPassportDialog`.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../../../api/endpoints";
 import { ruDate } from "../../../lib/format";
 import type { DrillPassport, DrillPassportRevision } from "../../../types/drillPassport";
@@ -20,8 +20,16 @@ export function DrillPassportPanel({ designId, designSaved }: { designId: string
   // могло не успеть её получить (иначе следующее сохранение — 409).
   const [reload, setReload] = useState(0);
 
+  // Другой блок — паспорт прежнего сразу убирается: иначе, пока читается (или
+  // не прочитался) список нового, кнопки открыли бы и скачали чужой паспорт.
+  // Перечитывание того же блока (после окна) прежний паспорт оставляет на месте.
+  const shownFor = useRef(designId);
   useEffect(() => {
     setError("");
+    if (shownFor.current !== designId) {
+      shownFor.current = designId;
+      setPassport(null);
+    }
     if (!designId) {
       setPassport(null);
       return;

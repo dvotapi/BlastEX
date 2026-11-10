@@ -1,4 +1,4 @@
-import { del, errorMessage, get, patch, post, postFile, postForm, put, requestSvg } from "./client";
+import { del, downloadFile, errorMessage, get, patch, post, postFile, postForm, put, requestSvg } from "./client";
 import type {
   AggregatedCostResult,
   BlastGeometryResponse,
@@ -327,19 +327,9 @@ export const api = {
     exportReferences: async (format: "xlsx" | "json", revisionId?: string) => {
       const query = new URLSearchParams({ format });
       if (revisionId) query.set("revision_id", revisionId);
-      const response = await fetch(`${V1}/economics/references/export?${query}`, { credentials: "include" });
-      if (!response.ok) throw new Error(await errorMessage(response, "Не удалось экспортировать справочники."));
-      const disposition = response.headers.get("content-disposition") ?? "";
-      const match = /filename="([^"]+)"/.exec(disposition);
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = match?.[1] ?? `references.${format}`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
+      await downloadFile(`${V1}/economics/references/export?${query}`, `references.${format}`, {
+        errorText: "Не удалось экспортировать справочники.",
+      });
     },
     importReferences: (file: File) =>
       postFile<ReferenceImportResult>(`${V1}/economics/references/import`, file),
@@ -1011,17 +1001,10 @@ export const api = {
     forkPlan: (designId: string, name = "") =>
       post<BlastDesign>(`${V1}/design/plans/${designId}/fork`, { name }),
     exportCsv: async (designId: string, fileName: string) => {
-      const response = await fetch(`${V1}/design/plans/${designId}/export.csv`, { credentials: "include" });
-      if (!response.ok) throw new Error("Не удалось экспортировать паспорт.");
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
+      await downloadFile(`${V1}/design/plans/${designId}/export.csv`, fileName, {
+        filename: fileName,
+        errorText: "Не удалось экспортировать паспорт.",
+      });
     },
   },
 

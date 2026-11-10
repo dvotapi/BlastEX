@@ -3,7 +3,7 @@
 // ряда» для инженера, замечания с отметкой «просмотрено», выпуск ревизии и
 // предпросмотр черновика. Расчёт и проверку делает сервер; окно показывает
 // ответ и не показывает JSON. Паспорт строится по сохранённому проекту блока.
-import { useEffect, useMemo, useRef, useState, type MouseEvent, type SyntheticEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type SyntheticEvent } from "react";
 import { fetchBlob } from "../../../api/client";
 import { api } from "../../../api/endpoints";
 import type { DrillPassport, DrillPassportIssue, DrillPassportValidation } from "../../../types/drillPassport";
@@ -52,6 +52,13 @@ function referenceOptions(snapshot: EconomicsReferenceSnapshot, section: Referen
   );
 }
 
+/** Подпись записи справочника — название; код — только у одинаковых названий. */
+function optionLabels(items: EconomicsReferenceItem[]): Map<string, string> {
+  const counts = new Map<string, number>();
+  for (const item of items) counts.set(item.name, (counts.get(item.name) ?? 0) + 1);
+  return new Map(items.map((item) => [item.code, (counts.get(item.name) ?? 0) > 1 ? `${item.name} (${item.code})` : item.name || item.code]));
+}
+
 function errorText(reason: unknown, fallback: string): string {
   return reason instanceof Error && reason.message ? reason.message : fallback;
 }
@@ -88,10 +95,13 @@ export function DrillPassportDialog({
   const issues = validation?.issues ?? [];
   const warnings = issues.filter((issue) => issue.level === "warning");
   const editable = current.status === "draft";
-  const hasErrors = issues.some((issue) => issue.level === "error");
+  // Ошибки проверки — у сохранённого паспорта. Правки формы могли их
+  // исправить: предпросмотр и выпуск сами сохраняют форму и проверяют заново.
+  const hasErrors = !dirty && issues.some((issue) => issue.level === "error");
   const locked = !editable || busy;
   const releasable =
-    editable && designSaved && !busy && !conflict && Object.keys(errors).length === 0 && canRelease(validation, acknowledged);
+    editable && designSaved && !busy && !conflict && Object.keys(errors).length === 0 &&
+    (dirty ? validation !== null : canRelease(validation, acknowledged));
 
   useEffect(() => {
     const dialog = ref.current;
@@ -99,25 +109,18 @@ export function DrillPassportDialog({
   }, []);
 
   useEffect(() => {
-    let alive = true;
+    alive.current = true;
     api.economics
       .referenceSnapshot()
-      .then((snapshot) => alive && setReferences(snapshot))
-      .catch(() => alive && setReferences(false));
-    void refreshValidation(passport.id);
-    return () => {
-      alive = false;
-    };
+      .then((snapshot) => alive.current && setReferences(snapshot))
+      .catch(() => alive.current && setReferences(false));
     // Только при открытии окна: дальше проверку перечитывают сохранение и выпуск.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    alive.current = true;
+    void refreshValidation(passport.id);
     return () => {
       alive.current = false;
       if (previewRef.current) URL.revokeObjectURL(previewRef.current);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function refreshValidation(id: string): Promise<DrillPassportValidation | null> {
@@ -232,8 +235,16 @@ export function DrillPassportDialog({
       if (isConflict(reason)) {
         const checked = await refreshValidation(current.id);
         const pending = checked?.issues.some((issue: DrillPassportIssue) => issue.level === "warning" && !acknowledged.has(ackKey(issue)));
+        const fresh = pending ? null : await api.drillPassport.get(current.id).catch(() => null);
         if (pending) {
           setMessage("Отметьте просмотренными новые предупреждения проверки.");
+        } else if (fresh && fresh.status !== "draft") {
+          // 409 «только из черновика»: паспорт уже утверждён — правки и выпуск закрыты.
+          setCurrent(fresh);
+          setForm(formFromPassport(fresh));
+          setDirty(false);
+          onChange(fresh);
+          setMessage("Паспорт уже не черновик: правки и выпуск ревизии недоступны.");
         } else {
           setConflict(true);
           setMessage(CONFLICT_MESSAGE);
@@ -277,7 +288,18 @@ export function DrillPassportDialog({
     if (event.target === ref.current) requestClose();
   }
 
-  // Esc: при несохранённых правках — тот же вопрос, что у «×».
+  // Esc при несохранённых правках — тот же вопрос, что у «×». Перехват — на
+  // keydown: отмену `cancel` Chrome принимает лишь раз на действие
+  // пользователя, и второй Esc подряд закрыл бы окно без вопроса.
+  function onDialogKeyDown(event: KeyboardEvent<HTMLDialogElement>) {
+    if (event.key !== "Escape" || !dirty) return;
+    // Esc во вложенной справке закрывает только её.
+    if (event.target instanceof Element && event.target.closest("dialog") !== ref.current) return;
+    event.preventDefault();
+    requestClose();
+  }
+
+  // Запасной путь (Esc мимо keydown): без правок — закрытие, с правками — вопрос.
   function onDialogCancel(event: SyntheticEvent<HTMLDialogElement>) {
     if (event.target !== ref.current) return;
     if (dirty && !window.confirm("В паспорте есть несохранённые правки. Закрыть без сохранения?")) event.preventDefault();
@@ -302,12 +324,13 @@ export function DrillPassportDialog({
     const common = { id, disabled: !editable || busy };
     if (field.kind === "reference" && field.section && references) {
       const options = referenceOptions(references, field.section);
+      const labels = optionLabels(options);
       const known = !value || options.some((item) => item.code === value);
       return (
         <select {...common} value={value} onChange={(event) => setValue(field.key, event.target.value)}>
           <option value="">— не выбран —</option>
           {options.map((item) => (
-            <option key={item.code} value={item.code}>{`${item.name} (${item.code})`}</option>
+            <option key={item.code} value={item.code}>{labels.get(item.code)}</option>
           ))}
           {!known && <option value={value}>{`${value} (нет в справочнике)`}</option>}
         </select>
@@ -352,7 +375,7 @@ export function DrillPassportDialog({
   }
 
   return (
-    <dialog ref={ref} className="cad-dialog drill-dialog" aria-labelledby="drill-dialog-title" onCancel={onDialogCancel} onClose={onDialogClose} onClick={onBackdropClick}>
+    <dialog ref={ref} className="cad-dialog drill-dialog" aria-labelledby="drill-dialog-title" onCancel={onDialogCancel} onKeyDown={onDialogKeyDown} onClose={onDialogClose} onClick={onBackdropClick}>
       <header>
         <b id="drill-dialog-title">Паспорт на бурение № {current.passport_no}</b>
         <span className="cad-files">

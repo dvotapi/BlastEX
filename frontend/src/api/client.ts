@@ -109,16 +109,22 @@ export async function fetchBlob(path: string): Promise<Blob> {
 }
 
 /**
- * Скачать файл: имя — из ответа сервера, предупреждение — заголовок
+ * Скачать файл — единственное место сохранения Blob в браузере: имя — из
+ * ответа сервера (или `options.filename`), предупреждение — заголовок
  * `X-BlastEX-Warning` (percent-encoding, например «DWG пока не формируется»).
  */
 export async function downloadFile(
   path: string,
   fallbackName: string,
+  options: { filename?: string; errorText?: string } = {},
 ): Promise<{ filename: string; warning: string | null }> {
   const response = await fetch(path, { credentials: "include" });
-  if (!response.ok) throw new HttpError(await errorMessage(response, "Не удалось скачать файл."), response.status);
-  const filename = dispositionName(response.headers.get("content-disposition") ?? "") ?? fallbackName;
+  if (!response.ok) {
+    throw new HttpError(await errorMessage(response, options.errorText ?? "Не удалось скачать файл."), response.status);
+  }
+  // `options.filename` — имя, заданное вызывающим, главнее имени сервера.
+  const filename =
+    options.filename ?? dispositionName(response.headers.get("content-disposition") ?? "") ?? fallbackName;
   const header = response.headers.get("x-blastex-warning");
   let warning: string | null = null;
   if (header) {

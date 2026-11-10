@@ -64,6 +64,17 @@ describe("DownloadBar", () => {
     expect(downloadFile).toHaveBeenLastCalledWith(`${BASE}/stakeout?profile=TRIMBLE`, expect.any(String));
   });
 
+  it("запасное имя файла выноса — по формату профиля", async () => {
+    const user = userEvent.setup();
+    render(<DownloadBar revision={revision({ ...PROFILES, profiles: { ...PROFILES.profiles, PTS: { name: "Точки DXF", format: "DXF_POINTS" } } })} />);
+    await user.selectOptions(screen.getByLabelText("Профиль приёмника"), "PTS");
+    await user.click(screen.getByRole("button", { name: "Файл для GNSS" }));
+    expect(downloadFile).toHaveBeenLastCalledWith(`${BASE}/stakeout?profile=PTS`, "PTS.dxf");
+    await user.selectOptions(screen.getByLabelText("Профиль приёмника"), "TRIMBLE");
+    await user.click(screen.getByRole("button", { name: "Файл для GNSS" }));
+    expect(downloadFile).toHaveBeenLastCalledWith(`${BASE}/stakeout?profile=TRIMBLE`, "TRIMBLE.csv");
+  });
+
   it("ревизия до PR 5 — только PNEZD_CSV", () => {
     render(<DownloadBar revision={revision(undefined)} />);
     const select = screen.getByLabelText("Профиль приёмника") as HTMLSelectElement;

@@ -63,6 +63,31 @@ describe("downloadFile", () => {
   });
 });
 
+describe("downloadFile: параметры", () => {
+  it("заданное имя главнее имени сервера, свой текст ошибки", async () => {
+    fetchMock.mockResolvedValue(file({ "Content-Disposition": 'attachment; filename="block-66.csv"' }));
+    expect((await downloadFile("/x", "x.csv", { filename: "Блок 66.csv" })).filename).toBe("Блок 66.csv");
+    fetchMock.mockResolvedValue(new Response("", { status: 500 }));
+    await expect(downloadFile("/x", "x.csv", { errorText: "Не удалось экспортировать паспорт." })).rejects.toThrow(
+      "Не удалось экспортировать паспорт.",
+    );
+  });
+});
+
+describe("старые выгрузки — через downloadFile", () => {
+  it("экспорт справочников берёт кириллическое имя из filename*", async () => {
+    fetchMock.mockResolvedValue(file({ "Content-Disposition": "attachment; filename*=UTF-8''%D0%A1%D0%BF%D1%80%D0%B0%D0%B2%D0%BE%D1%87%D0%BD%D0%B8%D0%BA%D0%B8.xlsx" }));
+    await api.economics.exportReferences("xlsx");
+    expect(clicked).toEqual(["Справочники.xlsx"]);
+  });
+
+  it("CSV паспорта БВР — под заданным именем", async () => {
+    fetchMock.mockResolvedValue(file({ "Content-Disposition": 'attachment; filename="block-66.csv"' }));
+    await api.design.exportCsv("block-66", "Блок 66.csv");
+    expect(clicked).toEqual(["Блок 66.csv"]);
+  });
+});
+
 describe("fetchBlob", () => {
   it("ошибка 422 — текст сервера", async () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ detail: "Предпросмотр недоступен: нет γ." }), { status: 422 }));

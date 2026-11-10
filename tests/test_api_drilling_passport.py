@@ -1024,3 +1024,10 @@ def test_draft_preview_of_foreign_passport_is_404(client, repository):
     passport = _create(client)
     repository.passports[passport["id"]]["organization_id"] = "org-b"
     assert client.get(f"{BASE}/{passport['id']}/preview.pdf").status_code == 404
+
+
+def test_list_passports_needs_design(client):
+    # Весь список организации с payload фронту не нужен: только паспорт проекта.
+    _create(client)
+    assert client.get(BASE).status_code == 422
+    assert client.get(BASE, params={"design_id": ""}).status_code == 422

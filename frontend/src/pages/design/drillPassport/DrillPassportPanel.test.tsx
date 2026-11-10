@@ -80,6 +80,17 @@ describe("DrillPassportPanel", () => {
     await waitFor(() => expect(api.drillPassport.list).toHaveBeenCalledTimes(2));
   });
 
+  it("другой блок — паспорт прежнего блока не показывается", async () => {
+    api.drillPassport.list.mockResolvedValue([passport66()]);
+    const { rerender } = render(<DrillPassportPanel designId="block-66" designSaved />);
+    expect(await screen.findByText(/№ 66-26\/Б/)).toBeTruthy();
+    api.drillPassport.list.mockRejectedValue(new Error("Паспорта временно недоступны."));
+    rerender(<DrillPassportPanel designId="block-67" designSaved />);
+    expect(await screen.findByText("Паспорта временно недоступны.")).toBeTruthy();
+    expect(screen.queryByText(/№ 66-26\/Б/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Открыть паспорт" })).toBeNull();
+  });
+
   it("несохранённый проект блока — предупреждение", async () => {
     api.drillPassport.list.mockResolvedValue([passport66()]);
     render(<DrillPassportPanel designId="block-66" designSaved={false} />);

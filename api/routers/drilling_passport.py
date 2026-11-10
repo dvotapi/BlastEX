@@ -68,11 +68,14 @@ def post_passport(
 
 @router.get("", response_model=list[DrillingPassportSchema])
 def get_passports(
-    design_id: str | None = Query(default=None, max_length=200, description="Проект блока; пусто — все паспорта"),
+    design_id: str = Query(min_length=1, max_length=200, description="Проект блока"),
     session: dict[str, object] = Depends(require_internal_access),
     repository: PostgresDrillingPassportRepository = Depends(get_drilling_passport_repository),
 ) -> list[DrillingPassportSchema]:
-    """Паспорта организации (проекта блока), последний изменённый первым (PR 6)."""
+    """Паспорта проекта блока, последний изменённый первым (PR 6).
+
+    Проект обязателен: весь список организации с payload фронту не нужен.
+    """
 
     organization_id, _ = _identity(session)
     try:

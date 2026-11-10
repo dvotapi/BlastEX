@@ -115,7 +115,7 @@ export const FIELD_GROUPS: { title: string; fields: FieldSpec[] }[] = [
     title: "Тексты паспорта",
     fields: [
       { key: "profile_code", label: "Профиль паспорта", kind: "reference", section: "drill_passport_profiles", maxLength: 80,
-        hint: "Тексты мер безопасности и технологии бурения; пусто — тексты формы по умолчанию." },
+        hint: "Тексты мер безопасности и технологии бурения; порядок работ нового паспорта — тоже из профиля объекта. Пусто — тексты формы по умолчанию." },
       { key: "basis", label: "Составлен на основании", kind: "textarea", maxLength: 300 },
     ],
   },
@@ -226,6 +226,21 @@ export function toUpdate(form: PassportForm, version: number): DrillPassportUpda
     payload: payload as DrillPassportPayload,
     expected_version: version,
   };
+}
+
+/** Поля «Порядка работ» — их же хранит профиль паспорта (`DrillPassportProfilePayload`). */
+export const WORK_ORDER_KEYS = [
+  "site_preparation", "stakeout", "drilling_order", "access_route", "power_lines", "adjacent_works", "acceptance",
+] as const satisfies readonly ScalarKey[];
+
+/** Порядок работ из профиля: непустой текст профиля заменяет поле, пустой — не трогает. */
+export function applyProfileWorkOrder(form: PassportForm, profile: Record<string, unknown> | undefined): PassportForm {
+  const values = { ...form.values };
+  for (const key of WORK_ORDER_KEYS) {
+    const text = typeof profile?.[key] === "string" ? (profile[key] as string).trim() : "";
+    if (text) values[key] = text;
+  }
+  return { ...form, values };
 }
 
 export const PROVENANCE_LABEL: Record<Provenance, string> = {

@@ -11,6 +11,7 @@ import type { EconomicsReferenceItem, EconomicsReferenceSnapshot } from "../../.
 import { DrillPassportHelp } from "./DrillPassportHelp";
 import {
   ackKey,
+  applyProfileWorkOrder,
   APPROVAL_LIMIT,
   canRelease,
   checkRows,
@@ -150,6 +151,29 @@ export function DrillPassportDialog({
 
   function setValue(key: ScalarKey, value: string) {
     setForm((previous) => ({ ...previous, values: { ...previous.values, [key]: value } }));
+    setDirty(true);
+  }
+
+  // Выбор объекта или профиля: порядок работ постоянен из паспорта в паспорт и
+  // хранится в профиле — его непустые тексты сразу встают в форму. У объекта с
+  // профилем профиль паспорта ставится его.
+  function selectReference(key: ScalarKey, value: string) {
+    if (!references || (key !== "site_code" && key !== "profile_code")) {
+      setValue(key, value);
+      return;
+    }
+    const find = (section: ReferenceSection, code: string) =>
+      code ? (references.sections[section] ?? []).find((item) => item.code === code) : undefined;
+    const siteProfile = key === "site_code" ? String(find("sites", value)?.payload?.drill_passport_profile_code ?? "") : "";
+    const profileCode = key === "profile_code" ? value : siteProfile;
+    const profile = find("drill_passport_profiles", profileCode);
+    setForm((previous) => {
+      let next: PassportForm = { ...previous, values: { ...previous.values, [key]: value } };
+      if (profile) {
+        next = applyProfileWorkOrder({ ...next, values: { ...next.values, profile_code: profileCode } }, profile.payload);
+      }
+      return next;
+    });
     setDirty(true);
   }
 
@@ -340,7 +364,7 @@ export function DrillPassportDialog({
       const labels = optionLabels(options);
       const known = !value || options.some((item) => item.code === value);
       return (
-        <select {...common} value={value} onChange={(event) => setValue(field.key, event.target.value)}>
+        <select {...common} value={value} onChange={(event) => selectReference(field.key, event.target.value)}>
           <option value="">— не выбран —</option>
           {options.map((item) => (
             <option key={item.code} value={item.code}>{labels.get(item.code)}</option>

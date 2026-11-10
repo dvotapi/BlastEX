@@ -27,5 +27,6 @@ describe("DrillPassportHelp", () => {
     expect(text).toMatch(/локализац/);
     expect(text).toContain("МСК");
     expect(text).toContain("Сохранить как");
+    expect(text).toMatch(/Порядок работ[^.]*профил/);
   });
 });

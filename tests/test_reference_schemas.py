@@ -780,6 +780,17 @@ def test_drill_passport_profile_section() -> None:
     )
     assert profile.safety_items[0].text == "Только по паспорту."
     assert DrillPassportProfilePayload.model_validate({}).safety_items == []
+    # «Порядок работ» нового паспорта (PR 6): пусто — тексты формы v0.7.
+    work = DrillPassportProfilePayload.model_validate({"power_lines": "ЛЭП 6 кВ"})
+    assert (work.power_lines, work.stakeout) == ("ЛЭП 6 кВ", "")
+    with pytest.raises(ValidationError):
+        DrillPassportProfilePayload.model_validate({"drilling_order": "x" * 301})
+    from cost.v2.schemas.organization import SitePayload
+
+    field = SitePayload.model_json_schema()["properties"]["drill_passport_profile_code"]
+    assert field.get("x-ref") == "drill_passport_profiles" or any(
+        option.get("x-ref") == "drill_passport_profiles" for option in field.get("anyOf", [])
+    )
     with pytest.raises(ValidationError):
         DrillPassportProfilePayload.model_validate({"safety_items": [{"text": "п."}] * 13})
     with pytest.raises(ValidationError):

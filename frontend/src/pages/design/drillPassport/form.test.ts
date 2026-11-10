@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { DrillPassportIssue } from "../../../types/drillPassport";
 import {
   ackKey,
+  applyProfileWorkOrder,
   canRelease,
   checkRows,
   FIELD_GROUPS,
@@ -84,7 +85,18 @@ describe("форма ⇄ payload", () => {
     expect(fields.site_code).toMatchObject({ kind: "reference", section: "sites" });
     expect(fields.rig_type_code).toMatchObject({ kind: "reference", section: "equipment_types" });
     expect(fields.profile_code).toMatchObject({ kind: "reference", section: "drill_passport_profiles" });
+    expect(fields.profile_code.hint).toContain("порядок работ");
     expect(fields.alpha_deg).toMatchObject({ kind: "number", unit: "°" });
+  });
+});
+
+describe("порядок работ из профиля", () => {
+  it("непустые тексты профиля заменяют поля, пустые — не трогают", () => {
+    const form = formFromPassport(passport66());
+    const next = applyProfileWorkOrder(form, { power_lines: "ВЛ 6 кВ", stakeout: " ", safety_basis: "не поле формы" });
+    expect(next.values.power_lines).toBe("ВЛ 6 кВ");
+    expect(next.values.stakeout).toBe(form.values.stakeout);
+    expect(next.values.drilling_order).toBe(form.values.drilling_order);
   });
 });
 

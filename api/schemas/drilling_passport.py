@@ -6,10 +6,9 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from design.drilling_passport import (
-    DEFAULT_ACCEPTANCE,
     DEFAULT_EXTRA_APPROVALS,
-    DEFAULT_SITE_PREPARATION,
     DEFAULT_TOLERANCE_M,
+    DEFAULT_WORK_ORDER,
 )
 
 ApprovalLine = Annotated[str, Field(max_length=120)]
@@ -65,13 +64,13 @@ class DrillingPassportPayload(BaseModel):
     bit_diameter_mm: float | None = Field(default=None, gt=0, description="Диаметр инструмента, мм")
     drilling_start: str = Field(default="", description="Начало бурения")
     drilling_end: str = Field(default="", description="Окончание бурения")
-    site_preparation: str = Field(default=DEFAULT_SITE_PREPARATION, description="Подготовка площадки")
-    stakeout: str = Field(default="", description="Вынос точек")
-    drilling_order: str = Field(default="", description="Порядок обуривания")
-    access_route: str = Field(default="", description="Въезд и перегон")
-    power_lines: str = Field(default="", description="ЛЭП и кабели")
-    adjacent_works: str = Field(default="", description="Соседние работы")
-    acceptance: str = Field(default=DEFAULT_ACCEPTANCE, description="Приёмка блока")
+    site_preparation: str = Field(default=DEFAULT_WORK_ORDER["site_preparation"], description="Подготовка площадки")
+    stakeout: str = Field(default=DEFAULT_WORK_ORDER["stakeout"], description="Вынос точек")
+    drilling_order: str = Field(default=DEFAULT_WORK_ORDER["drilling_order"], description="Порядок обуривания")
+    access_route: str = Field(default=DEFAULT_WORK_ORDER["access_route"], description="Въезд и перегон")
+    power_lines: str = Field(default=DEFAULT_WORK_ORDER["power_lines"], description="ЛЭП и кабели")
+    adjacent_works: str = Field(default=DEFAULT_WORK_ORDER["adjacent_works"], description="Соседние работы")
+    acceptance: str = Field(default=DEFAULT_WORK_ORDER["acceptance"], description="Приёмка блока")
     extra_approvals: list[ApprovalLine] = Field(
         default_factory=lambda: list(DEFAULT_EXTRA_APPROVALS),
         max_length=2,

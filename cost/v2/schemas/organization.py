@@ -208,6 +208,12 @@ class SitePayload(ReferencePayload):
         description="Формат файла для приёмника маркшейдера; пусто — CSV: точка, север, восток, отметка, описание",
         default=None,
     )
+    drill_passport_profile_code: str | None = RefField(
+        "drill_passport_profiles",
+        title="Профиль паспорта на бурение",
+        description="Меры безопасности и порядок работ нового паспорта на бурение; пусто — тексты формы по умолчанию",
+        default=None,
+    )
     geology: list[GeologyShare] = Field(
         default_factory=list,
         title="Плановая геология",

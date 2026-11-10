@@ -30,7 +30,7 @@ from api.services.cad_service import active_work_object_name, get_cad_repository
 from api.services.cad_situation_service import source_situation
 from cost.v2.repository import EconomicsRepository, EconomicsRepositoryError
 from design import persistence as design_persistence
-from design.drilling_passport import has_errors, passport_context, warning_codes
+from design.drilling_passport import DEFAULT_WORK_ORDER, has_errors, passport_context, warning_codes, work_order_texts
 from design.drilling_passport_repository import (
     DrillingPassportConflictError,
     DrillingPassportNotFoundError,
@@ -189,11 +189,31 @@ def _reference_inputs(
     )
 
 
-def _default_site_code(economics_repository: EconomicsRepository | None, organization_id: str) -> str:
+def _default_site_code(economics_repository: EconomicsRepository | None, organization_id: str, snapshot) -> str:
     if economics_repository is None:
         return ""
-    snapshot = _snapshot(economics_repository, organization_id)
     return resolve_site_code(snapshot, active_work_object_name(economics_repository, organization_id))
+
+
+def _apply_site_profile(payload: dict[str, Any], explicit: set[str], snapshot) -> None:
+    """Профиль паспорта объекта и «Порядок работ» нового паспорта (PR 6).
+
+    Тексты порядка работ постоянны из паспорта в паспорт: берутся из профиля
+    (явно заданный в запросе, иначе профиль объекта), пустое поле профиля или
+    нет профиля — текст формы по умолчанию. Заданное в запросе не меняется.
+    """
+
+    code = str(payload.get("profile_code") or "")
+    if "profile_code" not in explicit and not code and snapshot is not None:
+        site = snapshot.item("sites", str(payload.get("site_code") or "")) if payload.get("site_code") else None
+        code = str(((site.payload or {}) if site else {}).get("drill_passport_profile_code") or "")
+    profile = snapshot.item("drill_passport_profiles", code) if code and snapshot is not None else None
+    if "profile_code" not in explicit:
+        payload["profile_code"] = code if profile is not None else ""
+    texts = work_order_texts(dict(profile.payload or {}) if profile is not None else None)
+    for key in DEFAULT_WORK_ORDER:
+        if key not in explicit:
+            payload[key] = texts[key]
 
 
 def default_passport_no(block: str, passport_date: str) -> str:
@@ -211,12 +231,15 @@ def create_passport(
 ) -> dict[str, Any]:
     design = _load_design(organization_id, request.design_id)
     payload = (request.payload or DrillingPassportPayload()).model_dump()
+    explicit = set(request.payload.model_fields_set) if request.payload is not None else set()
+    snapshot = _snapshot(economics_repository, organization_id)
     if not payload["block"]:
         # Имя контура не ограничено, а блок паспорта — да: иначе черновик не
         # сохранить повторно (предел проверяется при записи).
         payload["block"] = (design.contour.name or design.name or "").strip()[: TEXT_LIMITS["block"]]
     if not payload["site_code"]:
-        payload["site_code"] = _default_site_code(economics_repository, organization_id)
+        payload["site_code"] = _default_site_code(economics_repository, organization_id, snapshot)
+    _apply_site_profile(payload, explicit, snapshot)
     passport_date = request.passport_date or date.today().isoformat()
     passport_no = request.passport_no or default_passport_no(payload["block"], passport_date)
     if len(passport_no) > PASSPORT_NO_MAX_LENGTH:

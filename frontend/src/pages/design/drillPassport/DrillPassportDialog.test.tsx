@@ -374,6 +374,31 @@ describe("DrillPassportDialog", () => {
     await waitFor(() => expect(screen.queryByTitle("Предпросмотр паспорта")).toBeNull());
   });
 
+  it("выбор объекта с профилем подставляет профиль и его порядок работ", async () => {
+    api.economics.referenceSnapshot.mockResolvedValue({
+      ...SNAPSHOT,
+      sections: {
+        ...SNAPSHOT.sections,
+        sites: [
+          ...SNAPSHOT.sections.sites,
+          { code: "KGOK_SITE", name: "Гусевогорское", payload: { drill_passport_profile_code: "KGOK" }, is_active: true },
+        ],
+        drill_passport_profiles: [
+          { code: "KGOK", name: "Профиль КГОК", payload: { power_lines: "ВЛ 6 кВ — по наряду-допуску", stakeout: "" }, is_active: true },
+        ],
+      },
+    });
+    const user = userEvent.setup();
+    open();
+    await waitFor(() => expect(screen.getByLabelText(/^Объект$/).tagName).toBe("SELECT"));
+    const stakeoutBefore = (screen.getByLabelText(/^Вынос точек/) as HTMLTextAreaElement).value;
+    await user.selectOptions(screen.getByLabelText(/^Объект$/), "KGOK_SITE");
+    expect((screen.getByLabelText(/^Профиль паспорта/) as HTMLSelectElement).value).toBe("KGOK");
+    expect((screen.getByLabelText(/^ЛЭП и кабели/) as HTMLTextAreaElement).value).toBe("ВЛ 6 кВ — по наряду-допуску");
+    // Пустое поле профиля прежний текст не стирает.
+    expect((screen.getByLabelText(/^Вынос точек/) as HTMLTextAreaElement).value).toBe(stakeoutBefore);
+  });
+
   it("проверка первого ряда со статусами, без JSON", async () => {
     const { container } = render(
       <DrillPassportDialog passport={passport66()} designSaved onClose={vi.fn()} onChange={vi.fn()} />,

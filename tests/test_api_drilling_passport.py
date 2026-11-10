@@ -1031,3 +1031,53 @@ def test_list_passports_needs_design(client):
     _create(client)
     assert client.get(BASE).status_code == 422
     assert client.get(BASE, params={"design_id": ""}).status_code == 422
+
+
+# --- «Порядок работ» нового паспорта: профиль объекта или умолчания (PR 6) --
+
+WORK_ORDER_V07 = {
+    "site_preparation": "бульдозером под руководством горного мастера заказчика; приём площадки по акту",
+    "stakeout": "маркшейдерская служба заказчика по листу «Координаты скважин»",
+    "drilling_order": "от бровки вглубь массива, рядами; 1-й ряд — первым, в светлое время суток",
+    "access_route": "по съезду, мачта в транспортном положении",
+    "power_lines": "нет",
+    "adjacent_works": "нет",
+    "acceptance": "исполнительная съёмка маркшейдерской службой заказчика",
+}
+
+
+def test_new_draft_work_order_is_filled_by_default(client):
+    payload = _create(client)["payload"]
+    assert {key: payload[key] for key in WORK_ORDER_V07} == WORK_ORDER_V07
+    assert payload["profile_code"] == ""
+
+
+def test_new_draft_takes_work_order_from_site_profile(client, references):
+    profile = {**PROFILE, "drilling_order": "с левого фланга, рядами", "power_lines": "ЛЭП 6 кВ в 40 м — по наряду-допуску"}
+    snapshot = _snapshot(site={**SITE, "drill_passport_profile_code": "KGOK"})
+    item = snapshot.item
+    snapshot.item = lambda section, code: (
+        SimpleNamespace(code=code, name="КГОК", payload=profile) if (section, code) == ("drill_passport_profiles", "KGOK") else item(section, code)
+    )
+    references["snapshot"] = snapshot
+    payload = _create(client)["payload"]
+    assert payload["profile_code"] == "KGOK"
+    assert payload["drilling_order"] == "с левого фланга, рядами"
+    assert payload["power_lines"] == "ЛЭП 6 кВ в 40 м — по наряду-допуску"
+    # Пустое поле профиля — текст по умолчанию.
+    assert payload["stakeout"] == WORK_ORDER_V07["stakeout"]
+
+
+def test_new_draft_keeps_explicit_work_order_and_profile(client, references):
+    references["snapshot"] = _snapshot(site={**SITE, "drill_passport_profile_code": "KGOK"})
+    payload = _create(client, {**PAYLOAD, "power_lines": "ЛЭП 10 кВ", "profile_code": ""})["payload"]
+    assert payload["power_lines"] == "ЛЭП 10 кВ"
+    # Явно пустой профиль в запросе — профиль объекта не подставляется.
+    assert payload["profile_code"] == ""
+
+
+def test_unknown_site_profile_falls_back_to_defaults(client, references):
+    references["snapshot"] = _snapshot(site={**SITE, "drill_passport_profile_code": "NOPE"})
+    payload = _create(client)["payload"]
+    assert payload["profile_code"] == ""
+    assert payload["drilling_order"] == WORK_ORDER_V07["drilling_order"]

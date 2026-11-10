@@ -47,7 +47,7 @@ from ezdxf.enums import MTextEntityAlignment, TextEntityAlignment
 
 from design.mass_blast import canonical_json
 from design.reporting.drill import fmt
-from design.reporting.drill.layout import block_and_horizon
+from design.reporting.drill.layout import block_and_horizon, crs_line
 from design.reporting.drill.plan import hole_circle_mm
 from design.spatial.dwg import dwg_to_dxf, dxf_to_dwg
 
@@ -156,19 +156,6 @@ def _mtext_escape(text: str) -> str:
     return text.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
 
 
-def _crs_line(crs: Mapping[str, Any] | None) -> str:
-    if crs is None:
-        return "СК не сохранена в ревизии"
-    name = str(crs.get("name") or "").strip()
-    epsg = crs.get("epsg")
-    heights = str(crs.get("height_system") or "").strip()
-    if (not name or name == "local") and not epsg:
-        line = "СК не задана (условная)"
-    else:
-        line = f"СК: {name or 'EPSG'}" + (f" (EPSG {epsg})" if epsg else "")
-    return line + (f"; высоты: {heights}" if heights else "; система высот не задана")
-
-
 def _info_lines(context: Mapping[str, Any], revision_no: int | None) -> list[str]:
     passport = context.get("passport") or {}
     plan = context.get("plan") or {}
@@ -179,7 +166,7 @@ def _info_lines(context: Mapping[str, Any], revision_no: int | None) -> list[str
         title += f", ревизия {revision_no}"
     block, horizon = block_and_horizon(passport.get("payload") or {})
     place = ", ".join(part for part in (f"Блок {block}" if block else "", f"горизонт {horizon}" if horizon else "") if part)
-    lines = [title, place, _crs_line(context.get("crs")), "Координаты — в СК объекта без пересчёта, метры"]
+    lines = [title, place, crs_line(context.get("crs")), "Координаты — в СК объекта без пересчёта, метры"]
     if plan.get("crest_toe") and not _surveyed_toe(plan):
         lines.append("Линия подошвы — расчётная по углу откоса (слой BLX_TOE_LINE)")
     lines.append(f"BlastEX, формулы {context.get('formula_version') or '—'}")

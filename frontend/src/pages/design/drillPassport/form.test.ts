@@ -87,6 +87,9 @@ describe("форма ⇄ payload", () => {
     expect(fields.profile_code).toMatchObject({ kind: "reference", section: "drill_passport_profiles" });
     expect(fields.profile_code.hint).toContain("порядок работ");
     expect(fields.alpha_deg).toMatchObject({ kind: "number", unit: "°" });
+    // Даты бурения заполняются сами в ISO — в форме выбор даты (10.11.2026).
+    expect(fields.drilling_start).toMatchObject({ kind: "date" });
+    expect(fields.drilling_end).toMatchObject({ kind: "date", label: "Окончание бурения (план)" });
   });
 });
 

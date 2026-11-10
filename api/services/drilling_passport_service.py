@@ -249,12 +249,19 @@ def create_passport(
         # Имя контура не ограничено, а блок паспорта — да: иначе черновик не
         # сохранить повторно (предел проверяется при записи).
         payload["block"] = (design.contour.name or design.name or "").strip()[: TEXT_LIMITS["block"]]
-    if not payload["site_code"]:
-        payload["site_code"] = _default_site_code(economics_repository, organization_id, snapshot)
+    passports = list(repository.list_passports(organization_id, None))
+    if not payload["site_code"] and "site_code" not in explicit:
+        # Активный объект организации; не определился — объект последнего
+        # паспорта организации (паспорта одного объекта идут подряд).
+        payload["site_code"] = _default_site_code(economics_repository, organization_id, snapshot) or next(
+            (str((item.get("payload") or {}).get("site_code") or "") for item in passports
+             if (item.get("payload") or {}).get("site_code")),
+            "",
+        )
     _apply_site_profile(payload, explicit, snapshot)
     passport_date = request.passport_date or date.today().isoformat()
     # Остальные поля — справочники и прошлый паспорт того же объекта (PR 6).
-    previous = previous_of_site(repository.list_passports(organization_id, None), str(payload.get("site_code") or ""))
+    previous = previous_of_site(passports, str(payload.get("site_code") or ""))
     prefill(payload, explicit, snapshot=snapshot, design=design, previous=previous, passport_date=passport_date)
     passport_no = request.passport_no or default_passport_no(payload["block"], passport_date)
     if len(passport_no) > PASSPORT_NO_MAX_LENGTH:

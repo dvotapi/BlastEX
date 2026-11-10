@@ -77,8 +77,8 @@ export const FIELD_GROUPS: { title: string; fields: FieldSpec[] }[] = [
       text("rig_name", "Буровая установка", 80),
       text("rig_number", "№ станка", 40),
       number("bit_diameter_mm", "Диаметр инструмента", "мм", POSITIVE),
-      text("drilling_start", "Начало бурения", 40),
-      text("drilling_end", "Окончание бурения", 40),
+      { key: "drilling_start", label: "Начало бурения", kind: "date" },
+      { key: "drilling_end", label: "Окончание бурения (план)", kind: "date", hint: "По нормативу станка; правится." },
     ],
   },
   {

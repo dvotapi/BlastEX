@@ -1184,3 +1184,16 @@ def test_explicit_fields_are_kept(client, references):
     references["snapshot"] = _snapshot(site=None, rig=None, extra=DRILL_REFERENCES)
     payload = _bare(client, horizon="+398", object_name="Блок у дороги", drilling_end="2026-11-30")["payload"]
     assert (payload["horizon"], payload["object_name"], payload["drilling_end"]) == ("+398", "Блок у дороги", "2026-11-30")
+
+
+def test_without_active_site_takes_site_of_last_passport(client, references, monkeypatch):
+    # Активный объект не определился (кнопка «Создать паспорт» шлёт только проект):
+    # объект — у последнего паспорта организации, дальше — его справочники и люди.
+    monkeypatch.setattr(drilling_passport_service, "_default_site_code", lambda *args: "")
+    references["snapshot"] = _snapshot(site=None, rig=None, extra=DRILL_REFERENCES)
+    _bare(client, basis="проект БВР № 12")
+    response = client.post(BASE, json={"design_id": "block-66", "passport_date": "2026-11-11"})
+    payload = response.json()["payload"]
+    assert payload["site_code"] == "ZHK"
+    assert payload["object_name"] == "Жуков Камень"
+    assert payload["basis"] == "проект БВР № 12"

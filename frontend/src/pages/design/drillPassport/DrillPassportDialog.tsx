@@ -91,6 +91,7 @@ export function DrillPassportDialog({
   const [conflict, setConflict] = useState(false);
   const previewRef = useRef<string | null>(null);
   const alive = useRef(true);
+  const validationSequence = useRef(0);
 
   const errors = useMemo(() => formErrors(form), [form]);
   const issues = validation?.issues ?? [];
@@ -125,8 +126,12 @@ export function DrillPassportDialog({
   }, []);
 
   async function refreshValidation(id: string): Promise<DrillPassportValidation | null> {
+    // Проверки идут по очереди запросов: ответ прежней (например, запрошенной
+    // при открытии окна) после более новой состояние не трогает.
+    const sequence = ++validationSequence.current;
     try {
       const result = await api.drillPassport.validate(id);
+      if (sequence !== validationSequence.current || !alive.current) return result;
       setValidation(result);
       // Отметка живёт, пока предупреждение с тем же текстом есть: пропавшее,
       // вернувшееся или с другими числами — отмечается заново.
@@ -134,7 +139,9 @@ export function DrillPassportDialog({
       setAcknowledged((previous) => new Set([...previous].filter((key) => keys.has(key))));
       return result;
     } catch (reason) {
-      setMessage(errorText(reason, "Не удалось проверить паспорт."));
+      if (sequence === validationSequence.current && alive.current) {
+        setMessage(errorText(reason, "Не удалось проверить паспорт."));
+      }
       return null;
     }
   }

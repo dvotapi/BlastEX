@@ -422,6 +422,23 @@ describe("DrillPassportDialog", () => {
     expect((screen.getByLabelText(/^Профиль паспорта/) as HTMLSelectElement).value).toBe("");
   });
 
+  it("запоздавший ответ прежней проверки не перезаписывает новую", async () => {
+    const error: DrillPassportIssue = { level: "error", code: "slope_angles_required", message: "Нужны углы.", path: "alpha_deg" };
+    let resolveFirst: (value: unknown) => void = () => undefined;
+    api.drillPassport.validate
+      .mockReturnValueOnce(new Promise((done) => { resolveFirst = done; }))
+      .mockResolvedValue(validation66());
+    const user = userEvent.setup();
+    open();
+    await user.type(await screen.findByLabelText(/^Горизонт/), "1");
+    await user.click(screen.getByRole("button", { name: "Сохранить" }));
+    await waitFor(() => expect(releaseButton()).toHaveProperty("disabled", false));
+    resolveFirst(validation66([error]));
+    await new Promise((done) => setTimeout(done, 20));
+    expect(screen.queryByText("Нужны углы.")).toBeNull();
+    expect(releaseButton()).toHaveProperty("disabled", false);
+  });
+
   it("проверка первого ряда со статусами, без JSON", async () => {
     const { container } = render(
       <DrillPassportDialog passport={passport66()} designSaved onClose={vi.fn()} onChange={vi.fn()} />,

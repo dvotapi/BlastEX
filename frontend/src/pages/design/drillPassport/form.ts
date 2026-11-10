@@ -88,8 +88,6 @@ export const FIELD_GROUPS: { title: string; fields: FieldSpec[] }[] = [
       number("gamma_deg", "Угол устойчивого борта γ", "°", { min: 20, max: 90 }),
       number("bench_height_for_s_m", "Высота уступа для s, Hs", "м", { min: 0, max: 30, minExclusive: true }, "Проектная высота рабочего уступа."),
       number("axis_offset_m", "Вылет оси скважины e", "м", { min: 0, max: 5 }),
-      number("first_row_offset_m", "От бровки до оси первого ряда c", "м", { min: 0 }),
-      number("w_max_m", "Допустимая ЛСПП Wпред", "м", POSITIVE),
     ],
   },
   {
@@ -273,56 +271,57 @@ export function issuesFor(path: string, issues: DrillPassportIssue[]): DrillPass
 }
 
 export type CheckRow = {
-  key: "s" | "hs" | "h1" | "c_min" | "c" | "w" | "w_max";
+  key: "s" | "hs" | "c" | "w";
   label: string;
   value: string;
   status: "ok" | "warn" | "none" | "info";
   note: string;
 };
 
-const metres = (value: number | null, digits = 1) => (value === null ? "—" : `${ruNumber(value, digits)} м`);
+const metres = (value: number | null | undefined, digits = 1) =>
+  value === null || value === undefined ? "—" : `${ruNumber(value, digits)} м`;
 
-/** Строки блока «Проверка первого ряда»: s, Hs, H₁, c_min, c, W, Wпред со статусами. */
+/**
+ * Строки блока «Проверка первого ряда» (доработки 10.11.2026): s, расстояние
+ * первого ряда от бровки и ЛСПП у подошвы — по проекту блока; Hs и H₁ — только
+ * при предупреждении о высоте уступа.
+ */
 export function checkRows(validation: DrillPassportValidation): CheckRow[] {
   const check = validation.first_row_check;
   const codes = new Set(validation.issues.map((issue) => issue.code));
-  const offsetSource = validation.provenance.first_row_offset_m;
-  const wStatus: CheckRow["status"] =
-    check.w_m === null || check.w_max_m === null
-      ? codes.has("first_row_tilt_direction_unknown") ? "warn" : "none"
-      : codes.has("first_row_burden") || codes.has("first_row_tilt_direction_unknown") ? "warn" : "ok";
-  return [
+  const notMeasured = "нет бровки — не измерить";
+  const rows: CheckRow[] = [
     {
       key: "s", label: "Безопасное расстояние s", value: metres(check.s_m),
       status: check.s_m === null ? "none" : "ok",
       note: check.s_m === null ? "нужны углы α и γ" : "печатается в паспорте",
     },
-    {
-      key: "hs", label: "Высота уступа для s, Hs", value: metres(check.hs_m),
-      status: codes.has("bench_above_design") ? "warn" : check.hs_m === null ? "none" : "info",
-      note: check.hs_source ? PROVENANCE_LABEL[check.hs_source] : "",
-    },
-    { key: "h1", label: "Наибольшая высота первого ряда, H₁", value: metres(check.h1_m), status: check.h1_m === null ? "none" : "info", note: "" },
-    {
-      key: "c_min", label: "Минимум от бровки до оси, c_min", value: metres(check.c_min_m),
-      status: check.c_min_m === null ? "none" : codes.has("axis_offset_missing") || codes.has("axis_offset_exceeds_s") ? "warn" : "info",
-      note: codes.has("axis_offset_missing") ? "e не задан — принято 0" : "s − e",
-    },
-    {
-      key: "c", label: "От бровки до оси первого ряда, c", value: metres(check.c_m),
-      status: codes.has("first_row_too_close") ? "warn" : check.c_m === null ? "none" : "info",
-      note: offsetSource === "MANUAL_OVERRIDE" ? "вручную" : "принято c_min",
-    },
-    {
-      key: "w", label: "ЛСПП у подошвы, W", value: metres(check.w_m, 2), status: wStatus,
-      note: codes.has("first_row_tilt_direction_unknown") ? "направление наклона не определено" : "наибольшая по первому ряду",
-    },
-    {
-      key: "w_max", label: "Допустимая ЛСПП, Wпред", value: metres(check.w_max_m, 2),
-      status: check.w_max_m === null ? "none" : "info",
-      note: check.w_max_m === null ? "не задана — проверка W пропущена" : "вручную",
-    },
   ];
+  if (codes.has("bench_above_design")) {
+    rows.push({
+      key: "hs", label: "Высота уступа первого ряда, H₁", value: metres(check.h1_m), status: "warn",
+      note: `Hs ${metres(check.hs_m)}${check.hs_source ? ` · ${PROVENANCE_LABEL[check.hs_source]}` : ""}`,
+    });
+  }
+  const cLow = check.c_m;
+  const cHigh = check.c_max_m ?? check.c_m;
+  rows.push({
+    key: "c", label: "Первый ряд от бровки",
+    value: cLow === null || cLow === undefined ? "—" : Math.abs((cHigh ?? cLow) - cLow) < 0.05 ? metres(cLow) : `${ruNumber(cLow, 1)}…${ruNumber(cHigh ?? cLow, 1)} м`,
+    status: cLow === null || cLow === undefined ? "none" : codes.has("first_row_too_close") ? "warn" : "ok",
+    note: cLow === null || cLow === undefined ? notMeasured : check.c_min_m === null ? "c_min не посчитан" : `нужно не меньше ${metres(check.c_min_m)} (s − e)`,
+  });
+  rows.push({
+    key: "w", label: "ЛСПП у подошвы", value: check.w_m === null ? "—" : `до ${metres(check.w_m, 2)}`,
+    status: check.w_m === null || check.w_max_m === null ? "none" : codes.has("first_row_burden") ? "warn" : "ok",
+    note:
+      check.w_m === null
+        ? notMeasured
+        : check.w_max_m === null
+          ? "W в проекте не задана — не проверить"
+          : `допустимая ${metres(check.w_max_m, 2)} (W проекта + 3 %)`,
+  });
+  return rows;
 }
 
 /**

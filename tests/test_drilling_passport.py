@@ -123,41 +123,61 @@ def test_block66_summary(rows66):
     [(70.0, 55.0, 3.93, 4.0), (75.0, 65.0, 2.32, 2.4)],
 )
 def test_block66_crest_distance(rows66, alpha, gamma, prism, s):
-    check = first_row_check(rows66, alpha, gamma, None, None, None)
+    check = first_row_check(rows66, alpha, gamma, None)
     assert check.h1_m == pytest.approx(11.7)
     assert round(check.prism_m, 2) == prism
     assert check.s_m == s
 
 
-def test_block66_burden_warning(rows66):
-    check = first_row_check(rows66, 75.0, 65.0, 1.2, 2.0, 4.9)
-    assert check.c_min_m == pytest.approx(1.2)
-    assert round(check.w_m, 2) == 5.14
-    codes = [issue.code for issue in check.issues]
-    assert codes == ["first_row_burden"]
-    assert check.issues[0].level == "warning"
-    # Номер скважины первого ряда с наибольшей высотой уступа (11,7 м) — в сообщении.
-    tallest = max((row for row in rows66 if row.first_row), key=lambda row: row.bench_height_m)
-    assert tallest.number in check.issues[0].message
+def test_block66_first_row_measured_from_design(block66):
+    """c и W — из проекта блока (доработки 10.11.2026): c — от устья до верхней
+    бровки, W — ЛСП у подошвы (`floor_burdens`), Wпред — W проекта + 3 %."""
+    site = {"bench_face_angle_deg": 75, "stable_slope_angle_deg": 65}
+    context = passport_context(block66, {"block_area_m2": 2790}, site, {"axis_offset_m": 1.2})
+    check = context["first_row_check"]
+    assert (round(check["c_m"], 2), round(check["c_max_m"], 2)) == (1.72, 3.08)
+    assert round(check["w_m"], 2) == 5.94
+    assert check["w_max_m"] == pytest.approx(3.7 * 1.03)
+    burden = next(issue for issue in context["issues"] if issue["code"] == "first_row_burden")
+    assert burden["level"] == "warning"
+    assert "5.94" in burden["message"] and "3.81" in burden["message"]
+    assert context["provenance"]["w_m"] == "DESIGN"
 
 
-def test_too_close_and_missing_offset(rows66):
-    check = first_row_check(rows66, 75.0, 65.0, 0.0, 2.0, None)
+def test_too_close_to_crest_lists_holes(rows66):
+    first = [row.number for row in rows66 if row.first_row]
+    crest = {number: 3.0 for number in first} | {first[0]: 1.0}
+    check = first_row_check(rows66, 75.0, 65.0, 0.0, crest_m=crest, burdens={})
     assert check.c_min_m == pytest.approx(2.4)
-    assert "first_row_too_close" in [issue.code for issue in check.issues]
-    # Нет e — по спеке §2.2 e = 0 (консервативно для c_min) с предупреждением; W считается.
-    missing = first_row_check(rows66, 75.0, 65.0, None, None, 4.0)
-    assert missing.c_min_m == pytest.approx(2.4)
-    assert missing.c_m == pytest.approx(2.4)
-    assert round(missing.w_m, 2) == 5.54
-    codes = [issue.code for issue in missing.issues]
-    assert codes == ["axis_offset_missing", "first_row_burden"]
-    assert all(issue.level == "warning" for issue in missing.issues)
+    assert (check.c_m, check.c_max_m) == (1.0, 3.0)
+    close = next(issue for issue in check.issues if issue.code == "first_row_too_close")
+    assert first[0] in close.message and "2.4" in close.message
+
+
+def test_missing_axis_offset_is_zero_with_warning(rows66):
+    check = first_row_check(rows66, 75.0, 65.0, None, crest_m={}, burdens={})
+    assert check.c_min_m == pytest.approx(2.4)
+    assert "axis_offset_missing" in [issue.code for issue in check.issues]
+
+
+def test_design_burden_without_design_w_is_warned(rows66):
+    first = [row.number for row in rows66 if row.first_row]
+    check = first_row_check(rows66, 75.0, 65.0, 1.2, crest_m={}, burdens={n: (4.0, None) for n in first})
+    assert check.w_m == 4.0 and check.w_max_m is None
+    missing = next(issue for issue in check.issues if issue.code == "w_max_missing")
+    assert "проекте блока" in missing.message
+
+
+def test_without_crest_first_row_not_measured(rows66):
+    check = first_row_check(rows66, 75.0, 65.0, 1.2)
+    assert (check.c_m, check.w_m, check.w_max_m) == (None, None, None)
+    assert "first_row_not_measured" in [issue.code for issue in check.issues]
+    assert check.s_m == 2.4
 
 
 @pytest.mark.parametrize(("alpha", "gamma"), [(65.0, 65.0), (60.0, 65.0), (75.0, None), (None, 65.0)])
 def test_slope_angles_required(rows66, alpha, gamma):
-    check = first_row_check(rows66, alpha, gamma, 1.2, None, None)
+    check = first_row_check(rows66, alpha, gamma, 1.2)
     assert check.s_m is None
     errors = [issue for issue in check.issues if issue.level == "error"]
     assert [issue.code for issue in errors] == ["slope_angles_required"]
@@ -169,7 +189,7 @@ def test_s_has_floor_of_two_metres():
         contour=BlockContour(vertices=[Point3(0, 0, 0), Point3(5, 0, 0), Point3(5, 5, 0)], free_faces=[[0, 1]]),
         holes=[Hole(id="1", row=0, col=0, collar=Point3(0, 0, 10), toe=Point3(0, 0, 5), diameter_mm=115, subdrill_m=0.5)],
     )
-    check = first_row_check(holes_for_passport(design), 89.0, 88.0, None, None, None)
+    check = first_row_check(holes_for_passport(design), 89.0, 88.0, None)
     assert check.s_m == 2.0
 
 
@@ -255,12 +275,12 @@ def test_resolve_inputs_sources(block66):
     assert values["alpha_deg"] == 75.0 and provenance["alpha_deg"] == "REFERENCE"
     assert values["gamma_deg"] == 65.0 and provenance["gamma_deg"] == "REFERENCE"
     assert values["axis_offset_m"] == 1.2 and provenance["axis_offset_m"] == "REFERENCE"
-    assert values["w_max_m"] is None and provenance["w_max_m"] is None
+    # c и Wпред — из проекта блока, не вводятся (доработки 10.11.2026).
+    assert "w_max_m" not in values and "first_row_offset_m" not in values
 
     values, provenance = resolve_inputs(block66, site, rig, {"alpha_deg": 70, "gamma_deg": 55, "w_max_m": 5})
     assert (values["alpha_deg"], provenance["alpha_deg"]) == (70.0, "MANUAL_OVERRIDE")
     assert (values["gamma_deg"], provenance["gamma_deg"]) == (55.0, "MANUAL_OVERRIDE")
-    assert (values["w_max_m"], provenance["w_max_m"]) == (5.0, "MANUAL_OVERRIDE")
 
     # Угол откоса проекта (в интерфейсе по умолчанию 75°) не перекрывает объект.
     design = BlastDesign.from_dict(block66.to_dict())
@@ -294,7 +314,7 @@ def test_resolve_inputs_area(block66):
 
 def test_passport_context_is_deterministic(block66):
     site = {"bench_face_angle_deg": 75, "stable_slope_angle_deg": 65}
-    payload = {"block_area_m2": 2790, "first_row_offset_m": 2.0, "w_max_m": 4.9, "bit_diameter_mm": 140}
+    payload = {"block_area_m2": 2790, "bit_diameter_mm": 140}
     first = passport_context(block66, payload, site, {"axis_offset_m": 1.2})
     second = passport_context(block66, dict(payload), dict(site), {"axis_offset_m": 1.2})
     assert first == second
@@ -302,16 +322,14 @@ def test_passport_context_is_deterministic(block66):
     assert first["first_row_check"]["s_m"] == 2.4
     assert len(first["holes"]) == 196
     assert [issue["code"] for issue in first["issues"]] == ["first_row_burden"]
-    assert first["provenance"]["first_row_offset_m"] == "MANUAL_OVERRIDE"
+    assert first["provenance"]["c_m"] == "DESIGN"
 
 
 def test_axis_offset_larger_than_s_keeps_axis_behind_crest(rows66):
-    """e > s: c_min = s − e ушёл бы за бровку и занизил W — берётся 0 с предупреждением."""
-    check = first_row_check(rows66, 75.0, 65.0, 3.0, None, 4.0)
+    """e > s: c_min = s − e ушёл бы за бровку — берётся 0 с предупреждением."""
+    check = first_row_check(rows66, 75.0, 65.0, 3.0, crest_m={}, burdens={})
     assert check.s_m == 2.4
     assert check.c_min_m == 0.0
-    assert check.c_m == 0.0
-    assert check.w_m == pytest.approx(11.7 / math.tan(math.radians(75.0)))
     assert "axis_offset_exceeds_s" in [issue.code for issue in check.issues]
 
 
@@ -320,15 +338,13 @@ def test_axis_offset_larger_than_s_keeps_axis_behind_crest(rows66):
 
 def test_crest_distance_by_design_bench_height(rows66):
     """Утверждённый пример формы v0.7: Hs = 10,0 → Bпр 1,98, s 2,0; H₁ 11,7 > 10,5 — предупреждение."""
-    check = first_row_check(rows66, 75.0, 65.0, 1.2, None, 6.0, hs_m=10.0)
+    check = first_row_check(rows66, 75.0, 65.0, 1.2, hs_m=10.0)
     assert check.h1_m == pytest.approx(11.7)
     assert check.hs_m == 10.0
     assert check.hs_source == "MANUAL_OVERRIDE"
     assert round(check.prism_m, 2) == 1.98
     assert check.s_m == 2.0
-    # W — по фактической высоте каждой скважины первого ряда, а не по Hs.
     assert check.c_min_m == pytest.approx(0.8)
-    assert check.w_m == pytest.approx(11.7 / math.tan(math.radians(75.0)) + 0.8)
     warning = next(issue for issue in check.issues if issue.code == "bench_above_design")
     assert warning.level == "warning"
     tallest = max((row for row in rows66 if row.first_row), key=lambda row: row.bench_height_m)
@@ -341,7 +357,7 @@ def test_crest_distance_by_design_bench_height(rows66):
 
 
 def test_hs_defaults_to_first_row_height(rows66):
-    check = first_row_check(rows66, 75.0, 65.0, 1.2, None, 6.0)
+    check = first_row_check(rows66, 75.0, 65.0, 1.2)
     assert check.hs_m == pytest.approx(11.7)
     assert check.hs_source == "CALCULATED"
     assert check.s_m == 2.4
@@ -349,7 +365,7 @@ def test_hs_defaults_to_first_row_height(rows66):
 
 
 def test_hs_within_half_metre_is_not_warned(rows66):
-    check = first_row_check(rows66, 75.0, 65.0, 1.2, None, 6.0, hs_m=11.5, hs_source="REFERENCE")
+    check = first_row_check(rows66, 75.0, 65.0, 1.2, hs_m=11.5, hs_source="REFERENCE")
     assert check.hs_source == "REFERENCE"
     assert "bench_above_design" not in [issue.code for issue in check.issues]
 
@@ -410,32 +426,23 @@ def _tilted_row_design(shift_x: float, shift_y: float, *, free_faces=([0, 1],), 
     )
 
 
-@pytest.mark.parametrize(
-    ("shift", "expected_w"),
-    [
-        # β = 75°, H = 10: смещение подошвы по оси 10·ctg 75° = 2,68 м.
-        ((0.0, -10.0 / _TAN75), 2.0),  # к откосу: W = H·(ctg α − ctg β) + c
-        ((10.0 / _TAN75, 0.0), 2.0 + 10.0 / _TAN75),  # вдоль бровки: как вертикальная
-        ((0.0, 10.0 / _TAN75), 2.0 + 2 * 10.0 / _TAN75),  # в массив: 7,36 м
-    ],
-)
-def test_first_row_burden_follows_tilt_direction(shift, expected_w):
-    design = _tilted_row_design(*shift)
-    rows = holes_for_passport(design)
-    assert {row.number for row in rows if row.first_row} == {f"A{i}" for i in range(5)}
-    check = first_row_check(rows, 75.0, 65.0, None, 2.0, 4.9)
-    assert check.w_m == pytest.approx(expected_w, abs=1e-6)
-    over = "first_row_burden" in [issue.code for issue in check.issues]
-    assert over is (expected_w > 4.9)
+def test_design_burden_follows_tilt_direction():
+    """W из проекта учитывает наклон: к откосу — меньше, в массив — больше вертикальной."""
+    site = {"bench_face_angle_deg": 75, "stable_slope_angle_deg": 65}
+
+    def w(shift):
+        return passport_context(_tilted_row_design(*shift), {}, site, None)["first_row_check"]["w_m"]
+
+    toward, along, into = w((0.0, -10.0 / _TAN75)), w((10.0 / _TAN75, 0.0)), w((0.0, 10.0 / _TAN75))
+    assert toward < along < into
 
 
-def test_tilt_direction_unknown_without_crest_is_warned():
-    """Без бровки направление к откосу не известно: W — как при наклоне к откосу, с предупреждением."""
+def test_without_crest_burden_is_not_measured():
     design = _tilted_row_design(0.0, 10.0 / _TAN75, free_faces=())
-    context = passport_context(design, {"w_max_m": 6}, {"bench_face_angle_deg": 75, "stable_slope_angle_deg": 65}, None)
+    context = passport_context(design, {}, {"bench_face_angle_deg": 75, "stable_slope_angle_deg": 65}, None)
     codes = [issue["code"] for issue in context["issues"]]
-    assert "first_row_tilt_direction_unknown" in codes
-    assert context["first_row_check"]["w_m"] == pytest.approx(context["first_row_check"]["c_m"], abs=1e-6)
+    assert "first_row_not_measured" in codes
+    assert context["first_row_check"]["w_m"] is None
 
 
 def test_horizontal_hole_is_validation_error_not_crash():

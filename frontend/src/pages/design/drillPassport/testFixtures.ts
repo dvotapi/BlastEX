@@ -15,7 +15,7 @@ export function passport66(): DrillPassport {
       site_preparation: "бульдозером", stakeout: "", drilling_order: "", access_route: "", power_lines: "",
       adjacent_works: "", acceptance: "исполнительная съёмка", extra_approvals: ["маркшейдер", "геолог"],
       tol_depth_m: 0.3, tol_collar_m: 0.3, personnel: [{ name: "Петров", position: "машинист" }],
-      alpha_deg: null, gamma_deg: null, axis_offset_m: 1.2, first_row_offset_m: null, w_max_m: null,
+      alpha_deg: null, gamma_deg: null, axis_offset_m: 1.2,
       bench_height_for_s_m: 10,
     },
   };
@@ -29,13 +29,13 @@ export function validation66(issues: DrillPassportIssue[] = []): DrillPassportVa
     issues,
     summary: {},
     first_row_check: {
-      h1_m: 11.7, prism_m: 1.98, s_m: 2.0, c_min_m: 0.8, c_m: 0.8, w_m: 5.14, w_max_m: null, hs_m: 10,
+      h1_m: 11.7, prism_m: 1.98, s_m: 2.0, c_min_m: 0.8, c_m: 1.72, c_max_m: 3.08, w_m: 5.94, w_max_m: 3.811, hs_m: 10,
       hs_source: "MANUAL_OVERRIDE", issues: [],
     },
-    inputs: { alpha_deg: 75, gamma_deg: 65, axis_offset_m: 1.2, bench_height_for_s_m: 10, first_row_offset_m: 0.8, w_max_m: null, block_area_m2: 2790 },
+    inputs: { alpha_deg: 75, gamma_deg: 65, axis_offset_m: 1.2, bench_height_for_s_m: 10, block_area_m2: 2790 },
     provenance: {
       alpha_deg: "REFERENCE", gamma_deg: "REFERENCE", axis_offset_m: "MANUAL_OVERRIDE", bench_height_for_s_m: "MANUAL_OVERRIDE",
-      first_row_offset_m: "CALCULATED", w_max_m: null, block_area_m2: "DESIGN",
+      block_area_m2: "DESIGN", c_m: "DESIGN", w_m: "DESIGN", w_max_m: "DESIGN",
     },
   };
 }

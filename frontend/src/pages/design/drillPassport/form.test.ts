@@ -87,6 +87,9 @@ describe("форма ⇄ payload", () => {
     expect(fields.profile_code).toMatchObject({ kind: "reference", section: "drill_passport_profiles" });
     expect(fields.profile_code.hint).toContain("порядок работ");
     expect(fields.alpha_deg).toMatchObject({ kind: "number", unit: "°" });
+    // c и Wпред — из проекта блока, в форме их нет (доработки 10.11.2026).
+    expect(fields.first_row_offset_m).toBeUndefined();
+    expect(fields.w_max_m).toBeUndefined();
     // Даты бурения заполняются сами в ISO — в форме выбор даты (10.11.2026).
     expect(fields.drilling_start).toMatchObject({ kind: "date" });
     expect(fields.drilling_end).toMatchObject({ kind: "date", label: "Окончание бурения (план)" });
@@ -113,48 +116,63 @@ describe("источники величин", () => {
   it("подсказка пустого поля — значение и источник", () => {
     expect(sourceHint("alpha_deg", validation66())).toBe("75° · справочник");
     expect(sourceHint("block_area_m2", validation66())).toBe("2 790 м² · проект блока");
-    expect(sourceHint("w_max_m", validation66())).toBeNull();
+    expect(sourceHint("axis_offset_m", { ...validation66(), provenance: {} })).toBeNull();
     expect(sourceHint("alpha_deg", null)).toBeNull();
   });
 });
 
 describe("замечания у поля", () => {
   it("stakeout_names_invalid — у «Блока»", () => {
-    const issues = [warning("stakeout_names_invalid", "block"), warning("w_max_missing", "w_max_m")];
+    const issues = [warning("stakeout_names_invalid", "block"), warning("w_max_missing", "holes")];
     expect(issuesFor("block", issues).map((issue) => issue.code)).toEqual(["stakeout_names_invalid"]);
   });
 });
 
 describe("проверка первого ряда", () => {
-  it("блок 66: s посчитан, Hs выше проекта, Wпред не задана", () => {
-    const rows = checkRows(validation66([warning("bench_above_design", "bench_height_for_s_m"), warning("w_max_missing", "w_max_m")]));
-    const byKey = Object.fromEntries(rows.map((row) => [row.key, row]));
-    expect(byKey.s).toMatchObject({ value: "2,0 м", status: "ok" });
-    expect(byKey.hs).toMatchObject({ value: "10,0 м", status: "warn", note: "вручную" });
-    expect(byKey.h1).toMatchObject({ value: "11,7 м", status: "info" });
-    expect(byKey.c).toMatchObject({ value: "0,8 м", note: "принято c_min" });
-    expect(byKey.w).toMatchObject({ value: "5,14 м", status: "none" });
-    expect(byKey.w_max).toMatchObject({ value: "—", status: "none", note: "не задана — проверка W пропущена" });
+  const byKey = (validation: ReturnType<typeof validation66>) =>
+    Object.fromEntries(checkRows(validation).map((row) => [row.key, row]));
+
+  it("три строки: s, первый ряд от бровки, ЛСПП — по проекту, без ручных c и Wпред", () => {
+    const rows = checkRows(validation66([warning("first_row_burden")]));
+    expect(rows.map((row) => row.key)).toEqual(["s", "c", "w"]);
+    const keyed = byKey(validation66([warning("first_row_burden")]));
+    expect(keyed.s).toMatchObject({ value: "2,0 м", status: "ok", note: "печатается в паспорте" });
+    expect(keyed.c).toMatchObject({ value: "1,7…3,1 м", status: "ok", note: "нужно не меньше 0,8 м (s − e)" });
+    expect(keyed.w).toMatchObject({ value: "до 5,94 м", status: "warn", note: "допустимая 3,81 м (W проекта + 3 %)" });
+  });
+
+  it("Hs — строкой только при предупреждении о высоте уступа", () => {
+    const keyed = byKey(validation66([warning("bench_above_design")]));
+    expect(keyed.hs).toMatchObject({ value: "11,7 м", status: "warn", note: "Hs 10,0 м · вручную" });
+    expect(byKey(validation66()).hs).toBeUndefined();
+  });
+
+  it("устья ближе c_min — предупреждение", () => {
+    expect(byKey(validation66([warning("first_row_too_close")])).c.status).toBe("warn");
+  });
+
+  it("ЛСПП в допуске — норма", () => {
+    expect(byKey(validation66()).w.status).toBe("ok");
+  });
+
+  it("без бровки c и W не измерены", () => {
+    const validation = validation66([warning("first_row_not_measured")]);
+    validation.first_row_check = { ...validation.first_row_check, c_m: null, c_max_m: null, w_m: null, w_max_m: null };
+    const keyed = byKey(validation);
+    expect(keyed.c).toMatchObject({ value: "—", status: "none", note: "нет бровки — не измерить" });
+    expect(keyed.w).toMatchObject({ value: "—", status: "none", note: "нет бровки — не измерить" });
+  });
+
+  it("W проекта не задана — ЛСПП без допуска", () => {
+    const validation = validation66([warning("w_max_missing")]);
+    validation.first_row_check.w_max_m = null;
+    expect(byKey(validation).w).toMatchObject({ status: "none", note: "W в проекте не задана — не проверить" });
   });
 
   it("без α и γ s не посчитан", () => {
     const validation = validation66();
-    validation.first_row_check = { ...validation.first_row_check, s_m: null, c_min_m: null, w_m: null };
-    const s = checkRows(validation).find((row) => row.key === "s");
-    expect(s).toMatchObject({ value: "—", status: "none" });
-  });
-
-  it("W больше Wпред — предупреждение", () => {
-    const validation = validation66([warning("first_row_burden", "w_max_m")]);
-    validation.first_row_check.w_max_m = 5;
-    const w = checkRows(validation).find((row) => row.key === "w");
-    expect(w?.status).toBe("warn");
-  });
-
-  it("W не больше Wпред — норма", () => {
-    const validation = validation66();
-    validation.first_row_check.w_max_m = 6;
-    expect(checkRows(validation).find((row) => row.key === "w")?.status).toBe("ok");
+    validation.first_row_check = { ...validation.first_row_check, s_m: null, c_min_m: null };
+    expect(byKey(validation).s).toMatchObject({ value: "—", status: "none" });
   });
 });
 

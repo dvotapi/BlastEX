@@ -102,7 +102,7 @@ describe("DrillPassportDialog", () => {
   });
 
   it("выпуск ждёт отметок «просмотрено» у всех предупреждений", async () => {
-    api.drillPassport.validate.mockResolvedValue(validation66([warning("w_max_missing", "w_max_m"), warning("axis_offset_missing")]));
+    api.drillPassport.validate.mockResolvedValue(validation66([warning("w_max_missing", "holes"), warning("axis_offset_missing")]));
     const user = userEvent.setup();
     const { onChange } = open();
     const boxes = await screen.findAllByRole("checkbox", { name: "просмотрено" });
@@ -252,7 +252,7 @@ describe("DrillPassportDialog", () => {
     const user = userEvent.setup();
     open();
     await user.click(await screen.findByRole("checkbox", { name: "просмотрено" }));
-    await user.type(screen.getByLabelText(/Допустимая ЛСПП Wпред/), "5");
+    await user.type(screen.getByLabelText(/^Горизонт/), "5");
     api.drillPassport.validate.mockResolvedValue(validation66([{ ...before, message: "W 7,2 м больше 5,0 м" }]));
     await user.click(releaseButton());
     expect(await screen.findByText(/Отметьте просмотренными новые предупреждения/)).toBeTruthy();
@@ -446,6 +446,8 @@ describe("DrillPassportDialog", () => {
     const check = await screen.findByRole("table", { name: "Проверка первого ряда" });
     await waitFor(() => expect(within(check).getByText("2,0 м")).toBeTruthy());
     expect(within(check).getByText("Безопасное расстояние s")).toBeTruthy();
+    expect(within(check).getByText("1,7…3,1 м")).toBeTruthy();
+    expect(screen.queryByLabelText(/Допустимая ЛСПП/)).toBeNull();
     expect(container.textContent).not.toContain('{"');
   });
 });

@@ -82,8 +82,8 @@ class DrillingPassportPayload(BaseModel):
     alpha_deg: float | None = Field(default=None, ge=30, le=90, description="Угол откоса α, если не из справочника")
     gamma_deg: float | None = Field(default=None, ge=20, le=90, description="Угол устойчивого борта γ")
     axis_offset_m: float | None = Field(default=None, ge=0, le=5, description="Вылет оси e, м")
-    first_row_offset_m: float | None = Field(default=None, ge=0, description="От бровки до оси первого ряда c, м")
-    w_max_m: float | None = Field(default=None, gt=0, description="Допустимая ЛСПП Wпред, м")
+    # c и Wпред — из проекта блока (доработки 10.11.2026): у старых черновиков
+    # ключи `first_row_offset_m` и `w_max_m` остаются в JSON и игнорируются.
     bench_height_for_s_m: float | None = Field(
         default=None, gt=0, le=30, description="Высота уступа для безопасного расстояния, м"
     )

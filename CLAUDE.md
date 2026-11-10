@@ -377,7 +377,21 @@ UTF-8 с CRLF, длинный MTEXT режется по 250 байт посре�
 AutoCAD 2022 не открыл, а сверка той же LibreDWG этого не видит — `/holes.dwg`
 отдаёт DXF с подсказкой «Сохранить как» (решение владельца 10.11.2026). Стиль Standard — `arial.ttf`: `txt.shx` не везде знает
 кириллицу. Маршруты —
-`GET /revisions/{rid}/holes.dxf`, `/holes.dwg`. Ход работ —
+`GET /revisions/{rid}/holes.dxf`, `/holes.dwg`. Файл выноса для GNSS и
+ведомость (PR 5) — тоже только из снимка: профили — встроенные
+(`PNEZD_CSV`, `PENZD_CSV`, `PNEZ_TXT`, `DXF_POINTS` R12) и раздел
+справочника `stakeout_profiles`, профиль по умолчанию — у объекта
+(`stakeout_profile_code`), в ревизию — копией (`context["stakeout"]`,
+`export_survey.stakeout_snapshot`); `stakeout_file` — ASCII без BOM, CRLF,
+точка, 3 знака, N — `y`, E — `x`; имя точки — блок и номер скважины паспорта
+(`point_name`: «66-1-01», номер из цифр — «66-001»; решение владельца
+10.11.2026), кириллица транслитерируется, > 16 знаков или повтор —
+`StakeoutError` (422). Ведомость — `design/reporting/drill/coords*.py`: PDF по
+эталону v0.6 (альбомный, ряд 1/2, графы факта пустые), XLSX — в формате
+таблицы маркшейдера (сводка числами, ID — номер паспорта; книга пишется через
+`ExcelWriter`, а не `workbook.save` — тот ставит текущее время; zip — с
+постоянным временем, `archive.fixed_zip`). Маршруты — `/stakeout?profile=`,
+`/coords.pdf`, `/coords.xlsx`, `/package.zip`. Ход работ —
 `Docs/plans/TASK-015-progress.md`.
 
 ## Нумерация скважин

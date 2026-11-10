@@ -35,7 +35,7 @@ class DrillPassportProfilePayload(ReferencePayload):
     safety_basis: str = Field(
         default="",
         title="Основание",
-        description="Строка под мерами безопасности; пусто — «Основание: ФНП 505 пп. 989–991, 993; ФНП 494 п. 187.»",
+        description="Строка под мерами безопасности; пусто — «Основание: ФНП 505 пп. 968, 989–991, 993; ФНП 494 п. 187.»",
         max_length=200,
     )
     drilling_technology: str = Field(

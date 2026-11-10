@@ -460,7 +460,13 @@ def test_context_carries_print_data(block66):
     assert len(profile["safety_items"]) == 10
     assert profile["safety_items"][2].startswith("Устанавливать станок не ближе безопасного расстояния")
     assert " s " not in profile["safety_items"][2]
-    assert profile["safety_basis"] == "Основание: ФНП 505 пп. 989–991, 993; ФНП 494 п. 187."
+    # П. 4 — решение владельца 10.11.2026: запрет — без достаточного освещения
+    # (ФНП 505 п. 968, табл. 16: место буровых работ — не менее 10 лк).
+    assert profile["safety_items"][3] == (
+        "Работа на первом ряду в тёмное время суток без достаточного освещения (не менее 10 лк на высоту станка) "
+        "запрещена. Находиться в призме возможного обрушения запрещено."
+    )
+    assert profile["safety_basis"] == "Основание: ФНП 505 пп. 968, 989–991, 993; ФНП 494 п. 187."
     assert profile["drilling_technology"].startswith("В раздробленных и обводнённых породах")
 
 

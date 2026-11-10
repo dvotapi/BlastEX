@@ -133,32 +133,31 @@ export function DrillPassportDialog({
     setDirty(true);
   }
 
-  async function save(): Promise<DrillPassport | null> {
+  // Сохранение и сразу проверка сохранённого: правка формы (объект, углы,
+  // блок) меняет и s, и замечания — старая проверка справа была бы неверной.
+  async function save(): Promise<{ passport: DrillPassport; validation: DrillPassportValidation | null } | null> {
     if (Object.keys(errors).length) {
       setMessage("Исправьте поля, отмеченные ошибкой.");
       return null;
     }
+    let saved: DrillPassport;
     try {
-      const saved = await api.drillPassport.save(current.id, toUpdate(form, current.version));
-      setCurrent(saved);
-      setForm(formFromPassport(saved));
-      setDirty(false);
-      onChange(saved);
-      return saved;
+      saved = await api.drillPassport.save(current.id, toUpdate(form, current.version));
     } catch (reason) {
       setMessage(errorText(reason, "Не удалось сохранить паспорт."));
       return null;
     }
+    setCurrent(saved);
+    setForm(formFromPassport(saved));
+    setDirty(false);
+    onChange(saved);
+    return { passport: saved, validation: await refreshValidation(saved.id) };
   }
 
   async function onSave() {
     setBusy(true);
     setMessage("");
-    const saved = await save();
-    if (saved) {
-      await refreshValidation(saved.id);
-      setMessage("Черновик паспорта сохранён.");
-    }
+    if (await save()) setMessage("Черновик паспорта сохранён.");
     setBusy(false);
   }
 
@@ -166,9 +165,9 @@ export function DrillPassportDialog({
     setBusy(true);
     setMessage("");
     try {
-      const saved = dirty ? await save() : current;
-      if (!saved) return;
-      const checked = await refreshValidation(saved.id);
+      const result = dirty ? await save() : { passport: current, validation: await refreshValidation(current.id) };
+      if (!result) return;
+      const { passport: saved, validation: checked } = result;
       if (!checked) return;
       if (!canRelease(checked, acknowledged)) {
         setMessage("Отметьте просмотренными новые предупреждения проверки.");
@@ -200,7 +199,7 @@ export function DrillPassportDialog({
     setBusy(true);
     setPreviewError("");
     try {
-      const saved = dirty ? await save() : current;
+      const saved = dirty ? (await save())?.passport : current;
       if (!saved) return;
       const url = URL.createObjectURL(await fetchBlob(api.drillPassport.previewUrl(saved.id)));
       if (previewRef.current) URL.revokeObjectURL(previewRef.current);

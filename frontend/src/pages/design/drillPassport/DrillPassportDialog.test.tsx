@@ -175,6 +175,20 @@ describe("DrillPassportDialog", () => {
     expect(screen.queryByTitle("Предпросмотр паспорта")).toBeNull();
   });
 
+  it("предпросмотр с правками сохраняет их и перечитывает проверку", async () => {
+    const user = userEvent.setup();
+    open();
+    const horizon = await screen.findByLabelText(/^Горизонт/);
+    await waitFor(() => expect(api.drillPassport.validate).toHaveBeenCalledTimes(1));
+    const error: DrillPassportIssue = { level: "error", code: "slope_angles_required", message: "Нужны углы α и γ.", path: "alpha_deg" };
+    api.drillPassport.validate.mockResolvedValue(validation66([error]));
+    await user.type(horizon, "1");
+    await user.click(screen.getByRole("button", { name: "Показать предпросмотр" }));
+    await waitFor(() => expect(api.drillPassport.save).toHaveBeenCalled());
+    expect((await screen.findAllByText("Нужны углы α и γ.")).length).toBeGreaterThan(0);
+    expect(releaseButton()).toHaveProperty("disabled", true);
+  });
+
   it("проверка первого ряда со статусами, без JSON", async () => {
     const { container } = render(
       <DrillPassportDialog passport={passport66()} designSaved onClose={vi.fn()} onChange={vi.fn()} />,

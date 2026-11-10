@@ -5,6 +5,7 @@ import "./styles.css";
 import "./styles/hole-drawing.css";
 import "./styles/design.css";
 import "./styles/cadImport.css";
+import "./styles/drillPassport.css";
 import "./styles/references.css";
 import "./styles/economics.css";
 import "./styles/kuzram.css";

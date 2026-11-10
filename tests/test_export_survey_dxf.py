@@ -4,7 +4,6 @@ from __future__ import annotations
 import io
 import math
 from copy import deepcopy
-from datetime import date
 
 import ezdxf
 import pytest
@@ -14,15 +13,12 @@ from design.export_survey import HOLE_ATTRIBUTES, HOLE_LAYERS, holes_dxf
 from tests.drill_passport_context import context66
 from tests.test_drilling_passport import _block66_rows
 
-ISSUED = date(2026, 11, 9)
-
-
 def _read(data: bytes):
     return ezdxf.read(io.StringIO(data.decode("utf-8")))
 
 
 def _dxf(context: dict | None = None) -> bytes:
-    return holes_dxf(context if context is not None else context66(), revision_no=1, issued_on=ISSUED)
+    return holes_dxf(context if context is not None else context66(), revision_no=1)
 
 
 @pytest.fixture(scope="module")
@@ -131,7 +127,24 @@ def test_contour_and_crests(msp):
     for (x, y), (ex, ey) in zip(points, plan["contour"]):
         assert (x, y) == pytest.approx((ex, ey), abs=0.001)
     assert len(msp.query('LWPOLYLINE[layer=="BLX_CREST_TOP"]')) == len(plan["crest_top"]) > 0
-    assert len(msp.query('LWPOLYLINE[layer=="BLX_CREST_TOE"]')) == len(plan["crest_toe"]) > 0
+
+
+def test_calculated_toe_line_goes_to_its_own_layer(msp):
+    # У блока 66 линия подошвы — по углу откоса, а не снятая нижняя бровка.
+    plan = context66()["plan"]
+    assert plan["toe_source"] == "angle"
+    assert len(msp.query('*[layer=="BLX_CREST_TOE"]')) == 0
+    assert len(msp.query('LWPOLYLINE[layer=="BLX_TOE_LINE"]')) == len(plan["crest_toe"]) > 0
+    assert "Линия подошвы — расчётная по углу откоса (слой BLX_TOE_LINE)" in _info(msp)
+
+
+def test_surveyed_toe_goes_to_crest_toe_layer():
+    context = context66()
+    context["plan"]["toe_source"] = "survey"
+    msp = _read(_dxf(context)).modelspace()
+    assert len(msp.query('LWPOLYLINE[layer=="BLX_CREST_TOE"]')) == len(context["plan"]["crest_toe"])
+    assert len(msp.query('*[layer=="BLX_TOE_LINE"]')) == 0
+    assert "Линия подошвы" not in _info(msp)
 
 
 def _with_inclined(context: dict) -> dict:
@@ -182,8 +195,32 @@ def test_info_mtext():
     context = context66()
     context["crs"] = {"name": "МСК-66 зона 1", "epsg": None, "height_system": "Балтийская 1977"}
     text = _info(_read(_dxf(context)).modelspace())
-    for part in ("66-26/Б", "ревизия 1", "09.11.2026", "Блок 66", "+410,0", "МСК-66 зона 1", "Балтийская 1977"):
+    assert "Паспорт на бурение № 66-26/Б от 05.10.2026, ревизия 1" in text
+    for part in ("Блок 66, горизонт +410,0 м", "МСК-66 зона 1", "Балтийская 1977"):
         assert part in text
+
+
+def test_info_block_and_horizon_as_in_pdf():
+    context = context66()
+    context["passport"]["payload"].update(block="  66 ", horizon="+410,0 м")
+    assert "Блок 66, горизонт +410,0 м\n" in _info(_read(_dxf(context)).modelspace()) + "\n"
+    context["passport"]["payload"].update(block="   ", horizon="")
+    assert "Блок" not in _info(_read(_dxf(context)).modelspace())
+
+
+def test_guids_are_derived_from_revision():
+    const = "{00000000-0000-0000-0000-000000000000}"
+    context = context66()
+    first = _read(_dxf(context)).header
+    again = _read(_dxf(context)).header
+    other = context66()
+    other["holes"][0]["length_m"] = 12.0
+    changed = _read(_dxf(other)).header
+    assert const not in (first["$FINGERPRINTGUID"], first["$VERSIONGUID"])
+    assert (first["$FINGERPRINTGUID"], first["$VERSIONGUID"]) == (again["$FINGERPRINTGUID"], again["$VERSIONGUID"])
+    # Тот же паспорт — тот же отпечаток чертежа; другой снимок — другая версия.
+    assert changed["$FINGERPRINTGUID"] == first["$FINGERPRINTGUID"]
+    assert changed["$VERSIONGUID"] != first["$VERSIONGUID"]
 
 
 def test_info_local_crs_is_marked_unset(msp):

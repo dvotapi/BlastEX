@@ -8,15 +8,22 @@ DXF X — восток (внутренний `x`), Y — север (`y`), Z —
 с запятой, как в паспорте.
 
 Повторный выпуск той же ревизии даёт те же байты: метаданные ezdxf (даты
-создания и правки, GUID) фиксируются, дата выпуска — дата ревизии.
+создания и правки) фиксируются, GUID чертежа выводятся из снимка
+(`$FINGERPRINTGUID` — из проекта и номера паспорта, `$VERSIONGUID` — из всего
+снимка и номера ревизии), в `BLX_INFO` — дата паспорта, как в PDF.
+
+Линия подошвы, построенная по углу откоса (`plan.toe_source` не «survey»), —
+на своём слое `BLX_TOE_LINE` с пометкой в `BLX_INFO`: на «нижней бровке»
+`BLX_CREST_TOE` маркшейдер принял бы её за снятую.
 
 `holes_dwg` переводит DXF в DWG R2000 утилитой LibreDWG `dxf2dwg` и читает
 результат обратно `dwg2dxf`: число сущностей слоёв `BLX_*`, тексты, атрибуты
-скважин и точки (устья, забои, вставки) должны совпасть, координаты — с
-допуском 1 мм. Не вышло — отдаётся DXF с предупреждением (§4).
+скважин и координаты (устья, забои, вставки, вершины полилиний, концы линий)
+должны совпасть, координаты — с допуском 1 мм. Не вышло — отдаётся DXF с предупреждением (§4).
 """
 from __future__ import annotations
 
+import hashlib
 import io
 import logging
 import math
@@ -24,13 +31,16 @@ import threading
 from collections import Counter
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from datetime import date
 from dataclasses import dataclass
 from typing import Any, Literal
 
 import ezdxf
 from ezdxf.enums import MTextEntityAlignment, TextEntityAlignment
 
+from design.mass_blast import canonical_json
+from design.reporting.drill import fmt
+from design.reporting.drill.layout import block_and_horizon
+from design.reporting.drill.plan import hole_circle_mm
 from design.spatial.dwg import dwg_to_dxf, dxf_to_dwg
 
 __all__ = [
@@ -50,6 +60,7 @@ LAYER_COLORS: dict[str, int] = {
     "BLX_CONTOUR": 7,
     "BLX_CREST_TOP": 30,
     "BLX_CREST_TOE": 32,
+    "BLX_TOE_LINE": 40,
     "BLX_HOLE": 4,
     "BLX_HOLE_NUM": 7,
     "BLX_HOLE_DEPTH": 8,
@@ -70,6 +81,9 @@ INFO_GAP_M = 3.0
 # Строки DWG R2000 — в кодовой странице чертежа; для русских программ — 1251.
 CODEPAGE = "ANSI_1251"
 TEXT_FONT = "arial.ttf"
+
+# Нулевой GUID, который ставит `write_fixed_meta_data_for_testing`.
+CONST_GUID = "{00000000-0000-0000-0000-000000000000}"
 
 # Фиксация метаданных — глобальная опция ezdxf: построение под замком.
 _WRITE_LOCK = threading.Lock()
@@ -109,9 +123,13 @@ def _toe(row: Mapping[str, Any]) -> tuple[float, float, float]:
     return x + horizontal * math.sin(azimuth), y + horizontal * math.cos(azimuth), z - length * math.sin(dip)
 
 
-def _circle_mm(summary: Mapping[str, Any], row: Mapping[str, Any]) -> float:
-    # Как кружок на плане PR 3: диаметр инструмента, иначе скважины.
-    return float(summary.get("bit_diameter_mm") or row.get("diameter_mm") or DEFAULT_CIRCLE_MM)
+def _guid(*parts: Any) -> str:
+    digest = hashlib.sha256(canonical_json(list(parts)).encode("utf-8")).hexdigest()
+    return "{" + f"{digest[:8]}-{digest[8:12]}-{digest[12:16]}-{digest[16:20]}-{digest[20:32]}".upper() + "}"
+
+
+def _surveyed_toe(plan: Mapping[str, Any]) -> bool:
+    return plan.get("toe_source") == "survey"
 
 
 def _mtext_escape(text: str) -> str:
@@ -131,23 +149,19 @@ def _crs_line(crs: Mapping[str, Any] | None) -> str:
     return line + (f"; высоты: {heights}" if heights else "; система высот не задана")
 
 
-def _info_lines(context: Mapping[str, Any], revision_no: int | None, issued_on: date | None) -> list[str]:
+def _info_lines(context: Mapping[str, Any], revision_no: int | None) -> list[str]:
     passport = context.get("passport") or {}
-    payload = passport.get("payload") or {}
-    title = f"Паспорт на бурение № {passport.get('passport_no') or 'б/н'}"
+    plan = context.get("plan") or {}
+    title = f"Паспорт на бурение № {str(passport.get('passport_no') or '').strip() or 'б/н'}"
+    if str(passport.get("passport_date") or "").strip():
+        title += f" от {fmt.date(str(passport['passport_date']))}"
     if revision_no is not None:
         title += f", ревизия {revision_no}"
-    if issued_on is not None:
-        title += f", выпуск {issued_on:%d.%m.%Y}"
-    place = ", ".join(
-        part
-        for part in (
-            f"Блок {payload['block']}" if payload.get("block") else "",
-            f"горизонт {payload['horizon']}" if payload.get("horizon") else "",
-        )
-        if part
-    )
+    block, horizon = block_and_horizon(passport.get("payload") or {})
+    place = ", ".join(part for part in (f"Блок {block}" if block else "", f"горизонт {horizon}" if horizon else "") if part)
     lines = [title, place, _crs_line(context.get("crs")), "Координаты — в СК объекта без пересчёта, метры"]
+    if plan.get("crest_toe") and not _surveyed_toe(plan):
+        lines.append("Линия подошвы — расчётная по углу откоса (слой BLX_TOE_LINE)")
     lines.append(f"BlastEX, формулы {context.get('formula_version') or '—'}")
     return [line for line in lines if line]
 
@@ -177,16 +191,25 @@ def _polyline(msp, points: Sequence[Sequence[float]], layer: str, closed: bool) 
         msp.add_lwpolyline([(float(p[0]), float(p[1])) for p in points], close=closed, dxfattribs={"layer": layer})
 
 
-def holes_dxf(
-    context: Mapping[str, Any], *, revision_no: int | None = None, issued_on: date | None = None
-) -> bytes:
+def holes_dxf(context: Mapping[str, Any], *, revision_no: int | None = None) -> bytes:
     """DXF R2010 скважин ревизии: слои `BLX_*` §4, байты повторяются."""
 
     with _fixed_metadata():
-        return _build(context, revision_no, issued_on)
+        text = _build(context, revision_no)
+    # Тестовая опция ezdxf ставит всем чертежам нулевые GUID: подменяем их на
+    # выведенные из снимка — CAD и PDM различают чертежи по ним.
+    passport = context.get("passport") or {}
+    for name, guid in (
+        ("$FINGERPRINTGUID", _guid("fingerprint", context.get("design_id"), passport.get("passport_no"))),
+        ("$VERSIONGUID", _guid("version", context, revision_no)),
+    ):
+        tag = f"{name}\n  2\n{CONST_GUID}\n"
+        assert text.count(tag) == 1, name
+        text = text.replace(tag, f"{name}\n  2\n{guid}\n")
+    return text.encode("utf-8")
 
 
-def _build(context: Mapping[str, Any], revision_no: int | None, issued_on: date | None) -> bytes:
+def _build(context: Mapping[str, Any], revision_no: int | None) -> str:
     doc = _new_document()
     msp = doc.modelspace()
     plan = context.get("plan") or {}
@@ -194,8 +217,9 @@ def _build(context: Mapping[str, Any], revision_no: int | None, issued_on: date 
     _polyline(msp, plan.get("contour") or [], "BLX_CONTOUR", closed=True)
     for line in plan.get("crest_top") or []:
         _polyline(msp, line, "BLX_CREST_TOP", closed=False)
+    toe_layer = "BLX_CREST_TOE" if _surveyed_toe(plan) else "BLX_TOE_LINE"
     for line in plan.get("crest_toe") or []:
-        _polyline(msp, line, "BLX_CREST_TOE", closed=False)
+        _polyline(msp, line, toe_layer, closed=False)
 
     xs = [float(p[0]) for p in plan.get("contour") or []]
     ys = [float(p[1]) for p in plan.get("contour") or []]
@@ -204,7 +228,7 @@ def _build(context: Mapping[str, Any], revision_no: int | None, issued_on: date 
         toe = _toe(row)
         xs.append(collar[0])
         ys.append(collar[1])
-        diameter_m = _circle_mm(summary, row) / 1000.0
+        diameter_m = (hole_circle_mm(summary, row) or DEFAULT_CIRCLE_MM) / 1000.0
         radius = diameter_m / 2
         inclined = row.get("azimuth_deg") is not None
         number = str(row["number"])
@@ -240,7 +264,7 @@ def _build(context: Mapping[str, Any], revision_no: int | None, issued_on: date 
             msp.add_point(toe, dxfattribs={"layer": "BLX_TOE"})
 
     info = msp.add_mtext(
-        "\\P".join(_mtext_escape(line) for line in _info_lines(context, revision_no, issued_on)),
+        "\\P".join(_mtext_escape(line) for line in _info_lines(context, revision_no)),
         dxfattribs={"layer": "BLX_INFO", "char_height": INFO_HEIGHT_M},
     )
     if xs:
@@ -248,7 +272,7 @@ def _build(context: Mapping[str, Any], revision_no: int | None, issued_on: date 
 
     stream = io.StringIO()
     doc.write(stream)
-    return stream.getvalue().encode("utf-8")
+    return stream.getvalue()
 
 
 DWG_FALLBACK_WARNING = "DWG не сформирован, используйте DXF (открывается в AutoCAD / nanoCAD)."
@@ -257,7 +281,6 @@ DWG_TOLERANCE_M = 0.001
 # Сущности, которые сверяются по слоям `BLX_*`. ATTRIB не считаются: `dwg2dxf`
 # выводит их и отдельно от вставок (значения сверяются по вставкам).
 _CHECKED_TYPES = ("POINT", "INSERT", "TEXT", "MTEXT", "CIRCLE", "LINE", "LWPOLYLINE")
-_POINT_TYPES = ("POINT", "INSERT")
 # DWG R2000 начинается с версии формата.
 DWG_SIGNATURE = b"AC1015"
 
@@ -276,7 +299,8 @@ class _Signature:
     counts: Counter
     texts: Counter
     attribs: dict[str, tuple[str, ...]]
-    # (тип, слой) → точки: устья и забои (POINT), вставки скважин (INSERT).
+    # (тип, слой) → точки: устья и забои (POINT), вставки (INSERT), вершины
+    # полилиний (LWPOLYLINE), концы линий (LINE).
     points: dict[tuple[str, str], list[tuple[float, float, float]]]
 
 
@@ -305,13 +329,20 @@ def _signature(dxf: bytes) -> _Signature:
             result.texts[(layer, _text(entity.dxf.text))] += 1
         elif kind == "MTEXT":
             result.texts[(layer, _text(entity.text))] += 1
-        elif kind in _POINT_TYPES:
-            point = entity.dxf.location if kind == "POINT" else entity.dxf.insert
-            result.points.setdefault((kind, layer), []).append((point.x, point.y, point.z))
-            if kind == "INSERT" and layer == "BLX_HOLE":
+        points = result.points.setdefault((kind, layer), [])
+        if kind == "POINT":
+            points.append(tuple(entity.dxf.location))
+        elif kind == "INSERT":
+            points.append(tuple(entity.dxf.insert))
+            if layer == "BLX_HOLE":
                 result.attribs[_text(entity.get_attrib_text("NUM") or "")] = tuple(
                     _text(attrib.dxf.text) for attrib in entity.attribs
                 )
+        elif kind == "LWPOLYLINE":
+            elevation = entity.dxf.elevation
+            points.extend((x, y, elevation) for x, y in entity.get_points("xy"))
+        elif kind == "LINE":
+            points.extend((tuple(entity.dxf.start), tuple(entity.dxf.end)))
     return result
 
 

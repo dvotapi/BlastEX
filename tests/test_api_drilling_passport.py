@@ -682,10 +682,10 @@ def test_holes_dxf_from_revision(client):
     assert client.get(f"{BASE}/revisions/{revision['id']}/holes.dxf").content == response.content
 
 
-def test_holes_dxf_info_carries_revision_date(client):
+def test_holes_dxf_info_carries_passport_date(client):
     revision = _revision(client)
     content = client.get(f"{BASE}/revisions/{revision['id']}/holes.dxf").content.decode("utf-8")
-    assert "ревизия 1, выпуск 09.11.2026" in content
+    assert "от 09.11.2026, ревизия 1" in content
 
 
 def test_holes_dxf_uses_revision_snapshot_only(client, repository):
@@ -739,11 +739,36 @@ def test_holes_of_foreign_or_unknown_revision_is_404(client, repository, name):
     assert client.get(f"{BASE}/revisions/nope/{name}").status_code == 404
 
 
-def test_issue_date_is_utc_date_of_revision():
-    from datetime import date
+def test_holes_dwg_is_built_once_per_revision(client, monkeypatch):
+    from api.services import drilling_passport_service
+    from design.export_survey import DwgExport
 
-    from api.services.drilling_passport_service import _revision_date
+    calls = []
 
-    # 01:00 в Екатеринбурге — ещё 9 ноября по UTC; пояс соединения БД не важен.
-    assert _revision_date({"created_at": "2026-11-10T01:00:00+05:00"}) == date(2026, 11, 9)
-    assert _revision_date({"created_at": "2026-11-09T20:00:00+00:00"}) == date(2026, 11, 9)
+    def fake(dxf):
+        calls.append(dxf)
+        return DwgExport(b"AC1015 dwg", "dwg")
+
+    monkeypatch.setattr(drilling_passport_service, "holes_dwg", fake)
+    revision = _revision(client)
+    url = f"{BASE}/revisions/{revision['id']}/holes.dwg"
+    assert client.get(url).content == client.get(url).content == b"AC1015 dwg"
+    assert len(calls) == 1
+
+
+def test_holes_dwg_fallback_is_not_cached(client, monkeypatch):
+    from api.services import drilling_passport_service
+    from design.export_survey import DWG_FALLBACK_WARNING, DwgExport
+
+    calls = []
+
+    def fake(dxf):
+        calls.append(dxf)
+        return DwgExport(dxf, "dxf", DWG_FALLBACK_WARNING)
+
+    monkeypatch.setattr(drilling_passport_service, "holes_dwg", fake)
+    revision = _revision(client)
+    url = f"{BASE}/revisions/{revision['id']}/holes.dwg"
+    client.get(url)
+    client.get(url)
+    assert len(calls) == 2

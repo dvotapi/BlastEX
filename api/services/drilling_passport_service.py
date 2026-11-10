@@ -11,7 +11,7 @@ import logging
 import re
 from collections import OrderedDict
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date
 from functools import lru_cache
 from threading import Lock
 from typing import Any, Literal, Mapping
@@ -382,18 +382,26 @@ def _file_stem(context: Mapping[str, Any]) -> str:
     return re.sub(r'[\\/:*?"<>|]+', "-", number).strip(" .-") or "б-н"
 
 
-def _revision_date(revision: Mapping[str, Any]) -> date | None:
-    # Дата выпуска чертежа — дата ревизии по UTC, а не время выгрузки и не пояс
-    # соединения БД: повтор — те же байты.
-    created = revision.get("created_at")
-    if not isinstance(created, datetime):
-        try:
-            created = datetime.fromisoformat(str(created))
-        except ValueError:
-            return None
-    if created.tzinfo is not None:
-        created = created.astimezone(timezone.utc)
-    return created.date()
+# Готовые DWG ревизий: ревизия неизменяема, а dxf2dwg и обратная сверка —
+# секунды. Ключ — организация, ревизия и хэш её снимка; откат на DXF не
+# кэшируется (утилиту могут починить).
+_DWG_CACHE: OrderedDict[tuple[str, str, str], DwgExport] = OrderedDict()
+_DWG_CACHE_SIZE = 8
+_DWG_CACHE_LOCK = Lock()
+
+
+def _cached_dwg(key: tuple[str, str, str], dxf: bytes) -> DwgExport:
+    with _DWG_CACHE_LOCK:
+        if key in _DWG_CACHE:
+            _DWG_CACHE.move_to_end(key)
+            return _DWG_CACHE[key]
+    exported = holes_dwg(dxf)
+    if exported.format == "dwg":
+        with _DWG_CACHE_LOCK:
+            _DWG_CACHE[key] = exported
+            while len(_DWG_CACHE) > _DWG_CACHE_SIZE:
+                _DWG_CACHE.popitem(last=False)
+    return exported
 
 
 def holes_drawing(
@@ -411,8 +419,12 @@ def holes_drawing(
     revision = repository.get_revision(organization_id, revision_id)
     context = revision["context"]
     number = int(revision["revision_no"])
-    dxf = holes_dxf(context, revision_no=number, issued_on=_revision_date(revision))
-    exported = holes_dwg(dxf) if fmt == "dwg" else DwgExport(dxf, "dxf")
+    dxf = holes_dxf(context, revision_no=number)
+    if fmt == "dwg":
+        key = (organization_id, revision_id, str(revision.get("content_sha256") or ""))
+        exported = _cached_dwg(key, dxf)
+    else:
+        exported = DwgExport(dxf, "dxf")
     return exported, f"Скважины {_file_stem(context)} rev{number}.{exported.format}"
 
 

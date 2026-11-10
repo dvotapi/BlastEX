@@ -207,6 +207,41 @@ def drill_profile(record: Mapping[str, Any] | None, code: str = "") -> dict[str,
     }
 
 
+# --- предзаполнение нового паспорта (PR 6) -------------------------------
+
+# Смен бурения в сутки для плановой даты окончания (решение владельца 10.11.2026).
+DRILLING_SHIFTS_PER_DAY = 2
+
+
+def floor_horizon(design: BlastDesign) -> str:
+    """Горизонт блока по скважинам: отметка подошвы (устье минус высота
+    уступа скважины), медиана, до 1 м — «+410». Нет скважин — пусто."""
+
+    floors = sorted(hole.collar.z - hole.bench_height_m for hole in _passport_holes(design))
+    if not floors:
+        return ""
+    middle = len(floors) // 2
+    median = floors[middle] if len(floors) % 2 else (floors[middle - 1] + floors[middle]) / 2
+    return f"{round(median):+d}"
+
+
+def drilling_days(
+    total_m: float,
+    *,
+    speed_m_per_h: float | None,
+    unproductive_h: float | None,
+    shift_hours: float,
+    shifts_per_day: int = DRILLING_SHIFTS_PER_DAY,
+) -> int | None:
+    """Суток бурения по нормативу станка: объём / (скорость × чистое время
+    смены × смен в сутки), вверх до целых. Норматива нет — None."""
+
+    hours = shift_hours - (unproductive_h or 0.0)
+    if not speed_m_per_h or speed_m_per_h <= 0 or hours <= 0 or total_m <= 0:
+        return None
+    return max(1, math.ceil(total_m / (speed_m_per_h * hours * shifts_per_day) - 1e-9))
+
+
 # --- скважины -------------------------------------------------------------
 
 

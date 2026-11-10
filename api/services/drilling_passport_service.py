@@ -28,6 +28,7 @@ from api.schemas.drilling_passport import (
 )
 from api.services.cad_service import active_work_object_name, get_cad_repository, resolve_site_code
 from api.services.cad_situation_service import source_situation
+from api.services.drilling_passport_prefill import drilling_condition, prefill, previous_of_site
 from cost.v2.repository import EconomicsRepository, EconomicsRepositoryError
 from design import persistence as design_persistence
 from design.drilling_passport import DEFAULT_WORK_ORDER, has_errors, passport_context, warning_codes, work_order_texts
@@ -163,6 +164,17 @@ def _reference_inputs(
                 "profile_code",
             )
         )
+    if rig is not None:
+        condition = drilling_condition(snapshot, rig_code, site_code)
+        if not condition or not condition.get("tech_speed_m_per_h"):
+            issues.append(
+                _warning(
+                    "drilling_norm_missing",
+                    f"Нет норматива бурения станка «{rig.name or rig_code}» в «Условиях бурения»: плановое окончание "
+                    "бурения не рассчитано — проверьте дату.",
+                    "drilling_end",
+                )
+            )
     site_stakeout = str((site.payload or {}).get("stakeout_profile_code") or "") if site else ""
     stakeout_records = {
         item.code: {"name": item.name, **dict(item.payload or {})}
@@ -241,6 +253,9 @@ def create_passport(
         payload["site_code"] = _default_site_code(economics_repository, organization_id, snapshot)
     _apply_site_profile(payload, explicit, snapshot)
     passport_date = request.passport_date or date.today().isoformat()
+    # Остальные поля — справочники и прошлый паспорт того же объекта (PR 6).
+    previous = previous_of_site(repository.list_passports(organization_id, None), str(payload.get("site_code") or ""))
+    prefill(payload, explicit, snapshot=snapshot, design=design, previous=previous, passport_date=passport_date)
     passport_no = request.passport_no or default_passport_no(payload["block"], passport_date)
     if len(passport_no) > PASSPORT_NO_MAX_LENGTH:
         raise ValueError(

@@ -110,15 +110,25 @@ PROFILE = {
 }
 
 
-def _snapshot(site=SITE, rig=RIG, stakeout_profiles=None):
-    items = {("sites", "ZHK"): site, ("equipment_types", "JK830"): rig, ("drill_passport_profiles", "KGOK"): PROFILE}
+def _snapshot(site=SITE, rig=RIG, stakeout_profiles=None, extra=None):
+    """Справочники теста; `extra` — {(раздел, код): (название, payload)}."""
+
+    items = {
+        ("sites", "ZHK"): site, ("equipment_types", "JK830"): rig, ("drill_passport_profiles", "KGOK"): PROFILE,
+        # Норматив станка: без него проверка предупреждает `drilling_norm_missing`.
+        ("drilling_conditions", "JK830"): {"equipment_type_code": "JK830", "tech_speed_m_per_h": "25"},
+    }
+    names: dict[tuple[str, str], str] = {}
     for code, (name, payload) in (stakeout_profiles or {}).items():
         items[("stakeout_profiles", code)] = payload
-    names = {code: name for code, (name, _) in (stakeout_profiles or {}).items()}
+        names[("stakeout_profiles", code)] = name
+    for key, (name, payload) in (extra or {}).items():
+        items[key] = payload
+        names[key] = name
 
     def item(section, code):
         payload = items.get((section, code))
-        return SimpleNamespace(code=code, name=names.get(code, code), payload=payload) if payload is not None else None
+        return SimpleNamespace(code=code, name=names.get((section, code), code), payload=payload) if payload is not None else None
 
     def active_items(section):
         return tuple(item(sec, code) for sec, code in items if sec == section)
@@ -1084,3 +1094,93 @@ def test_unknown_site_profile_falls_back_to_defaults(client, references):
     payload = _create(client)["payload"]
     assert payload["profile_code"] == ""
     assert payload["drilling_order"] == WORK_ORDER_V07["drilling_order"]
+
+
+
+# --- остальные поля нового паспорта: справочники и прошлый паспорт (PR 6) --
+
+DRILL_REFERENCES = {
+    ("sites", "ZHK"): ("Жуков Камень", {**SITE, "customer_legal_name": "АО «КГОК»", "shift_hours": "11"}),
+    ("equipment_types", "JK830"): ("JK 830-2", {**RIG, "kind": "DRILL_RIG"}),
+    ("equipment_assets", "JK830-07"): ("JK 830-2 № 7", {"equipment_type_code": "JK830", "inventory_number": "07"}),
+    ("drilling_conditions", "JK830-ZHK"): (
+        "JK830 на Жуковом Камне",
+        {"equipment_type_code": "JK830", "site_code": "ZHK", "tech_speed_m_per_h": "25", "unproductive_h_per_shift": "1.5",
+         "bit_material_code": "BIT140"},
+    ),
+    ("materials", "BIT140"): ("Коронка 140 мм", {"diameter_mm": "140"}),
+}
+
+
+def _bare(client, site_code="ZHK", **extra):
+    response = client.post(
+        BASE, json={"design_id": "block-66", "passport_date": "2026-11-10", "payload": {"site_code": site_code, **extra}}
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def test_new_draft_prefilled_from_references(client, references):
+    references["snapshot"] = _snapshot(site=None, rig=None, extra=DRILL_REFERENCES)
+    payload = _bare(client)["payload"]
+    assert payload["object_name"] == "Жуков Камень"
+    assert payload["customer"] == "АО «КГОК»"
+    assert payload["horizon"] == "+410"
+    assert (payload["rig_type_code"], payload["rig_name"], payload["rig_number"]) == ("JK830", "JK 830-2", "07")
+    assert payload["bit_diameter_mm"] == 140
+    # 2 280,5 п. м / (25 м/ч × (11 − 1,5) ч × 2 смены) = 4,8 → 5 суток: 10.11 … 14.11.
+    assert (payload["drilling_start"], payload["drilling_end"]) == ("2026-11-10", "2026-11-14")
+
+
+def test_customer_from_counterparty(client, references):
+    extra = {**DRILL_REFERENCES, ("sites", "ZHK"): ("Жуков Камень", {**SITE, "customer_code": "KGOK"}),
+             ("counterparties", "KGOK"): ("АО «Качканарский ГОК»", {})}
+    references["snapshot"] = _snapshot(site=None, rig=None, extra=extra)
+    assert _bare(client)["payload"]["customer"] == "АО «Качканарский ГОК»"
+
+
+def test_without_drilling_norm_end_is_start_and_warned(client, references):
+    extra = {key: value for key, value in DRILL_REFERENCES.items() if key[0] != "drilling_conditions"}
+    references["snapshot"] = _snapshot(site=None, rig=None, extra=extra)
+    snapshot = references["snapshot"]
+    item, active = snapshot.item, snapshot.active_items
+    snapshot.item = lambda section, code: None if section == "drilling_conditions" else item(section, code)
+    snapshot.active_items = lambda section: () if section == "drilling_conditions" else active(section)
+    passport = _bare(client, rig_type_code="JK830")
+    assert passport["payload"]["drilling_end"] == passport["payload"]["drilling_start"] == "2026-11-10"
+    issues = client.post(f"{BASE}/{passport['id']}/validate").json()["issues"]
+    norm = [issue for issue in issues if issue["code"] == "drilling_norm_missing"]
+    assert norm and norm[0]["path"] == "drilling_end"
+
+
+def test_new_draft_copies_previous_passport_of_site(client, references):
+    references["snapshot"] = _snapshot(site=None, rig=None, extra=DRILL_REFERENCES)
+    people = {
+        "agreed_by": {"position": "Главный инженер", "organization": "АО «КГОК»", "name": "Иванов И. И."},
+        "approved_by": {"position": "Директор", "organization": "ООО «Комплексные решения»", "name": "Петров П. П."},
+        "compiled_by": {"position": "Инженер БВР", "organization": "", "name": "Сидоров С. С."},
+        "personnel": [{"name": "Кузнецов", "position": "машинист"}],
+        "basis": "проект БВР № 12", "w_max_m": 6.5, "rig_number": "12", "bit_diameter_mm": 152,
+        "extra_approvals": ["маркшейдер Орлова"], "tol_depth_m": 0.2,
+    }
+    _bare(client, **people)
+    payload = _bare(client)["payload"]
+    for key, value in people.items():
+        assert payload[key] == value, key
+    # Тип станка и паспорта на других объектах не мешают.
+    assert payload["rig_type_code"] == "JK830"
+
+
+def test_previous_passport_of_other_site_is_not_copied(client, references):
+    extra = {**DRILL_REFERENCES, ("sites", "OTHER"): ("Другой карьер", {})}
+    references["snapshot"] = _snapshot(site=None, rig=None, extra=extra)
+    _bare(client, site_code="OTHER", basis="проект другого карьера", w_max_m=9.0)
+    payload = _bare(client)["payload"]
+    assert payload["basis"] == ""
+    assert payload["w_max_m"] is None
+
+
+def test_explicit_fields_are_kept(client, references):
+    references["snapshot"] = _snapshot(site=None, rig=None, extra=DRILL_REFERENCES)
+    payload = _bare(client, horizon="+398", object_name="Блок у дороги", drilling_end="2026-11-30")["payload"]
+    assert (payload["horizon"], payload["object_name"], payload["drilling_end"]) == ("+398", "Блок у дороги", "2026-11-30")

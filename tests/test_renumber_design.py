@@ -266,3 +266,19 @@ def test_inferred_azimuth_of_wall_kind_main_grid(kind):
     scrambled = _scrambled(generated)
     mapping = renumber_map(scrambled, contour, _without_azimuth(params))
     assert [mapping.get(h.id, h.id) for h in scrambled] == [h.id for h in generated]
+
+
+def test_variable_row_of_insert_kind_stays_in_layout():
+    """Ряд variable, которому `row_params` дал вид вставки (infill), — ряд
+    раскладки: генератор берёт его столбцы для ряда у бровки (ревью Codex PR #172)."""
+    contour = block67_contour()
+    params = {
+        **BASE, "pattern": "variable", "row_azimuth_deg": 0.0, "first_row_follow_face": True,
+        "row_params": [{"kind": "production"}, {"kind": "infill", "shift_ratio": 0.5}, {"kind": "production"}],
+    }
+    generated = generate_pattern(contour, params)
+    assert any(h.kind == "infill" for h in generated)
+    assert renumber_map(generated, contour, params) == {}
+    scrambled = _scrambled(generated)
+    mapping = renumber_map(scrambled, contour, params)
+    assert [mapping.get(h.id, h.id) for h in scrambled] == [h.id for h in generated]

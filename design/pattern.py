@@ -74,6 +74,17 @@ LAYOUT_ANCHOR_BACK = "back"
 LAYOUT_ANCHOR_PATTERNS = ("square", "rectangular")
 
 
+def layout_row_kind(params: Mapping[str, Any], row: int) -> str:
+    """Вид скважин ряда решётки, как его даёт генератор: `default_kind`, у
+    variable — строка `row_params` (`_row_config`)."""
+
+    pattern = str(params.get("pattern", "square"))
+    if pattern not in PATTERN_TYPES:
+        pattern = "square"
+    default_kind = _normalize_kind(params.get("default_kind", "production"), "production")
+    return _row_config(dict(params), pattern, max(row, 0), 1.0, 1.0, 0.0, default_kind)[3]
+
+
 def uses_back_layout(contour: BlockContour, params: Mapping[str, Any]) -> bool:
     """Сетка строится шаблоном «от тыла»: ключ `layout_anchor`, квадратная или
     прямоугольная сетка и тыл у блока. Тогда ряда вдоль бровки нет."""

@@ -18,17 +18,23 @@ import numpy as np
 from scipy.spatial import cKDTree
 
 from design.geometry import crest_azimuth_deg, local_basis, pattern_origin
-from design.models import FACE_TOE_KIND, BlockContour, Hole, in_main_grid, main_grid_kind
+from design.models import FACE_TOE_KIND, BlockContour, Hole, in_main_grid, is_main_grid_row
 from design.numbering import number_by_position
-from design.pattern import face_row_numbering_xy, uses_back_layout
+from design.pattern import face_row_numbering_xy, layout_row_kind, uses_back_layout
 
 # Вставки, которые генератор добавляет после ряда у бровки (`pattern._finish_pattern`).
 _ADDED_AFTER_LAYOUT = ("buffer", "stab", "satellite", "infill")
 
 
-def _in_generated_layout(hole: Hole, main_kind: str) -> bool:
-    """Скважина раскладки до вставок: не ручная и не вставка (кроме вида основной сетки)."""
-    return hole.source != "manual" and (hole.kind not in _ADDED_AFTER_LAYOUT or hole.kind == main_kind)
+def _in_generated_layout(hole: Hole, params: Mapping[str, Any]) -> bool:
+    """Скважина раскладки до вставок: не ручная и не вставка. Вид вставки у
+    ряда решётки — вставка, если не он задан ряду (`default_kind`, строка
+    `row_params` у variable — `pattern.layout_row_kind`)."""
+    if hole.source == "manual":
+        return False
+    if hole.kind not in _ADDED_AFTER_LAYOUT:
+        return True
+    return is_main_grid_row(hole.row) and hole.kind == layout_row_kind(params, hole.row)
 
 
 class RenumberConflict(ValueError):
@@ -130,8 +136,7 @@ def renumber_map(holes: list[Hole], contour: BlockContour, pattern_params: Mappi
     """
 
     params = pattern_params or {}
-    main_kind = main_grid_kind(dict(params))
-    layout = [hole for hole in holes if _in_generated_layout(hole, main_kind)]
+    layout = [hole for hole in holes if _in_generated_layout(hole, params)]
     if "row_azimuth_deg" in params:
         row_azimuth = float(params["row_azimuth_deg"])
     else:

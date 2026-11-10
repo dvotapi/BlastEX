@@ -1197,3 +1197,25 @@ def test_without_active_site_takes_site_of_last_passport(client, references, mon
     assert payload["site_code"] == "ZHK"
     assert payload["object_name"] == "Жуков Камень"
     assert payload["basis"] == "проект БВР № 12"
+
+
+def test_prefilled_texts_fit_passport_limits(client, references):
+    # Названия в справочнике — до 300 знаков, поля паспорта короче: черновик
+    # с подставленными значениями должен сохраняться (иначе 422 на любую правку).
+    extra = {
+        **DRILL_REFERENCES,
+        ("sites", "ZHK"): ("К" * 250, {**SITE, "customer_legal_name": "З" * 250}),
+        ("equipment_types", "JK830"): ("С" * 120, {**RIG, "kind": "DRILL_RIG"}),
+        ("equipment_assets", "JK830-07"): ("JK", {"equipment_type_code": "JK830", "inventory_number": "Н" * 60}),
+    }
+    references["snapshot"] = _snapshot(site=None, rig=None, extra=extra)
+    passport = _bare(client)
+    payload = passport["payload"]
+    assert (len(payload["object_name"]), len(payload["customer"])) == (200, 200)
+    assert (len(payload["rig_name"]), len(payload["rig_number"])) == (80, 40)
+    saved = client.put(
+        f"{BASE}/{passport['id']}",
+        json={"passport_no": passport["passport_no"], "passport_date": passport["passport_date"],
+              "payload": payload, "expected_version": passport["version"]},
+    )
+    assert saved.status_code == 200, saved.text

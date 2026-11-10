@@ -103,6 +103,19 @@ describe("DrillPassportPanel", () => {
     expect(screen.queryByRole("dialog", { name: /Паспорт на бурение №/ })).toBeNull();
   });
 
+  it("ответ создания паспорта после смены блока не применяется", async () => {
+    let resolve: (value: unknown) => void = () => undefined;
+    api.drillPassport.create.mockReturnValue(new Promise((done) => { resolve = done; }));
+    const user = userEvent.setup();
+    const { rerender } = render(<DrillPassportPanel designId="block-66" designSaved />);
+    await user.click(await screen.findByRole("button", { name: "Создать паспорт" }));
+    rerender(<DrillPassportPanel designId="block-67" designSaved />);
+    resolve(passport66());
+    await new Promise((done) => setTimeout(done, 20));
+    expect(screen.queryByText(/№ 66-26\/Б/)).toBeNull();
+    expect(screen.queryByRole("dialog", { name: /Паспорт на бурение №/ })).toBeNull();
+  });
+
   it("несохранённый проект блока — предупреждение", async () => {
     api.drillPassport.list.mockResolvedValue([passport66()]);
     render(<DrillPassportPanel designId="block-66" designSaved={false} />);

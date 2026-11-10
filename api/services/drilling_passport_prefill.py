@@ -21,6 +21,7 @@ from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable, Mapping
 
+from api.schemas.drilling_passport import TEXT_LIMITS
 from cost.model.drilling import pick_condition
 from design.drilling_passport import drilling_days, floor_horizon, holes_for_passport
 from design.models import BlastDesign
@@ -190,6 +191,7 @@ def prefill(
     try:
         first_day = date.fromisoformat(start)
     except ValueError:
+        fit_limits(payload, explicit)
         return
     total_m = sum(row.length_m for row in holes_for_passport(design, set()))
     days = drilling_days(
@@ -199,3 +201,18 @@ def prefill(
         shift_hours=shift_hours(snapshot, site_code),
     )
     put("drilling_end", (first_day + timedelta(days=(days or 1) - 1)).isoformat())
+    fit_limits(payload, explicit)
+
+
+def fit_limits(payload: dict[str, Any], explicit: set[str]) -> None:
+    """Подставленные тексты — по пределам полей паспорта (`TEXT_LIMITS`).
+
+    Названия в справочниках длиннее полей паспорта (до 300 знаков против 200
+    у объекта и 80 у станка): без обрезки черновик создавался бы, а любое
+    его сохранение падало бы с 422.
+    """
+
+    for key, limit in TEXT_LIMITS.items():
+        value = payload.get(key)
+        if key not in explicit and isinstance(value, str) and len(value) > limit:
+            payload[key] = value[:limit].rstrip()

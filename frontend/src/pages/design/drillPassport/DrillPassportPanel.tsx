@@ -63,10 +63,14 @@ export function DrillPassportPanel({ designId, designSaved }: { designId: string
   }, [revisionId]);
 
   async function create() {
+    const requestedFor = designId;
     setBusy(true);
     setError("");
     try {
-      setPassport(await api.drillPassport.create({ design_id: designId }));
+      const created = await api.drillPassport.create({ design_id: requestedFor });
+      // Пока паспорт создавался, открыли другой блок: ответ — не про него.
+      if (shownFor.current !== requestedFor) return;
+      setPassport(created);
       setOpen(true);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось создать паспорт на бурение.");

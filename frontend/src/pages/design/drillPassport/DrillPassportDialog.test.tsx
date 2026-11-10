@@ -399,6 +399,29 @@ describe("DrillPassportDialog", () => {
     expect((screen.getByLabelText(/^Вынос точек/) as HTMLTextAreaElement).value).toBe(stakeoutBefore);
   });
 
+  it("объект без профиля сбрасывает профиль прежнего объекта", async () => {
+    api.economics.referenceSnapshot.mockResolvedValue({
+      ...SNAPSHOT,
+      sections: {
+        ...SNAPSHOT.sections,
+        sites: [
+          { code: "ZHK", name: "Жуков Камень", payload: { drill_passport_profile_code: "KGOK" }, is_active: true },
+          { code: "PLAIN", name: "Без профиля", payload: {}, is_active: true },
+        ],
+      },
+    });
+    const user = userEvent.setup();
+    render(
+      <DrillPassportDialog
+        passport={{ ...passport66(), payload: { ...passport66().payload, profile_code: "KGOK" } }}
+        designSaved onClose={vi.fn()} onChange={vi.fn()}
+      />,
+    );
+    await waitFor(() => expect(screen.getByLabelText(/^Объект$/).tagName).toBe("SELECT"));
+    await user.selectOptions(screen.getByLabelText(/^Объект$/), "PLAIN");
+    expect((screen.getByLabelText(/^Профиль паспорта/) as HTMLSelectElement).value).toBe("");
+  });
+
   it("проверка первого ряда со статусами, без JSON", async () => {
     const { container } = render(
       <DrillPassportDialog passport={passport66()} designSaved onClose={vi.fn()} onChange={vi.fn()} />,

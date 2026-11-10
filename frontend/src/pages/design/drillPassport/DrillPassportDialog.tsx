@@ -171,6 +171,10 @@ export function DrillPassportDialog({
       let next: PassportForm = { ...previous, values: { ...previous.values, [key]: value } };
       if (profile) {
         next = applyProfileWorkOrder({ ...next, values: { ...next.values, profile_code: profileCode } }, profile.payload);
+      } else if (key === "site_code") {
+        // У объекта нет профиля — профиль прежнего объекта не остаётся (его меры
+        // безопасности ушли бы в PDF): тексты по умолчанию.
+        next = { ...next, values: { ...next.values, profile_code: "" } };
       }
       return next;
     });

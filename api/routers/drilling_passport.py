@@ -1,4 +1,5 @@
-"""REST API паспорта на бурение (TASK-015): черновик, проверка, ревизия, PDF, DXF / DWG.
+"""REST API паспорта на бурение (TASK-015): черновик, проверка, ревизия, PDF, DXF / DWG,
+файл выноса для GNSS, ведомость координат и архив.
 
 Подключается только при включённом флаге `drill_passport`
 (`BLASTEX_DRILL_PASSPORT_ENABLED`); без него маршрутов нет — 404.
@@ -8,7 +9,7 @@ from __future__ import annotations
 from typing import Literal
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from api.schemas.drilling_passport import (
     DrillingPassportCreateSchema,
@@ -20,12 +21,16 @@ from api.schemas.drilling_passport import (
 )
 from api.security import require_human, require_internal_access
 from api.services.drilling_passport_service import (
+    XLSX_MEDIA_TYPE,
+    coords_document,
     create_passport,
     create_revision,
     get_drilling_passport_repository,
     holes_drawing,
+    package_zip,
     passport_pdf,
     repository_error,
+    stakeout_export,
     update_passport,
     validate_passport,
 )
@@ -200,3 +205,80 @@ def get_holes_dwg(
     """DWG R2000 скважин ревизии; не вышло — DXF и заголовок `X-BlastEX-Warning`."""
 
     return _holes_response(repository, session, revision_id, "dwg")
+
+
+def _attachment(content: bytes, media_type: str, filename: str) -> Response:
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+    )
+
+
+@router.get("/revisions/{revision_id}/stakeout", response_class=Response)
+def get_stakeout(
+    revision_id: str,
+    profile: str | None = Query(default=None, max_length=64, description="Код профиля; пусто — профиль объекта"),
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresDrillingPassportRepository = Depends(get_drilling_passport_repository),
+) -> Response:
+    """Файл выноса устьев для GNSS-приёмника по профилю (TASK-015, PR 5)."""
+
+    organization_id, _ = _identity(session)
+    try:
+        data, filename, media_type = stakeout_export(repository, organization_id, revision_id, profile)
+    except Exception as exc:
+        raise _fail(exc) from exc
+    return _attachment(data, media_type, filename)
+
+
+def _coords_response(
+    repository: PostgresDrillingPassportRepository,
+    session: dict[str, object],
+    revision_id: str,
+    fmt: Literal["pdf", "xlsx"],
+) -> Response:
+    organization_id, _ = _identity(session)
+    try:
+        data, filename = coords_document(repository, organization_id, revision_id, fmt)
+    except Exception as exc:
+        raise _fail(exc) from exc
+    return _attachment(data, "application/pdf" if fmt == "pdf" else XLSX_MEDIA_TYPE, filename)
+
+
+@router.get("/revisions/{revision_id}/coords.pdf", response_class=Response)
+def get_coords_pdf(
+    revision_id: str,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresDrillingPassportRepository = Depends(get_drilling_passport_repository),
+) -> Response:
+    """Ведомость координат скважин — PDF по эталону v0.6 (TASK-015, PR 5)."""
+
+    return _coords_response(repository, session, revision_id, "pdf")
+
+
+@router.get("/revisions/{revision_id}/coords.xlsx", response_class=Response)
+def get_coords_xlsx(
+    revision_id: str,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresDrillingPassportRepository = Depends(get_drilling_passport_repository),
+) -> Response:
+    """Ведомость координат скважин — XLSX в формате маркшейдера (TASK-015, PR 5)."""
+
+    return _coords_response(repository, session, revision_id, "xlsx")
+
+
+@router.get("/revisions/{revision_id}/package.zip", response_class=Response)
+def get_package_zip(
+    revision_id: str,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresDrillingPassportRepository = Depends(get_drilling_passport_repository),
+) -> Response:
+    """Всё вместе: паспорт, DXF, файл выноса, ведомость PDF и XLSX (TASK-015, PR 5)."""
+
+    organization_id, _ = _identity(session)
+    try:
+        data, filename = package_zip(repository, organization_id, revision_id)
+    except Exception as exc:
+        raise _fail(exc) from exc
+    return _attachment(data, "application/zip", filename)

@@ -37,7 +37,20 @@ from design.drilling_passport_repository import (
     PostgresDrillingPassportRepository,
 )
 from design.mass_blast import content_sha256
-from design.export_survey import DWG_DISABLED_WARNING, DwgExport, holes_dwg, holes_dxf, stakeout_snapshot
+from design.export_survey import (
+    DWG_DISABLED_WARNING,
+    STAKEOUT_EXTENSIONS,
+    DwgExport,
+    ascii_name,
+    holes_dwg,
+    holes_dxf,
+    stakeout_file,
+    stakeout_profile,
+    stakeout_snapshot,
+)
+from design.reporting.drill.archive import build_zip
+from design.reporting.drill.coords_pdf import render_coords_pdf
+from design.reporting.drill.coords_xlsx import render_coords_xlsx
 from design.reporting.drill.pdf import render_passport_pdf
 from design.models import BlastDesign
 from design.spatial.cad.repository import CadSourceNotFound
@@ -450,6 +463,74 @@ def holes_drawing(
     else:
         exported = DwgExport(dxf, "dxf")
     return exported, f"Скважины {_file_stem(context)} rev{number}.{exported.format}"
+
+
+STAKEOUT_MEDIA_TYPES = {"csv": "text/csv", "txt": "text/plain", "dxf": "image/vnd.dxf"}
+XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _stakeout(context: Mapping[str, Any], revision_no: int, profile: str | None) -> tuple[bytes, str, str]:
+    code, options = stakeout_profile(context, profile)
+    data = stakeout_file(context, options)
+    extension = STAKEOUT_EXTENSIONS[options["format"]]
+    payload = (context.get("passport") or {}).get("payload") or {}
+    # Имя тоже ASCII: файл копируют на контроллер (спека §5).
+    parts = (
+        ascii_name(str(payload.get("site_code") or "")),
+        ascii_name(str(payload.get("block") or "")),
+        ascii_name(_file_stem(context)),
+        f"r{revision_no}",
+        ascii_name(code),
+    )
+    return data, "_".join(part for part in parts if part) + f".{extension}", STAKEOUT_MEDIA_TYPES[extension]
+
+
+def stakeout_export(
+    repository: PostgresDrillingPassportRepository, organization_id: str, revision_id: str, profile: str | None
+) -> tuple[bytes, str, str]:
+    """Файл выноса для GNSS-приёмника (TASK-015, PR 5): данные, имя, тип — только из снимка.
+
+    Профиль — из снимка ревизии; `None` — профиль объекта. Неизвестный
+    профиль и повтор имён точек — `StakeoutError` (422).
+    """
+
+    revision = repository.get_revision(organization_id, revision_id)
+    return _stakeout(revision["context"], int(revision["revision_no"]), profile)
+
+
+def _coords(context: Mapping[str, Any], revision_no: int, fmt: Literal["pdf", "xlsx"]) -> tuple[bytes, str]:
+    render = render_coords_pdf if fmt == "pdf" else render_coords_xlsx
+    return render(context, revision_no=revision_no), f"Ведомость координат {_file_stem(context)} rev{revision_no}.{fmt}"
+
+
+def coords_document(
+    repository: PostgresDrillingPassportRepository, organization_id: str, revision_id: str, fmt: Literal["pdf", "xlsx"]
+) -> tuple[bytes, str]:
+    """Ведомость координат скважин (PDF по эталону v0.6 или XLSX маркшейдера) из снимка ревизии."""
+
+    revision = repository.get_revision(organization_id, revision_id)
+    return _coords(revision["context"], int(revision["revision_no"]), fmt)
+
+
+def package_zip(
+    repository: PostgresDrillingPassportRepository, organization_id: str, revision_id: str
+) -> tuple[bytes, str]:
+    """Всё вместе (спека §6): паспорт PDF, DXF скважин, файл выноса по профилю
+    объекта, ведомость PDF и XLSX — те же байты, что у отдельных маршрутов."""
+
+    revision = repository.get_revision(organization_id, revision_id)
+    context = revision["context"]
+    number = int(revision["revision_no"])
+    stem = f"{_file_stem(context)} rev{number}"
+    stakeout, stakeout_name, _ = _stakeout(context, number, None)
+    entries = [
+        (f"Паспорт на бурение {stem}.pdf", render_passport_pdf(context, revision_no=number)),
+        (f"Скважины {stem}.dxf", holes_dxf(context, revision_no=number)),
+        (stakeout_name, stakeout),
+        _coords(context, number, "pdf")[::-1],
+        _coords(context, number, "xlsx")[::-1],
+    ]
+    return build_zip(entries), f"Паспорт на бурение {stem}.zip"
 
 
 def repository_error(exc: Exception) -> HTTPException:

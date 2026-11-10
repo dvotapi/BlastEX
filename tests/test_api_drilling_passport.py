@@ -760,7 +760,9 @@ def test_holes_dwg_returns_dwg(client, monkeypatch):
     assert "x-blastex-warning" not in response.headers
 
 
-@pytest.mark.parametrize("name", ["holes.dxf", "holes.dwg"])
+@pytest.mark.parametrize(
+    "name", ["holes.dxf", "holes.dwg", "stakeout", "coords.pdf", "coords.xlsx", "package.zip"]
+)
 def test_holes_of_foreign_or_unknown_revision_is_404(client, repository, name):
     revision = _revision(client)
     repository.passports[revision["passport_id"]]["organization_id"] = "org-b"
@@ -832,3 +834,105 @@ def test_unknown_site_stakeout_profile_is_warned(client, references):
     passport = _create(client)
     body = client.post(f"{BASE}/{passport['id']}/validate").json()
     assert [issue["code"] for issue in body["issues"]] == ["stakeout_profile_not_found"]
+
+
+def test_stakeout_from_revision(client):
+    revision = _revision(client)
+    url = f"{BASE}/revisions/{revision['id']}/stakeout"
+    response = client.get(url)
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].startswith("text/csv")
+    assert _disposition_name(response) == "ZHK_66_66-26-B_r1_PNEZD_CSV.csv"
+    assert response.content.split(b"\r\n")[0] == b"66-001,593722.990,1472880.040,419.210,R1 L10.7"
+    assert client.get(url).content == response.content
+    text = client.get(url, params={"profile": "PNEZ_TXT"})
+    assert text.status_code == 200
+    assert text.headers["content-type"].startswith("text/plain")
+    assert _disposition_name(text) == "ZHK_66_66-26-B_r1_PNEZ_TXT.txt"
+    dxf = client.get(url, params={"profile": "DXF_POINTS"})
+    assert dxf.headers["content-type"] == "image/vnd.dxf"
+    assert _disposition_name(dxf).endswith("_DXF_POINTS.dxf")
+
+
+def test_stakeout_uses_site_profile(client, references):
+    references["snapshot"] = _snapshot(
+        site={**SITE, "stakeout_profile_code": "TRIMBLE"},
+        stakeout_profiles={"TRIMBLE": ("Trimble Access", {"format": "PENZD_CSV", "header": True})},
+    )
+    revision = _revision(client)
+    response = client.get(f"{BASE}/revisions/{revision['id']}/stakeout")
+    assert _disposition_name(response) == "ZHK_66_66-26-B_r1_TRIMBLE.csv"
+    assert response.content.split(b"\r\n")[0] == b"Point,Easting,Northing,Elevation,Description"
+
+
+def test_stakeout_unknown_profile_is_422(client):
+    revision = _revision(client)
+    response = client.get(f"{BASE}/revisions/{revision['id']}/stakeout", params={"profile": "GSI"})
+    assert response.status_code == 422
+    assert "PNEZD_CSV" in response.json()["detail"]
+
+
+def test_stakeout_name_conflict_is_422(client, repository):
+    revision = _revision(client)
+    holes = repository.revisions[revision["id"]]["context"]["holes"]
+    holes[0]["number"], holes[1]["number"] = "Р1", "R1"
+    response = client.get(f"{BASE}/revisions/{revision['id']}/stakeout")
+    assert response.status_code == 422
+    assert "Р1" in response.json()["detail"]
+
+
+def test_coords_pdf_and_xlsx_from_revision(client):
+    revision = _revision(client)
+    pdf = client.get(f"{BASE}/revisions/{revision['id']}/coords.pdf")
+    assert pdf.status_code == 200, pdf.text
+    assert pdf.headers["content-type"] == "application/pdf"
+    assert pdf.content.startswith(b"%PDF")
+    assert _disposition_name(pdf) == "Ведомость координат 66-26-Б rev1.pdf"
+    assert client.get(f"{BASE}/revisions/{revision['id']}/coords.pdf").content == pdf.content
+    xlsx = client.get(f"{BASE}/revisions/{revision['id']}/coords.xlsx")
+    assert xlsx.status_code == 200, xlsx.text
+    assert xlsx.headers["content-type"] == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    assert _disposition_name(xlsx) == "Ведомость координат 66-26-Б rev1.xlsx"
+    assert client.get(f"{BASE}/revisions/{revision['id']}/coords.xlsx").content == xlsx.content
+
+
+def test_package_zip(client):
+    import io
+    import zipfile
+
+    revision = _revision(client)
+    base = f"{BASE}/revisions/{revision['id']}"
+    response = client.get(f"{base}/package.zip")
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "application/zip"
+    assert _disposition_name(response) == "Паспорт на бурение 66-26-Б rev1.zip"
+    assert client.get(f"{base}/package.zip").content == response.content
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        names = archive.namelist()
+        assert names == [
+            "Паспорт на бурение 66-26-Б rev1.pdf",
+            "Скважины 66-26-Б rev1.dxf",
+            "ZHK_66_66-26-B_r1_PNEZD_CSV.csv",
+            "Ведомость координат 66-26-Б rev1.pdf",
+            "Ведомость координат 66-26-Б rev1.xlsx",
+        ]
+        assert archive.read(names[0]) == client.get(f"{base}/passport.pdf").content
+        assert archive.read(names[1]) == client.get(f"{base}/holes.dxf").content
+        assert archive.read(names[2]) == client.get(f"{base}/stakeout").content
+        assert archive.read(names[3]) == client.get(f"{base}/coords.pdf").content
+        assert archive.read(names[4]) == client.get(f"{base}/coords.xlsx").content
+
+
+def test_stakeout_and_coords_use_revision_snapshot_only(client, references):
+    revision = _revision(client)
+    base = f"{BASE}/revisions/{revision['id']}"
+    before = {name: client.get(f"{base}/{name}").content for name in ("stakeout", "coords.pdf", "coords.xlsx")}
+    passport_id = revision["passport_id"]
+    draft = client.get(f"{BASE}/{passport_id}").json()
+    client.put(
+        f"{BASE}/{passport_id}",
+        json={"passport_no": "ДРУГОЙ", "passport_date": "2026-11-10",
+              "payload": {**draft["payload"], "block": "99"}, "expected_version": draft["version"]},
+    )
+    references["snapshot"] = _snapshot(site={**SITE, "stakeout_profile_code": "PNEZ_TXT"})
+    assert {name: client.get(f"{base}/{name}").content for name in before} == before

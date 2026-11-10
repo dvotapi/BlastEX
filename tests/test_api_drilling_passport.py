@@ -704,7 +704,29 @@ def test_holes_dxf_uses_revision_snapshot_only(client, repository):
     assert client.get(url).content != before
 
 
+def test_holes_dwg_is_disabled_by_default(client, monkeypatch):
+    # LibreDWG 0.14 пишет R2000, который AutoCAD 2022 не открывает (решение
+    # владельца 10.11.2026): без флага DWG не строится, отдаётся DXF.
+    from urllib.parse import unquote
+
+    from api.services import drilling_passport_service
+
+    def forbidden(dxf):
+        raise AssertionError("DWG не должен строиться без флага")
+
+    monkeypatch.delenv("BLASTEX_DWG_EXPORT_ENABLED", raising=False)
+    monkeypatch.setattr(drilling_passport_service, "holes_dwg", forbidden)
+    revision = _revision(client)
+    response = client.get(f"{BASE}/revisions/{revision['id']}/holes.dwg")
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "image/vnd.dxf"
+    assert _disposition_name(response).endswith("rev1.dxf")
+    assert unquote(response.headers["x-blastex-warning"]).startswith("DWG пока не формируется")
+    assert response.content == client.get(f"{BASE}/revisions/{revision['id']}/holes.dxf").content
+
+
 def test_holes_dwg_without_writer_returns_dxf_with_warning(client, monkeypatch):
+    monkeypatch.setenv("BLASTEX_DWG_EXPORT_ENABLED", "1")
     from urllib.parse import unquote
 
     monkeypatch.setenv("BLASTEX_DXF2DWG", "/nowhere/dxf2dwg")
@@ -718,6 +740,7 @@ def test_holes_dwg_without_writer_returns_dxf_with_warning(client, monkeypatch):
 
 
 def test_holes_dwg_returns_dwg(client, monkeypatch):
+    monkeypatch.setenv("BLASTEX_DWG_EXPORT_ENABLED", "1")
     from api.services import drilling_passport_service
     from design.export_survey import DwgExport
 
@@ -740,6 +763,7 @@ def test_holes_of_foreign_or_unknown_revision_is_404(client, repository, name):
 
 
 def test_holes_dwg_is_built_once_per_revision(client, monkeypatch):
+    monkeypatch.setenv("BLASTEX_DWG_EXPORT_ENABLED", "1")
     from api.services import drilling_passport_service
     from design.export_survey import DwgExport
 
@@ -757,6 +781,7 @@ def test_holes_dwg_is_built_once_per_revision(client, monkeypatch):
 
 
 def test_holes_dwg_fallback_is_not_cached(client, monkeypatch):
+    monkeypatch.setenv("BLASTEX_DWG_EXPORT_ENABLED", "1")
     from api.services import drilling_passport_service
     from design.export_survey import DWG_FALLBACK_WARNING, DwgExport
 

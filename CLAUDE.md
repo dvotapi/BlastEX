@@ -372,7 +372,10 @@ R2000 через LibreDWG `dxf2dwg`, `design/spatial/dwg.py::dxf_to_dwg`,
 UTF-8 с CRLF, длинный MTEXT режется по 250 байт посреди буквы — и сверка
 числа сущностей, текстов, атрибутов и координат — точек, вставок, вершин
 полилиний, концов линий — до 1 мм; не вышло — DXF и `X-BlastEX-Warning`;
-готовый DWG ревизии — кэш в памяти процесса, откат не кэшируется). Стиль Standard — `arial.ttf`: `txt.shx` не везде знает
+готовый DWG ревизии — кэш в памяти процесса, откат не кэшируется). DWG
+выключен (`BLASTEX_DWG_EXPORT_ENABLED`, по умолчанию нет): DWG от LibreDWG 0.14
+AutoCAD 2022 не открыл, а сверка той же LibreDWG этого не видит — `/holes.dwg`
+отдаёт DXF с подсказкой «Сохранить как» (решение владельца 10.11.2026). Стиль Standard — `arial.ttf`: `txt.shx` не везде знает
 кириллицу. Маршруты —
 `GET /revisions/{rid}/holes.dxf`, `/holes.dwg`. Ход работ —
 `Docs/plans/TASK-015-progress.md`.

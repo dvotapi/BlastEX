@@ -50,7 +50,8 @@
 - **Запись DWG** (паспорт на бурение, TASK-015 PR 4) — обратная утилита того
   же LibreDWG `dxf2dwg` (`design/spatial/dwg.py::dxf_to_dwg`, переменная
   `BLASTEX_DXF2DWG`), только R2000; результат сверяется обратным `dwg2dxf`
-  (`design/export_survey.py::holes_dwg`).
+  (`design/export_survey.py::holes_dwg`). Выключена флагом
+  `BLASTEX_DWG_EXPORT_ENABLED`: AutoCAD 2022 такой DWG не открыл.
 - **Сущности.** Читается всё пространство модели:
   - линии: LWPOLYLINE (с bulge), POLYLINE 2D/3D, LINE, ARC, CIRCLE, ELLIPSE,
     SPLINE; кривые спрямляются с отклонением хорды не больше 0,05 м;

@@ -37,7 +37,7 @@ from design.drilling_passport_repository import (
     PostgresDrillingPassportRepository,
 )
 from design.mass_blast import content_sha256
-from design.export_survey import DwgExport, holes_dwg, holes_dxf
+from design.export_survey import DWG_DISABLED_WARNING, DwgExport, holes_dwg, holes_dxf
 from design.reporting.drill.pdf import render_passport_pdf
 from design.models import BlastDesign
 from design.spatial.cad.repository import CadSourceNotFound
@@ -412,17 +412,22 @@ def holes_drawing(
 ) -> tuple[DwgExport, str]:
     """Чертёж скважин ревизии (TASK-015, PR 4) и имя файла — только из снимка.
 
-    DWG, который не удалось записать или сверить, отдаётся как DXF с
-    предупреждением (`DwgExport.warning`), имя — с расширением `.dxf`.
+    DWG строится только при `BLASTEX_DWG_EXPORT_ENABLED`; без флага, а также
+    когда его не удалось записать или сверить, отдаётся DXF с предупреждением
+    (`DwgExport.warning`), имя — с расширением `.dxf`.
     """
 
     revision = repository.get_revision(organization_id, revision_id)
     context = revision["context"]
     number = int(revision["revision_no"])
     dxf = holes_dxf(context, revision_no=number)
-    if fmt == "dwg":
+    if fmt == "dwg" and config.dwg_export_enabled():
         key = (organization_id, revision_id, str(revision.get("content_sha256") or ""))
         exported = _cached_dwg(key, dxf)
+    elif fmt == "dwg":
+        # DWG выключен (LibreDWG 0.14 пишет R2000, который AutoCAD не открывает):
+        # отдаём DXF с подсказкой.
+        exported = DwgExport(dxf, "dxf", DWG_DISABLED_WARNING)
     else:
         exported = DwgExport(dxf, "dxf")
     return exported, f"Скважины {_file_stem(context)} rev{number}.{exported.format}"

@@ -45,6 +45,7 @@ from design.spatial.dwg import dwg_to_dxf, dxf_to_dwg
 
 __all__ = [
     "DEFAULT_CIRCLE_MM",
+    "DWG_DISABLED_WARNING",
     "DWG_FALLBACK_WARNING",
     "DwgExport",
     "HOLE_ATTRIBUTES",
@@ -276,6 +277,10 @@ def _build(context: Mapping[str, Any], revision_no: int | None) -> str:
 
 
 DWG_FALLBACK_WARNING = "DWG не сформирован, используйте DXF (открывается в AutoCAD / nanoCAD)."
+DWG_DISABLED_WARNING = (
+    "DWG пока не формируется: используйте DXF — его открывают AutoCAD и nanoCAD, "
+    "в DWG его сохраняют командой «Сохранить как»."
+)
 # Допуск сверки координат после обратного чтения DWG, м.
 DWG_TOLERANCE_M = 0.001
 # Сущности, которые сверяются по слоям `BLX_*`. ATTRIB не считаются: `dwg2dxf`

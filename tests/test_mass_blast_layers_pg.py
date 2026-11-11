@@ -93,3 +93,21 @@ def test_one_notification_per_addressee_in_the_transaction(repository) -> None:
     notify("ADM")
     with pytest.raises(MassBlastConflictError, match="адресату"):
         notify("RTN")
+
+
+def test_layer_revisions_for_print(repository) -> None:
+    """Печать (PR 3): ревизия слоя по id и последняя ревизия слоя на ревизии проекта."""
+
+    project, revision = _approved(repository)
+    layer = _create(repository, project, revision)
+    first = repository.create_layer_revision(ORG, AUTHOR, layer["id"], expected_version=1, context={"a": 1}, content_sha256="d" * 64)
+    second = repository.create_layer_revision(ORG, AUTHOR, layer["id"], expected_version=2, context={"a": 2}, content_sha256="e" * 64)
+    read = repository.get_layer_revision(ORG, first["id"])
+    assert read["context"] == {"a": 1} and read["kind"] == "NARYAD" and read["project_id"] == project["id"]
+    with pytest.raises(MassBlastNotFoundError):
+        repository.get_layer_revision("org-b", first["id"])
+    with pytest.raises(MassBlastNotFoundError):
+        repository.get_layer_revision(ORG, "missing")
+    latest = repository.latest_layer_revision(ORG, layer["id"], revision["id"])
+    assert latest["id"] == second["id"]
+    assert repository.latest_layer_revision(ORG, layer["id"], "another-revision") is None

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from api.schemas.mass_blast import (
     MassBlastAccountSchema,
@@ -28,6 +28,7 @@ from api.schemas.mass_blast import (
 )
 from api import config
 from api.security import require_human, require_internal_access
+from api.services import mass_blast_documents_v2 as documents_v2
 from api.services import mass_blast_layers_service as layers_service
 from api.services.economics_service import get_economics_repository
 from api.services.mass_blast_service import (
@@ -338,6 +339,104 @@ def _layer_errors(exc: Exception) -> HTTPException:
     if isinstance(exc, ValueError):
         return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
     return repository_error(exc)
+
+
+# --- Печать проекта v2 и слоёв (TASK-018, PR 3): на лету из ревизий ----------
+
+
+def _download(content: bytes, filename: str, media_type: str) -> Response:
+    from urllib.parse import quote
+
+    return Response(
+        content, media_type=media_type,
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+    )
+
+
+def _print_errors(exc: Exception) -> HTTPException:
+    if isinstance(exc, HTTPException):
+        return exc
+    if isinstance(exc, ValueError):
+        return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+    return repository_error(exc)
+
+
+@router.get("/revisions/{revision_id}/package.zip", response_class=Response, dependencies=[Depends(_require_layers)])
+def get_revision_package(
+    revision_id: str,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
+) -> Response:
+    organization_id, _ = _identity(session)
+    try:
+        content, filename = documents_v2.project_package(repository, organization_id, revision_id)
+    except Exception as exc:
+        raise _print_errors(exc) from exc
+    return _download(content, filename, "application/zip")
+
+
+@router.get(
+    "/revisions/{revision_id}/documents/{document}.pdf", response_class=Response, dependencies=[Depends(_require_layers)]
+)
+def get_revision_document(
+    revision_id: str,
+    document: str,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
+) -> Response:
+    organization_id, _ = _identity(session)
+    try:
+        content, filename = documents_v2.project_document(repository, organization_id, revision_id, document)
+    except Exception as exc:
+        raise _print_errors(exc) from exc
+    return _download(content, filename, "application/pdf")
+
+
+@router.get(
+    "/layers/revisions/{layer_revision_id}/document.pdf", response_class=Response, dependencies=[Depends(_require_layers)]
+)
+def get_layer_revision_document(
+    layer_revision_id: str,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
+) -> Response:
+    organization_id, _ = _identity(session)
+    try:
+        content, filename = documents_v2.layer_document(repository, organization_id, layer_revision_id)
+    except Exception as exc:
+        raise _print_errors(exc) from exc
+    return _download(content, filename, "application/pdf")
+
+
+@router.get("/layers/{layer_id}/preview.pdf", response_class=Response, dependencies=[Depends(_require_layers)])
+def get_layer_preview(
+    layer_id: str,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
+    economics_repository: EconomicsRepository = Depends(get_economics_repository),
+) -> Response:
+    organization_id, _ = _identity(session)
+    try:
+        content = documents_v2.layer_preview(repository, economics_repository, organization_id, layer_id)
+    except Exception as exc:
+        raise _print_errors(exc) from exc
+    return Response(content, media_type="application/pdf")
+
+
+@router.get("/{project_id}/preview/{document}.pdf", response_class=Response, dependencies=[Depends(_require_layers)])
+def get_project_preview(
+    project_id: str,
+    document: str,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
+    economics_repository: EconomicsRepository = Depends(get_economics_repository),
+) -> Response:
+    organization_id, _ = _identity(session)
+    try:
+        content = documents_v2.project_preview(repository, economics_repository, organization_id, project_id, document)
+    except Exception as exc:
+        raise _print_errors(exc) from exc
+    return Response(content, media_type="application/pdf")
 
 
 @router.get("/{project_id}/layers", response_model=list[MassBlastLayerSchema], dependencies=[Depends(_require_layers)])

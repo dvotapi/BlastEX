@@ -20,6 +20,7 @@ from design.mass_blast_layers import (
     layer_open_issue,
     layer_seed,
     naryad_lines,
+    naryad_totals,
     seed_diff,
 )
 from design.mass_blast_repository import PostgresMassBlastRepository
@@ -121,8 +122,18 @@ def _with_view(layer: dict[str, Any], snapshot: Any, context: Mapping[str, Any])
     issues: list[dict[str, str]] = []
     if layer["kind"] == "NARYAD":
         view["lines"] = naryad_lines(layer["seed"], layer["payload"], _reserve_defaults(snapshot, context))
+        view["totals"] = naryad_totals(layer["seed"], view["lines"])
         view["vv_site"] = bool(layer["payload"].get("vv_site"))
     if layer["kind"] == "NOTIFICATION":
+        if not str(layer["seed"].get("letterhead") or "").strip():
+            issues.append(
+                {
+                    "level": "warning",
+                    "code": "letterhead_missing",
+                    "message": "В профиле документов нет бланка Общества: уведомление печатается только с наименованием.",
+                    "path": "seed.letterhead",
+                }
+            )
         registry = dict(layer["seed"].get("addressee") or {})
         if registry:
             view["addressee"] = registry

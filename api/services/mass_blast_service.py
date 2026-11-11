@@ -44,6 +44,8 @@ from design.mass_blast_repository import (
 
 
 DOCUMENT_TEMPLATE_VERSION = "mass-blast-standard-v1"
+# Ревизии v2 печатает рендер документов по форме ВМ.09.03 v0.11 (TASK-018, PR 3).
+DOCUMENT_TEMPLATE_VERSION_V2 = "vm0903-v0.11"
 
 
 @lru_cache(maxsize=4)
@@ -278,7 +280,7 @@ def create_revision(
         return repository.create_revision(
             organization_id, actor, project_id, expected_version, reference_revision_id, context,
             [block.to_dict() for block in blocks], MASS_BLAST_CALC_VERSION,
-            DOCUMENT_TEMPLATE_VERSION, content_sha256(context),
+            DOCUMENT_TEMPLATE_VERSION_V2, content_sha256(context),
         )
     context, blocks = _context_from_stored(project)
     context["attachments"] = list(repository.list_draft_attachments(organization_id, project_id))
@@ -392,6 +394,11 @@ def generate_document(
     if project["lifecycle_status"] not in {"approved", "executed", "closed"}:
         raise MassBlastConflictError("Документы выпускаются только после утверждения ревизии.")
     context = revision["context"]
+    if int(context.get("document_context_version") or 1) >= 2:
+        raise MassBlastConflictError(
+            "Ревизия по форме ВМ.09.03 (контекст v2) печатается на лету: "
+            "GET …/revisions/{id}/documents/{документ}.pdf и …/package.zip."
+        )
     base = _safe_filename(f"{context.get('project', {}).get('site_code', 'site')}_{context.get('project', {}).get('blast_date', '')}_r{revision['revision_no']}_{kind.lower()}")
     if format == "PDF":
         content, suffix = render_pdf(context, kind), ".pdf"

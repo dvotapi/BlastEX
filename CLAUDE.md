@@ -500,6 +500,39 @@ l_зар — сумма взрывчатых дек; столб воды — и�
 проекта), без справочника уведомлений адресат вводится в слое; запас
 справочника — раз на группу ВМ. Подробности — `Docs/plans/2026-11-11-task-018-pr2.md`.
 
+## Документы проекта МВ v2 (TASK-018, PR 3)
+
+Рендер — ReportLab (решение владельца 11.11.2026, второго движка вёрстки нет):
+фирменный стиль — `design/reporting/brand.py`, общий с паспортом на бурение
+(ресурсы остаются в `drill/assets`: от пути к логотипу зависят байты
+паспортов); документы — `design/reporting/mass_blast/`: `title.py` (титул по
+координатам эталона и оборот «Состав проекта», «Листов» — страницы
+документа без оборотов, у Г.1–Г.5 до PR 4 — «—»), `techcalc.py` (разд. 13 —
+с новой страницы), `param_table.py` (строго 63 / 73 скважины на страницу,
+«общая запись», графы Ф — белые клетки), `schedule.py`, `layers.py`
+(документы 6–10 по ревизии слоя: `seed`, `payload`, `view`), `frame.py`
+(шапка, подвал, двусторонняя печать: лицевая у каждого документа, пустой
+оборот «Страница оставлена пустой», проект — сквозная «Стр. N из M», слои —
+своя, пустой оборот слоя без номера), `package.py` (ZIP: `00_Комплект.pdf`,
+документы по одному в порядке TASK-018 §2, `manifest.json`). Формулы —
+mathtext matplotlib → контуры глифов в PDF (`formulas.py`, под замком);
+знаков, которых нет в Roboto (→, ∛), — DejaVu из matplotlib. Рендер ничего не
+считает: итоги наряда (`naryad_totals`), масса единицы ВМ, тексты бланков —
+в данных слоя. Печать v2 — на лету из ревизий, за флагом:
+`GET …/revisions/{rid}/documents/{title|technical-calculation|parameter-table|schedule|project}.pdf`,
+`…/revisions/{rid}/package.zip` (слои — последняя выпущенная ревизия на этой
+ревизии проекта, остальные — в `omitted_layers`),
+`…/layers/revisions/{id}/document.pdf`, предпросмотр черновика с пометкой —
+`…/{project_id}/preview/{документ}.pdf`, `…/layers/{id}/preview.pdf` (ошибки
+проверки — 422). `POST /{project_id}/documents` для ревизии v2 — 409; v1 —
+прежний `design/mass_blast_rendering.py`. Бланк Общества (`letterhead`) и
+текст акта приёмки (`acceptance_text`) — профиль документов, реквизиты
+договора — `mass_blast_sites`; в слой — копией при создании. Тесты —
+`tests/test_mass_blast_render_v2.py` (титул — растром против эталонного PDF
+формы, техрасчёт — против `tests/fixtures/mass_blast/golden/techcalc-1.png`;
+`pypdfium2` — только тестам, ставится в CI). Подробности —
+`Docs/plans/2026-11-11-task-018-pr3.md`.
+
 ## Нумерация скважин
 
 `design/numbering.py::number_by_position`, зовёт `pattern._finish_pattern`.

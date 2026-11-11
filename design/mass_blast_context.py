@@ -154,6 +154,11 @@ def _requisites(payload: Mapping[str, Any], site: Mapping[str, Any] | None) -> t
         "surveyor_name": _text(own.get("surveyor_name")),
         "drilled_by": _text(own.get("drilled_by")),
         "customer_tech_contact": _text(site.get("customer_tech_contact")),
+        # Акт приёмки выполненных работ (PR 3): реквизиты договора объекта.
+        "contract_no": _text(site.get("contract_no")),
+        "contract_date": _text(site.get("contract_date")),
+        "acceptance_appendix_no": _text(site.get("acceptance_appendix_no")),
+        "customer_responsible": _text(site.get("customer_responsible")),
     }
     return requisites, issues
 
@@ -395,6 +400,12 @@ def build_document_context_v2(
     # Интервалы сети текстом (НСИ, ДШ, электронная) — для распорядка и слоёв.
     context["network_intervals"] = network_intervals([item["design"] for item in computed])
     context["q_tp"] = q_tp
+    # Тексты бланков документов дня взрыва из профиля документов (PR 3);
+    # пусто — тексты формы ВМ.09.03 из кода слоёв.
+    context["document_texts"] = {
+        "letterhead": _text(profile.get("letterhead")),
+        "acceptance_text": _text(profile.get("acceptance_text")),
+    }
     context["issues"] = issues
     return context
 

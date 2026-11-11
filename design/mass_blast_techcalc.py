@@ -347,7 +347,8 @@ def technical_calculation(
             )
     if totals["depth_m"]:
         items.append(_value("Выход горной массы с 1 п. м", round(volume_m3 / totals["depth_m"], 1), "м³/п. м", source="CALCULATED"))
-    sections.append({"number": "4", "title": "Параметры БВР и расчёт зарядов", "items": items})
+    # Вместимость 1 м — ещё и ключом: её печатает шапка таблицы параметров (PR 3).
+    sections.append({"number": "4", "title": "Параметры БВР и расчёт зарядов", "items": items, "p_kg_m": round(p_kg_m, 2)})
 
     # 5–9. Тексты
     system = design.network.system

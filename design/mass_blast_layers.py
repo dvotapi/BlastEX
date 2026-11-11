@@ -34,8 +34,37 @@ __all__ = [
     "layer_open_issue",
     "layer_seed",
     "naryad_lines",
+    "naryad_totals",
     "seed_diff",
 ]
+
+# Условия готовности блока к заряжанию (акт, п. 413) — тексты формы ВМ.09.03 v0.11.
+READINESS_CONDITIONS = (
+    "Скважины пробурены по проекту (схеме расположения) и очищены; маркшейдерская съёмка блока передана, "
+    "фактические глубины внесены в таблицу параметров (п. 412)",
+    "Отклонения скважин от проекта (глубина, ЛСПП, расстояния) — в пределах ±0,5 м; отклонения указаны "
+    "в примечании таблицы",
+    "Блок очищен от посторонних предметов, конструкций и оборудования; подъездные пути и площадка подготовлены для СЗМ",
+    "Забоечный материал завезён на блок в требуемом объёме",
+    "Обводнённость скважин проверена; обводнённые скважины отмечены в таблице параметров",
+    "Электроэнергия на блоке отключена; запретная зона (≥ 20 м) обозначена знаками",
+    "Охраняемые объекты в опасной зоне уведомлены; условия владельцев выполнены (при наличии)",
+)
+# Акт приёмки выполненных работ: текст формы ВМ.09.03 v0.11 (своя форма — в
+# профиле документов, `acceptance_text`). Подстановки — {блок}, {горизонт}, {дата взрыва}.
+DEFAULT_ACCEPTANCE_TEXT = (
+    "{дата взрыва} был произведён массовый взрыв блока № {блок}, горизонт {горизонт} м.\n"
+    "По результатам первичного осмотра отказавших зарядов ВВ обнаружено не было. Мероприятия по безопасности "
+    "при взрывных работах выполнены в полном объёме."
+)
+# Группы запаса для красной строки под итогом наряда (форма 4).
+RESERVE_GROUPS = (
+    ("explosive", "ВВ", "кг"),
+    ("primer", "ПД", "шт"),
+    ("nsi_downhole", "НСИ скважинные", "шт"),
+    ("nsi_surface", "поверхностные", "шт"),
+    ("starter", "стартовые", "шт"),
+)
 
 LAYER_KINDS = ("NARYAD", "NOTIFICATION", "READINESS_ACT", "TALON", "ACCEPTANCE_ACT")
 LAYER_LABELS = {
@@ -150,6 +179,10 @@ def layer_seed(kind: str, context: Mapping[str, Any], *, notification: Mapping[s
         },
         "blocks": blocks,
         "zones": zones,
+        "parties": {
+            "customer_name": requisites.get("customer_name", ""),
+            "contractor_name": requisites.get("contractor_name", ""),
+        },
     }
     if kind == "NARYAD":
         seed["materials"] = _consumption(context)
@@ -163,9 +196,14 @@ def layer_seed(kind: str, context: Mapping[str, Any], *, notification: Mapping[s
         seed["customer_tech_contact"] = requisites.get("customer_tech_contact", "")
         seed["blast_manager"] = _person(people.get("blast_manager"))
         seed["addressee"] = dict(notification or {})
+        seed["explosive_names"] = sorted({line["name"] for line in _consumption(context) if line["kind"] == "explosive"})
+        seed["letterhead"] = str((context.get("document_texts") or {}).get("letterhead") or "")
     elif kind == "READINESS_ACT":
         seed["drilled_by"] = requisites.get("drilled_by", "")
         seed["surveyor_name"] = requisites.get("surveyor_name", "")
+        seed["customer_approver"] = _person(requisites.get("customer_approver"))
+        seed["blast_manager"] = _person(people.get("blast_manager"))
+        seed["conditions"] = list(READINESS_CONDITIONS)
     elif kind == "TALON":
         seed["admittance_not_before"] = _shift(project.get("blast_time", ""), TALON_AFTER_MIN)
         seed["talon_receiver"] = _person(people.get("talon_receiver"))
@@ -173,6 +211,14 @@ def layer_seed(kind: str, context: Mapping[str, Any], *, notification: Mapping[s
     elif kind == "ACCEPTANCE_ACT":
         seed["volume_contour_m3"] = (context.get("totals") or {}).get("block_volume_m3")
         seed["specific_q_kg_m3"] = (context.get("totals") or {}).get("specific_q_kg_m3")
+        seed["contract"] = {
+            key: requisites.get(key, "")
+            for key in ("contract_no", "contract_date", "acceptance_appendix_no", "customer_responsible")
+        }
+        seed["blast_manager"] = _person(people.get("blast_manager"))
+        seed["acceptance_text"] = (
+            str((context.get("document_texts") or {}).get("acceptance_text") or "") or DEFAULT_ACCEPTANCE_TEXT
+        )
     return seed
 
 
@@ -207,15 +253,45 @@ def naryad_lines(
         else:
             extra = float(defaults.get(group, 0) or 0) if group and target.get(group) == key else 0.0
             source = "REFERENCE"
+        issue = round(float(line["project_qty"]) + extra, 3)
+        # Масса единицы: у ВВ (кг) — 1; у штучных — по массе в расходе проекта (ПД), иначе неизвестна.
+        unit_mass = None
+        if line.get("unit") == "кг":
+            unit_mass = 1.0
+        elif line.get("mass_kg") is not None and float(line["project_qty"] or 0) > 0:
+            unit_mass = round(float(line["mass_kg"]) / float(line["project_qty"]), 6)
         lines.append(
             {
                 **line,
                 "reserve_qty": extra,
                 "reserve_source": source,
-                "issue_qty": round(float(line["project_qty"]) + extra, 3),
+                "issue_qty": issue,
+                "unit_mass_kg": unit_mass,
+                "issue_kg": None if unit_mass is None else round(issue * unit_mass, 3),
             }
         )
     return lines
+
+
+def naryad_totals(seed: Mapping[str, Any], lines: list[Mapping[str, Any]]) -> dict[str, Any]:
+    """Итоги наряда для печати (форма 4): блоки разд. 1, ВВ и средства инициирования
+    разд. 2, запас по группам — красной строкой под итогом."""
+
+    blocks = list(seed.get("blocks") or [])
+    explosives = [line for line in lines if line.get("kind") == "explosive"]
+    pieces = [line for line in lines if line.get("kind") != "explosive"]
+    reserve = []
+    for kind, label, unit in RESERVE_GROUPS:
+        group = [line for line in lines if line.get("kind") == kind]
+        if group:
+            reserve.append({"label": label, "qty": round(sum(float(line["reserve_qty"]) for line in group), 3), "unit": unit})
+    return {
+        "blocks_holes": sum(int(block.get("holes") or 0) for block in blocks),
+        "blocks_charge_kg": round(sum(float(block.get("charge_kg") or 0.0) for block in blocks), 3),
+        "explosive_issue_kg": round(sum(float(line.get("issue_kg") or line["issue_qty"]) for line in explosives), 3),
+        "initiation_issue_pcs": round(sum(float(line["issue_qty"]) for line in pieces), 3),
+        "reserve": reserve,
+    }
 
 
 def seed_diff(old: Mapping[str, Any], new: Mapping[str, Any], prefix: str = "") -> list[dict[str, Any]]:

@@ -258,3 +258,34 @@ def test_refresh_keeps_the_addressee_when_the_registry_is_gone(context66_v2):
     applied = service.refresh_layer(repository, _economics(), ORG, "user", layer["id"], layer["version"], confirm=True)
     assert applied["layer"]["seed"]["addressee"]["recipient_position"] == "Ростехнадзор"
     assert "notification_addressee_missing" not in {issue["code"] for issue in applied["layer"]["issues"]}
+
+
+# --- данные печати слоёв (TASK-018, PR 3) ------------------------------------
+
+
+def test_print_data_in_seeds():
+    from design.mass_blast_layers import DEFAULT_ACCEPTANCE_TEXT, READINESS_CONDITIONS, naryad_totals
+
+    data = context66(payload=payload66(requisites={"customer_name": "ООО «Заказчик»", "contractor_name": "ООО «Подрядчик»"}))
+    data["document_texts"] = {"letterhead": "ООО «КОМПЛЕКСНЫЕ РЕШЕНИЯ»\nИНН 1", "acceptance_text": ""}
+    readiness = layer_seed("READINESS_ACT", data)
+    assert readiness["parties"] == {"customer_name": "ООО «Заказчик»", "contractor_name": "ООО «Подрядчик»"}
+    assert readiness["conditions"] == list(READINESS_CONDITIONS) and len(READINESS_CONDITIONS) == 7
+    assert layer_seed("NOTIFICATION", data)["letterhead"].startswith("ООО «КОМПЛЕКСНЫЕ РЕШЕНИЯ»")
+    acceptance = layer_seed("ACCEPTANCE_ACT", data)
+    assert acceptance["acceptance_text"] == DEFAULT_ACCEPTANCE_TEXT
+    assert set(acceptance["contract"]) == {"contract_no", "contract_date", "acceptance_appendix_no", "customer_responsible"}
+    data["document_texts"]["acceptance_text"] = "Свой текст блока {блок}"
+    assert layer_seed("ACCEPTANCE_ACT", data)["acceptance_text"] == "Свой текст блока {блок}"
+
+    seed = layer_seed("NARYAD", data)
+    lines = naryad_lines(seed, {"reserve": {}}, {"primers": 2, "nsi": 3, "starters": 2})
+    explosive = next(line for line in lines if line["kind"] == "explosive")
+    assert explosive["unit_mass_kg"] == 1.0 and explosive["issue_kg"] == explosive["issue_qty"]
+    primer = next(line for line in lines if line["kind"] == "primer")
+    assert primer["unit_mass_kg"] == pytest.approx(1.0) and primer["issue_kg"] == pytest.approx(primer["issue_qty"])
+    totals = naryad_totals(seed, lines)
+    assert totals["blocks_holes"] == 196
+    assert totals["explosive_issue_kg"] == pytest.approx(explosive["issue_qty"])
+    assert totals["initiation_issue_pcs"] == pytest.approx(sum(line["issue_qty"] for line in lines if line["kind"] != "explosive"))
+    assert {item["label"]: item["qty"] for item in totals["reserve"]}["ПД"] == 2

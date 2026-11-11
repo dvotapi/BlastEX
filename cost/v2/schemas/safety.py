@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from cost.v2.schemas.base import RefField, ReferencePayload, UnitField, field_error
 
@@ -28,20 +28,33 @@ class KnPoint(ReferencePayload):
     k: Decimal = UnitField("", title="Коэффициент", description="Значение коэффициента при этом отношении", gt=0, le=1)
 
 
-def _points(*pairs: tuple[str, str], model: type[ReferencePayload]) -> list:
-    return [model(ratio=Decimal(ratio), k=Decimal(k)) for ratio, k in pairs]
+# Таблицы п. 803 ФНП 494: (отношение, коэффициент).
+KZ_STEMMING_ROWS = (("0", "1"), ("5", "0.15"), ("10", "0.02"), ("15", "0.003"), ("20", "0.002"))
+KZ_FREE_ROWS = (("0", "1"), ("5", "0.3"), ("10", "0.07"), ("15", "0.02"), ("20", "0.004"))
+KN_EXTERNAL_ROWS = (("0", "1"), ("1", "0.5"), ("2", "0.3"), ("3", "0.1"), ("4", "0.03"))
+_TABLE_ROWS = {"kz_by_stemming": KZ_STEMMING_ROWS, "kz_by_free": KZ_FREE_ROWS, "kn_external": KN_EXTERNAL_ROWS}
+
+
+def _points(rows: tuple[tuple[str, str], ...], model: type[ReferencePayload]) -> list:
+    return [model(ratio=Decimal(ratio), k=Decimal(k)) for ratio, k in rows]
+
+
+def _schema_default(rows: tuple[tuple[str, str], ...]) -> dict:
+    """Строки таблицы умолчанием в JSON Schema: форма новой записи начинает с таблицы ФНП."""
+
+    return {"default": [{"ratio": float(ratio), "k": float(k)} for ratio, k in rows]}
 
 
 def _kz_stemming() -> list[KzPoint]:
-    return _points(("0", "1"), ("5", "0.15"), ("10", "0.02"), ("15", "0.003"), ("20", "0.002"), model=KzPoint)
+    return _points(KZ_STEMMING_ROWS, KzPoint)
 
 
 def _kz_free() -> list[KzPoint]:
-    return _points(("0", "1"), ("5", "0.3"), ("10", "0.07"), ("15", "0.02"), ("20", "0.004"), model=KzPoint)
+    return _points(KZ_FREE_ROWS, KzPoint)
 
 
 def _kn_external() -> list[KnPoint]:
-    return _points(("0", "1"), ("1", "0.5"), ("2", "0.3"), ("3", "0.1"), ("4", "0.03"), model=KnPoint)
+    return _points(KN_EXTERNAL_ROWS, KnPoint)
 
 
 class BlastSafetyPayload(ReferencePayload):
@@ -129,16 +142,19 @@ class BlastSafetyPayload(ReferencePayload):
     kz_by_stemming: list[KzPoint] = Field(
         default_factory=_kz_stemming,
         title="K_з по длине забойки",
+        json_schema_extra=_schema_default(KZ_STEMMING_ROWS),
         description="п. 803: по отношению длины забойки к диаметру; берётся ближайшая меньшая точка",
     )
     kz_by_free: list[KzPoint] = Field(
         default_factory=_kz_free,
         title="K_з без забойки",
+        json_schema_extra=_schema_default(KZ_FREE_ROWS),
         description="п. 803: по отношению свободной от заряда части скважины к диаметру",
     )
     kn_external: list[KnPoint] = Field(
         default_factory=_kn_external,
         title="K_н наружных зарядов",
+        json_schema_extra=_schema_default(KN_EXTERNAL_ROWS),
         description="п. 803: по отношению высоты засыпки к высоте наружного заряда",
     )
     delay_group_ms: Decimal = UnitField(
@@ -160,6 +176,15 @@ class BlastSafetyPayload(ReferencePayload):
         "шт", title="Запас стартеров", description="Подставляется в наряд-путёвку; в проект не входит", default=0
     )
 
+    @field_validator("kz_by_stemming", "kz_by_free", "kn_external", mode="before")
+    @classmethod
+    def _empty_table_is_standard(cls, value: object, info) -> object:
+        """Пустая таблица — таблица п. 803 (форма пишет нетронутый список как `[]`)."""
+
+        if value in (None, []):
+            return [{"ratio": ratio, "k": k} for ratio, k in _TABLE_ROWS[info.field_name]]
+        return value
+
     @model_validator(mode="after")
     def _consistent(self) -> "BlastSafetyPayload":
         if self.rock_group_ix and self.rock_group_v_reduce:
@@ -172,7 +197,7 @@ class BlastSafetyPayload(ReferencePayload):
         for name in ("kz_by_stemming", "kz_by_free", "kn_external"):
             rows = getattr(self, name)
             ratios = [row.ratio for row in rows]
-            if not rows or min(ratios) != 0 or len(set(ratios)) != len(ratios):
+            if min(ratios) != 0 or len(set(ratios)) != len(ratios):
                 field_error(
                     type(self),
                     name,

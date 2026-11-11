@@ -135,11 +135,13 @@ def safety_params(
 
     # Группа пород у породы главнее флагов объекта (решение владельца В9).
     group = str((rock or {}).get("blast_rock_group") or "")
-    if "rock_group_ix" not in manual and group:
+    if group and "rock_group_ix" not in manual:
         values["rock_group_ix"] = group == ROCK_GROUP_IX_PLUS
         sources["rock_group_ix"] = "REFERENCE"
-        if group != ROCK_GROUP_V_MINUS and "rock_group_v_reduce" not in manual:
-            values["rock_group_v_reduce"] = False
+    # Уменьшение ÷2 — только для пород V группы и ниже: порода другой группы
+    # его снимает независимо от того, задан ли IX руками.
+    if group and group != ROCK_GROUP_V_MINUS and "rock_group_v_reduce" not in manual:
+        values["rock_group_v_reduce"] = False
     if values["rock_group_ix"] and values["rock_group_v_reduce"]:
         issues.append(
             SafetyIssue(

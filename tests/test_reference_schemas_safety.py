@@ -165,3 +165,40 @@ def test_file_export_and_public_settings_hide_the_section_without_the_flag(monke
     assert "blast_safety" not in public_settings_payload(settings)["mirror_sections"]
     monkeypatch.setenv("BLASTEX_MASS_BLAST_V2_ENABLED", "1")
     assert "blast_safety" in public_settings_payload(settings)["mirror_sections"]
+
+
+def test_v_group_reduction_is_cleared_by_rock_group_even_with_manual_ix() -> None:
+    reduce = {"site_code": "SITE_A", "rock_group_v_reduce": True}
+    params = safety_params(reduce, {"blast_rock_group": "VI_VIII"}, overrides={"rock_group_ix": False})
+    assert not params.rock_group_v_reduce and not params.rock_group_ix
+
+
+def test_empty_tables_from_the_form_are_the_fnp_tables() -> None:
+    """Форма пишет нетронутый список как `[]`: это таблица п. 803, а не ошибка публикации."""
+
+    payload = BlastSafetyPayload.model_validate({"site_code": "SITE_A", "kz_by_stemming": [], "kz_by_free": [], "kn_external": []})
+    assert tuple((float(row.ratio), float(row.k)) for row in payload.kz_by_stemming) == KZ_BY_STEMMING
+    defaults = section_json_schema("blast_safety")["properties"]
+    assert defaults["kz_by_free"]["default"] == [{"ratio": r, "k": k} for r, k in KZ_BY_FREE]
+    assert defaults["kn_external"]["default"][1] == {"ratio": 1.0, "k": 0.5}
+    record = ReferenceItem(code="SAFE_A", name="Жуков Камень", payload={"site_code": "SITE_A", "kz_by_free": []})
+    assert _errors(_sections(record)) == []
+
+
+def test_hidden_mirror_setting_survives_an_unrelated_save(monkeypatch) -> None:
+    """Флаг выключен: сохранение других настроек обмена не выключает зеркало скрытого раздела."""
+
+    from api.schemas.economics import PublicSyncSettingsRequest
+    from api.services.public_sync_service import settings_from_request
+    from cost.v2.public_sync.settings import PublicSyncSettings
+
+    monkeypatch.delenv("BLASTEX_MASS_BLAST_V2_ENABLED", raising=False)
+    current = PublicSyncSettings(exchange_enabled=True, mirror_sections=frozenset({"blast_safety", "rocks"}))
+    request = PublicSyncSettingsRequest(exchange_enabled=False, mirror_sections={"rocks": False})
+    saved = settings_from_request(request, current)
+    assert saved.mirror_sections == frozenset({"blast_safety"}) and not saved.exchange_enabled
+    # Запрос не может включить скрытый раздел мимо флага.
+    sneaky = PublicSyncSettingsRequest(exchange_enabled=True, mirror_sections={"blast_safety": True})
+    assert settings_from_request(sneaky, PublicSyncSettings(True, frozenset())).mirror_sections == frozenset()
+    monkeypatch.setenv("BLASTEX_MASS_BLAST_V2_ENABLED", "1")
+    assert settings_from_request(request, current).mirror_sections == frozenset()

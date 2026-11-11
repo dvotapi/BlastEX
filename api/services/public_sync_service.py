@@ -95,14 +95,26 @@ def public_settings_payload(settings: PublicSyncSettings) -> dict[str, Any]:
     }
 
 
-def settings_from_request(request: PublicSyncSettingsRequest) -> PublicSyncSettings:
-    """Запрос настроек в доменный вид: раздела нет или он `false` — зеркало выключено."""
+def settings_from_request(
+    request: PublicSyncSettingsRequest,
+    current: PublicSyncSettings | None = None,
+) -> PublicSyncSettings:
+    """Запрос настроек в доменный вид: раздела нет или он `false` — зеркало выключено.
 
+    Раздел за выключенным флагом модуля фронт не видит и в запрос не кладёт:
+    его зеркало берётся из `current` как было, иначе любое сохранение
+    настроек молча выключило бы его, а включение флага не вернуло бы обмен.
+    """
+
+    features = config.features()
+    hidden = {section for section in mirrorable_sections() if not section_visible(section, features)}
+    requested = {
+        section for section, enabled in request.mirror_sections.items() if enabled and section not in hidden
+    }
+    kept = set(current.mirror_sections) & hidden if current is not None else set()
     return PublicSyncSettings(
         exchange_enabled=request.exchange_enabled,
-        mirror_sections=frozenset(
-            section for section, enabled in request.mirror_sections.items() if enabled
-        ),
+        mirror_sections=frozenset(requested | kept),
     )
 
 

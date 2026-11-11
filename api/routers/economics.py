@@ -263,8 +263,9 @@ def put_public_settings(
 
     organization_id, user_id = _identity(session)
     try:
+        current = repository.get_public_sync_settings(organization_id)
         saved = repository.set_public_sync_settings(
-            organization_id, user_id, settings_from_request(payload)
+            organization_id, user_id, settings_from_request(payload, current)
         )
     except PublicWriteError as exc:
         # Таблицу зеркала создать не вышло — отказала чужая схема, а не BlastEX.

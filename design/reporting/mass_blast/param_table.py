@@ -17,7 +17,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import PageBreak, Table, TableStyle
 
 from design.reporting.brand import FONT, FONT_BOLD, GRAPHITE, LINE, RED, ZEBRA
-from design.reporting.mass_blast.common import DASH, cell, date, num, p, person_line, short, spacer, text
+from design.reporting.mass_blast.common import DASH, cell, date, num, p, person_line, rich, short, spacer, text
 from design.reporting.mass_blast.frame import Margins
 
 FIRST_PAGE_ROWS = 63
@@ -200,7 +200,9 @@ def table_story(context: Mapping[str, Any], block_index: int, width: float) -> l
         f"блок № {text(block.get('code'))}" if text(block.get("code")) else "",
         f"гор. {horizon} м" if horizon else "",
     )))
-    when = f"взрыв  <b>{date(project.get('blast_date'))}</b>    <b>{text(project.get('blast_time')) or DASH}</b>"
+    # Значения проекта — экранированными (`rich`): текст пользователя не становится разметкой.
+    when = (f"взрыв  <b>{rich(date(project.get('blast_date')))}</b>    "
+            f"<b>{rich(text(project.get('blast_time')) or DASH)}</b>")
     head = Table([[p(title, "doc_red"), p("", "grey_r", markup=when)]], colWidths=[width * 0.68, width * 0.32])
     head.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
                               ("VALIGN", (0, 0), (-1, -1), "BOTTOM"), ("BOTTOMPADDING", (0, 0), (-1, -1), 1)]))

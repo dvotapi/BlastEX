@@ -296,3 +296,14 @@ def test_package_order_and_manifest(context):
     assert "Стр. 10 из 10" in _text(combined[9])
     assert "Стр. 1 из 1" in _text(combined[10])
     assert render_package(context, layers, manifest={"revision_id": "rev-1"}) == data
+
+
+def test_user_text_does_not_become_markup(context):
+    data = copy.deepcopy(context)
+    data["project"]["blast_time"] = '13:00<img src="http://example.test/x.png"/>'
+    data["project"]["object_name"] = "Карьер <b>«Тест»</b> & Ко"
+    pdf = render_project_document(data, "parameter-table")
+    # Узкая графа переносит строку — сравнение без пробелов и переводов строк.
+    text = "".join(_text(_pages(pdf)[0]).split())
+    assert '13:00<imgsrc="http://example.test/x.png"/>' in text
+    assert "Карьер<b>«Тест»</b>&Ко" in text

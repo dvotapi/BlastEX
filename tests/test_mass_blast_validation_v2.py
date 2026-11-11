@@ -306,6 +306,9 @@ def test_electronic_network_intervals_are_printed():
     assert "электронные: время срабатывания 0–289 мс, наименьший интервал 17 мс" in section9["items"][0]["text"]
     point7 = next(item for item in context["schedule"]["points"] if item["point"] == "7")
     assert "наименьший интервал 17 мс" in point7["value"]
+    from design.mass_blast_layers import layer_seed
+
+    assert layer_seed("NOTIFICATION", context)["intervals"] == context["network_intervals"] != []
 
 
 def test_zero_mass_charge_is_not_a_construction():
@@ -326,3 +329,14 @@ def test_construction_bench_height_is_vertical():
     section = next(item for item in context["blocks_v2"][0]["technical_calculation"] if item["number"] == "7")
     table = context["blocks_v2"][0]["parameter_table"]["rows"]
     assert section["constructions"][0]["bench_height_mean_m"] == pytest.approx(table[0]["bench_height_m"], abs=0.05)
+
+
+def test_dry_intervals_are_not_a_water_column():
+    from design.models import WaterInterval
+
+    design = grid_design()
+    design.holes[0].water_intervals = [WaterInterval(0.0, 6.0, condition="dry"), WaterInterval(6.0, 11.0, condition="wet")]
+    design.holes[1].water_intervals = [WaterInterval(0.0, 11.0, condition="dry")]
+    rows = {row["hole_id"]: row for row in parameter_table(design, material_index(MATERIALS)).rows}
+    assert rows[design.holes[0].id]["water_m"] == 5.0
+    assert rows[design.holes[1].id]["water_m"] is None

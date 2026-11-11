@@ -216,6 +216,7 @@ def test_notification_per_addressee(context66_v2):
     layer = service.create_layer(repository, economics, ORG, "user", "p1", "NOTIFICATION", {"notification_code": "RTN"})
     assert layer["seed"]["addressee"]["recipient_position"] == "Ростехнадзор"
     assert layer["seed"]["explosive_kg"] == pytest.approx(32659.3, abs=0.5)
+    assert layer["seed"]["intervals"] == context66_v2["network_intervals"] == ["поверхностные 25 мс", "в скважине 700 мс"]
     with pytest.raises(ValueError, match="уже есть"):
         service.create_layer(repository, economics, ORG, "user", "p1", "NOTIFICATION", {"notification_code": "RTN"})
     with pytest.raises(ValueError, match="Адресат уведомления не меняется"):

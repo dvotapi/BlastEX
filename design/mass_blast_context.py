@@ -392,6 +392,8 @@ def build_document_context_v2(
     context["zones"] = zones
     context["protected_objects"] = objects
     context["schedule"] = schedule
+    # Интервалы сети текстом (НСИ, ДШ, электронная) — для распорядка и слоёв.
+    context["network_intervals"] = network_intervals([item["design"] for item in computed])
     context["q_tp"] = q_tp
     context["issues"] = issues
     return context

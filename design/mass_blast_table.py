@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Mapping, Sequence
 
+from design.charge_templates import WET_WATER
 from design.drilling_passport import first_row_selection
 from design.editing import local_spacing, logical_row, row_family, row_index
 from design.models import BlastDesign, Hole, HoleLoad, explosive_charge_mass_kg, is_explosive_deck_kind
@@ -48,9 +49,13 @@ def _natural(hole_id: str) -> tuple:
 
 
 def _water_column(hole: Hole) -> float | None:
-    """Столб воды: от верха воды до забоя; воды нет — пусто."""
+    """Столб воды: от верха воды до забоя; воды нет — пусто.
 
-    tops = [min(item.from_m, item.to_m) for item in hole.water_intervals]
+    Вода — интервалы «обводнённый» и «с притоком» (`WET_WATER`, как у правил
+    заряжания); «сухой» и «влажный» столба воды не дают.
+    """
+
+    tops = [min(item.from_m, item.to_m) for item in hole.water_intervals if item.condition in WET_WATER]
     if not tops:
         return None
     return max(0.0, hole.length_m - min(tops))

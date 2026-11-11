@@ -159,7 +159,7 @@ def layer_seed(kind: str, context: Mapping[str, Any], *, notification: Mapping[s
         diameters = [row.get("diameter_mm") for block in context.get("blocks_v2") or [] for row in (block.get("parameter_table") or {}).get("rows") or []]
         seed["explosive_kg"] = round(explosive, 3)
         seed["diameter_mm"] = sorted({d for d in diameters if d})
-        seed["intervals"] = _intervals(context)
+        seed["intervals"] = list(context.get("network_intervals") or [])
         seed["customer_tech_contact"] = requisites.get("customer_tech_contact", "")
         seed["blast_manager"] = _person(people.get("blast_manager"))
         seed["addressee"] = dict(notification or {})
@@ -179,15 +179,6 @@ def layer_seed(kind: str, context: Mapping[str, Any], *, notification: Mapping[s
 def _person(item: Mapping[str, Any] | None) -> dict[str, str]:
     item = item or {}
     return {"position": str(item.get("position") or ""), "name": str(item.get("name") or "")}
-
-
-def _intervals(context: Mapping[str, Any]) -> list[float]:
-    values: set[float] = set()
-    for block in context.get("blocks_v2") or []:
-        for line in block.get("consumption") or []:
-            if line.get("kind") == "nsi_surface" and line.get("delay_ms") is not None:
-                values.add(float(line["delay_ms"]))
-    return sorted(values)
 
 
 def naryad_lines(

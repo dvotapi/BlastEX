@@ -289,3 +289,26 @@ def test_print_data_in_seeds():
     assert totals["explosive_issue_kg"] == pytest.approx(explosive["issue_qty"])
     assert totals["initiation_issue_pcs"] == pytest.approx(sum(line["issue_qty"] for line in lines if line["kind"] != "explosive"))
     assert {item["label"]: item["qty"] for item in totals["reserve"]}["ПД"] == 2
+
+
+def test_unknown_primer_mass_is_not_printed_as_zero():
+    """ПД без массы (`primer_mass_unknown`, в расходе — 0 кг): в наряде масса неизвестна, а не 0."""
+
+    from design.mass_blast_layers import naryad_lines
+
+    context = {
+        "document_context_version": 2,
+        "blocks_v2": [
+            {"consumption": [
+                {"kind": "primer", "name": "ПД X", "quantity": 4.0, "unit": "шт", "mass_kg": 0.0, "warning": "primer_mass_unknown"},
+                {"kind": "primer", "name": "ПД Y", "quantity": 2.0, "unit": "шт", "mass_kg": 1.8, "warning": ""},
+            ]},
+            {"consumption": [
+                {"kind": "primer", "name": "ПД Y", "quantity": 2.0, "unit": "шт", "mass_kg": 0.0, "warning": "primer_mass_unknown"},
+            ]},
+        ],
+    }
+    lines = {line["name"]: line for line in naryad_lines(layer_seed("NARYAD", context), {}, {})}
+    assert lines["ПД X"]["unit_mass_kg"] is None and lines["ПД X"]["issue_kg"] is None
+    # Масса известна только у части скважин — строка тоже без массы, а не занижена.
+    assert lines["ПД Y"]["unit_mass_kg"] is None and lines["ПД Y"]["issue_kg"] is None

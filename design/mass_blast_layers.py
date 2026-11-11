@@ -127,9 +127,14 @@ def _consumption(context: Mapping[str, Any]) -> list[dict[str, Any]]:
                     "delay_ms": line.get("delay_ms"),
                     "project_qty": 0.0,
                     "mass_kg": None,
+                    "mass_known": True,
                 },
             )
             row["project_qty"] = round(row["project_qty"] + float(line.get("quantity") or 0.0), 3)
+            # Масса ПД неизвестна (`primer_mass_unknown`: расход пишет 0) — масса строки
+            # неизвестна целиком, а не занижена: в наряд не идут нулевые килограммы.
+            if line.get("warning") == "primer_mass_unknown":
+                row["mass_known"] = False
             if line.get("mass_kg") is not None:
                 row["mass_kg"] = round(float(row["mass_kg"] or 0.0) + float(line["mass_kg"]), 3)
     return list(merged.values())
@@ -258,7 +263,12 @@ def naryad_lines(
         unit_mass = None
         if line.get("unit") == "кг":
             unit_mass = 1.0
-        elif line.get("mass_kg") is not None and float(line["project_qty"] or 0) > 0:
+        elif (
+            line.get("mass_known", True)
+            and line.get("mass_kg") is not None
+            and float(line["mass_kg"]) > 0
+            and float(line["project_qty"] or 0) > 0
+        ):
             unit_mass = round(float(line["mass_kg"]) / float(line["project_qty"]), 6)
         lines.append(
             {

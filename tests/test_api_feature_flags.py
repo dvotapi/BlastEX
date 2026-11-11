@@ -31,6 +31,7 @@ def _client(monkeypatch, *, intelligence: bool, drill_passport: bool = False) ->
     monkeypatch.setenv("BLASTEX_API_KEY", "test-api-key")
     monkeypatch.setenv(config.INTELLIGENCE_ENABLED_ENV, "true" if intelligence else "false")
     monkeypatch.setenv(config.DRILL_PASSPORT_ENABLED_ENV, "true" if drill_passport else "false")
+    monkeypatch.delenv(config.MASS_BLAST_V2_ENABLED_ENV, raising=False)
     module = importlib.reload(importlib.import_module("api.main"))
     return TestClient(module.app, headers={"X-API-Key": "test-api-key"})
 
@@ -59,10 +60,12 @@ def test_features_endpoint_reports_the_flag(monkeypatch) -> None:
     assert _client(monkeypatch, intelligence=False).get("/api/v1/features").json() == {
         "intelligence": False,
         "drill_passport": False,
+        "mass_blast_v2": False,
     }
     assert _client(monkeypatch, intelligence=True).get("/api/v1/features").json() == {
         "intelligence": True,
         "drill_passport": False,
+        "mass_blast_v2": False,
     }
 
 
@@ -122,3 +125,16 @@ def test_drill_passport_can_be_switched_off(monkeypatch, value: str) -> None:
 def test_drill_passport_other_values_keep_it_on(monkeypatch, value: str) -> None:
     monkeypatch.setenv(config.DRILL_PASSPORT_ENABLED_ENV, value)
     assert config.drill_passport_enabled() is True
+
+
+@pytest.mark.parametrize(("value", "enabled"), [(None, False), ("1", True), ("да", True), ("0", False), ("нет", False)])
+def test_mass_blast_v2_flag_is_off_by_default(monkeypatch, value, enabled) -> None:
+    """Проект МВ по форме ВМ.09.03 (TASK-018) — за флагом до PR 6, по умолчанию выключен."""
+
+    if value is None:
+        monkeypatch.delenv(config.MASS_BLAST_V2_ENABLED_ENV, raising=False)
+    else:
+        monkeypatch.setenv(config.MASS_BLAST_V2_ENABLED_ENV, value)
+    assert config.mass_blast_v2_enabled() is enabled
+    assert config.features()["mass_blast_v2"] is enabled
+

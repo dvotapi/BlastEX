@@ -20,6 +20,7 @@ from cost.v2.schemas.costs import (
     UnitFixedCostPayload,
 )
 from cost.v2.schemas.drill_profile import DrillPassportProfilePayload
+from cost.v2.schemas.safety import BlastSafetyPayload
 from cost.v2.schemas.stakeout_profile import StakeoutProfilePayload
 from cost.v2.schemas.equipment import (
     DrillingConditionPayload,
@@ -137,6 +138,13 @@ SECTION_FIELDSETS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
         )),
         ("Геология", ("geology",)),
     ),
+    "blast_safety": (
+        ("Объект", ("site_code",)),
+        ("Сейсмика", ("k_ground", "k_structure", "alpha_blast", "delay_group_ms", "buildings_damaged")),
+        ("Разлёт кусков", ("people_min_m", "k_mech", "relief_height_m", "slope_angle_deg")),
+        ("Воздушная волна", ("rock_group_ix", "rock_group_v_reduce", "frost", "kz_by_stemming", "kz_by_free", "kn_external")),
+        ("Запас для наряда-путёвки", ("reserve_primers_pcs", "reserve_nsi_pcs", "reserve_starters_pcs")),
+    ),
     "unit_fixed_costs": (
         ("Отнесение", ("production_unit_code", "scope", "category", "allocation_driver")),
         ("Персонал", ("position_code", "headcount")),
@@ -172,6 +180,7 @@ SECTION_SCHEMAS: dict[str, type[ReferencePayload]] = {
     "drilling_difficulty": DrillingDifficultyPayload,
     "rocks": RockPayload,
     "blast_design_parameters": BlastDesignParameterPayload,
+    "blast_safety": BlastSafetyPayload,
     "bench_surface_conditions": BenchSurfaceConditionPayload,
     "stakeout_modes": StakeoutModePayload,
     "site_infrastructure": SiteInfrastructurePayload,

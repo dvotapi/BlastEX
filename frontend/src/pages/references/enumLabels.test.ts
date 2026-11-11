@@ -21,3 +21,10 @@ describe("подписи форматов файла выноса GNSS", () => {
     expect(enumLabel("DXF_POINTS")).toBe("DXF: точки и номера скважин");
   });
 });
+
+describe("подписи групп пород для воздушной волны", () => {
+  it("группы по взрываемости подписаны по-русски", () => {
+    expect(enumLabel("IX_PLUS")).toBe("IX группа и выше");
+    expect(enumLabel("V_MINUS")).toBe("V группа и ниже");
+  });
+});

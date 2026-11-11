@@ -21,6 +21,7 @@ from cost.v2.references import (
     group_catalog,
     has_validation_errors,
     section_catalog,
+    section_visible,
 )
 from cost.v2.schemas import SECTION_SCHEMAS, section_fieldsets, section_json_schema
 from cost.v2.repository import (
@@ -46,17 +47,35 @@ def get_economics_repository() -> EconomicsRepository:
 
 
 def reference_snapshot_payload(snapshot: Any) -> dict[str, Any]:
+    """Снимок справочника для фронта.
+
+    Записи раздела за выключенным флагом остаются в `sections` — черновик
+    переносит их в следующую публикацию, — но в каталоге раздела нет.
+    """
+
     payload = snapshot.to_dict()
-    for section in section_catalog():
+    catalog = section_catalog(config.features())
+    for section in catalog:
         payload["sections"].setdefault(section["code"], [])
-    payload["section_catalog"] = section_catalog()
+    payload["section_catalog"] = catalog
     payload["group_catalog"] = group_catalog()
     return payload
 
 
-@lru_cache(maxsize=1)
 def reference_schema_payload() -> dict[str, Any]:
-    """Каталог схем разделов. Схема статична — считается один раз на процесс."""
+    """Каталог схем разделов; разделы за выключенным флагом не отдаются."""
+
+    full = _reference_schema_catalog()
+    features = config.features()
+    return {
+        "groups": full["groups"],
+        "sections": {code: meta for code, meta in full["sections"].items() if section_visible(code, features)},
+    }
+
+
+@lru_cache(maxsize=1)
+def _reference_schema_catalog() -> dict[str, Any]:
+    """Все схемы разделов. Схема статична — считается один раз на процесс."""
 
     sections: dict[str, Any] = {}
     for code, meta in REFERENCE_SECTION_DEFINITIONS.items():

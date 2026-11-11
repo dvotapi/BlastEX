@@ -24,11 +24,22 @@ def _schema(monkeypatch) -> dict:
 
 
 def test_every_section_with_a_schema_is_published(monkeypatch) -> None:
+    monkeypatch.setenv("BLASTEX_MASS_BLAST_V2_ENABLED", "1")
     payload = _schema(monkeypatch)
     assert set(payload["sections"]) == set(SECTION_SCHEMAS)
     for code, section in payload["sections"].items():
         assert section["json_schema"], code
         assert section["label"] == REFERENCE_SECTION_DEFINITIONS[code]["label"]
+
+
+def test_section_behind_a_disabled_flag_is_not_published(monkeypatch) -> None:
+    """Раздел за флагом (TASK-018, В10): без флага его нет в каталоге схем."""
+
+    monkeypatch.delenv("BLASTEX_MASS_BLAST_V2_ENABLED", raising=False)
+    gated = {code for code, meta in REFERENCE_SECTION_DEFINITIONS.items() if meta.get("feature")}
+    assert "blast_safety" in gated
+    payload = _schema(monkeypatch)
+    assert set(payload["sections"]) == set(SECTION_SCHEMAS) - gated
 
 
 def test_groups_cover_every_section(monkeypatch) -> None:

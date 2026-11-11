@@ -114,6 +114,14 @@ REFERENCE_SECTION_DEFINITIONS: dict[str, dict[str, Any]] = {
         "label": "Нормативы и коэффициенты БВР",
         "columns": ["name", "value", "unit"],
     },
+    # `feature` — раздел виден в каталоге только при включённом флаге; при
+    # выключенном он читается и публикуется, но в списке разделов не отдаётся.
+    "blast_safety": {
+        "group": "blast_design",
+        "label": "Безопасные расстояния и выписка ВМ",
+        "columns": ["name", "site_code", "k_ground", "k_structure", "people_min_m"],
+        "feature": "mass_blast_v2",
+    },
     "drilling_conditions": {
         "group": "drilling", "label": "Условия бурения",
         "view": "matrix",
@@ -365,6 +373,7 @@ def validate_reference_sections(
 
     issues.extend(_schema_issues(sections))
     issues.extend(_reference_issues(sections))
+    issues.extend(_one_per_site_issues(sections, "blast_safety"))
     # Локальный импорт: модуль проверок сам берёт `ValidationIssue` отсюда.
     from cost.v2.payroll_checks import payroll_issues
 
@@ -432,6 +441,30 @@ def validate_reference_sections(
     if not sections["cost_rules"]:
         issues.append(ValidationIssue("warning", "cost_rules", "", "Не добавлены правила затрат; расчёт себестоимости будет нулевым."))
 
+    return issues
+
+
+def _one_per_site_issues(sections: Mapping[str, Sequence[ReferenceItem]], section: str) -> list[ValidationIssue]:
+    """Одна активная запись раздела на объект: иначе расчёту не выбрать, чьи коэффициенты брать."""
+
+    issues: list[ValidationIssue] = []
+    seen: dict[str, str] = {}
+    for item in sections.get(section, ()):
+        site = str(item.payload.get("site_code") or "")
+        if not item.is_active or not site:
+            continue
+        if site in seen:
+            issues.append(
+                ValidationIssue(
+                    "error",
+                    section,
+                    item.code,
+                    f"Для объекта {site} уже есть запись {seen[site]}: на объект — одна запись.",
+                    field="site_code",
+                )
+            )
+        else:
+            seen[site] = item.code
     return issues
 
 
@@ -750,10 +783,22 @@ def has_validation_errors(issues: Sequence[ValidationIssue]) -> bool:
     return any(issue.level == "error" for issue in issues)
 
 
-def section_catalog() -> list[dict[str, str]]:
+def section_visible(section: str, features: Mapping[str, bool] | None = None) -> bool:
+    """Показывать ли раздел в каталоге: раздел за флагом — только при включённом флаге.
+
+    `features=None` — флаги не учитываются (все разделы): так каталог видят
+    расчёт и тесты, которым флаги интерфейса не нужны.
+    """
+
+    feature = REFERENCE_SECTION_DEFINITIONS.get(section, {}).get("feature")
+    return not feature or features is None or bool(features.get(feature))
+
+
+def section_catalog(features: Mapping[str, bool] | None = None) -> list[dict[str, str]]:
     return [
         {"code": code, "label": meta["label"], "group": meta["group"]}
         for code, meta in REFERENCE_SECTION_DEFINITIONS.items()
+        if section_visible(code, features)
     ]
 
 

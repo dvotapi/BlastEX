@@ -112,6 +112,17 @@ class RockPayload(ReferencePayload):
         gt=0,
     )
 
+    # Группа по взрываемости для УВВ на застекление (п. 804 ФНП 494, TASK-018):
+    # у породы главнее флагов раздела «Безопасные расстояния и выписка ВМ».
+    blast_rock_group: Literal["IX_PLUS", "VI_VIII", "V_MINUS"] | None = Field(
+        default=None,
+        title="Группа для воздушной волны",
+        description=(
+            "п. 804: IX и выше — радиус на застекление ×1,5; V и ниже — можно уменьшить вдвое; "
+            "пусто — по справочнику безопасных расстояний объекта"
+        ),
+    )
+
     @model_validator(mode="after")
     def _relief_range_is_ordered(self) -> "RockPayload":
         low, high = self.relief_min_ms_m, self.relief_max_ms_m

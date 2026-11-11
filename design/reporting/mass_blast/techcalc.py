@@ -158,7 +158,8 @@ def _consumption(section: Mapping[str, Any], width: float) -> Table:
     lines = list(section.get("consumption") or [])
     for line in lines:
         quantity = line.get("quantity")
-        digits = 0
+        # Килограммы — с той же точностью, что и графа «Масса, кг» (60,4 кг), штуки — целыми.
+        digits = 1 if text(line.get("unit")) == "кг" else 0
         mass = line.get("mass_kg")
         rows.append([
             cell(line.get("item"), "td_red"),

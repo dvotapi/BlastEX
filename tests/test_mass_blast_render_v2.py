@@ -449,3 +449,12 @@ def test_title_summary_rows_do_not_overlap_with_many_blocks(context, monkeypatch
 def test_acceptance_keeps_fractional_volume(context):
     revision = _layer_revision(context, "ACCEPTANCE_ACT", {"accepted_volume_m3": 1234.5})
     assert "1 234,5" in _text(_pages(render_layer_document(revision))[0])
+
+
+def test_consumption_keeps_fractional_kilograms(context):
+    data = copy.deepcopy(context)
+    section = next(s for s in data["blocks_v2"][0]["technical_calculation"] if s["number"] == "10–12")
+    line = next(item for item in section["consumption"] if item["kind"] == "explosive")
+    line.update(quantity=60.4, mass_kg=60.4)
+    text = _text(_pages(render_project_document(data, "technical-calculation"))[0])
+    assert text.count("60,4") >= 2

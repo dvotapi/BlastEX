@@ -143,7 +143,9 @@ def test_reserve_defaults_from_reference(context66_v2):
     seed = layer_seed("NARYAD", context66_v2)
     lines = naryad_lines(seed, {}, {"primers": 2, "nsi": 3, "starters": 1})
     assert _line(lines, "primer")["reserve_qty"] == 2 and _line(lines, "primer")["reserve_source"] == "REFERENCE"
+    # Запас НСИ — один раз на группу: на самую большую строку (скважинные 198 шт).
     assert _line(lines, "nsi_downhole")["reserve_qty"] == 3
+    assert sum(line["reserve_qty"] for line in lines if line["kind"] in ("nsi_downhole", "nsi_surface")) == 3
     assert _line(lines, "explosive")["reserve_qty"] == 0
 
 
@@ -214,6 +216,8 @@ def test_notification_per_addressee(context66_v2):
     layer = service.create_layer(repository, economics, ORG, "user", "p1", "NOTIFICATION", {"notification_code": "RTN"})
     assert layer["seed"]["addressee"]["recipient_position"] == "Ростехнадзор"
     assert layer["seed"]["explosive_kg"] == pytest.approx(32659.3, abs=0.5)
+    with pytest.raises(ValueError, match="уже есть"):
+        service.create_layer(repository, economics, ORG, "user", "p1", "NOTIFICATION", {"notification_code": "RTN"})
     with pytest.raises(ValueError, match="Адресат уведомления не меняется"):
         service.update_layer(repository, economics, ORG, "user", layer["id"], {"notification_code": "OTHER"}, layer["version"])
     # Справочника уведомлений нет — слой открывается с предупреждением.
@@ -224,3 +228,13 @@ def test_notification_per_addressee(context66_v2):
 def test_talon_admittance_time(context66_v2):
     seed = layer_seed("TALON", context66_v2)
     assert seed["admittance_not_before"] == "13:30"
+
+
+def test_list_shows_each_layer_by_its_own_revision(context66_v2):
+    repository = _Repository(context66_v2)
+    economics = _economics()
+    layer = service.create_layer(repository, economics, ORG, "user", "p1", "NARYAD", {})
+    repository.reissue_project(context66(payload=payload66(blast_time="14:00")))
+    listed = service.list_layers(repository, economics, ORG, "p1")[0]
+    single = service.get_layer(repository, economics, ORG, layer["id"])
+    assert listed["view"] == single["view"] and listed["stale"] is True

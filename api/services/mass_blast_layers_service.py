@@ -137,13 +137,18 @@ def _with_view(layer: dict[str, Any], snapshot: Any, context: Mapping[str, Any])
 def list_layers(
     repository: PostgresMassBlastRepository, economics_repository: EconomicsRepository | None, organization_id: str, project_id: str,
 ) -> list[dict[str, Any]]:
-    layers = list(repository.list_layers(organization_id, project_id))
-    if not layers:
-        return []
-    project = repository.get_project(organization_id, project_id)
-    context = _current_revision(repository, organization_id, project)["context"]
-    snapshot = _snapshot(economics_repository, organization_id, context)
-    return [_with_view(layer, snapshot, context) for layer in layers]
+    """Слои проекта; вид каждого — по ревизии проекта, на которой он основан (как у `get_layer`)."""
+
+    contexts: dict[str, tuple[Mapping[str, Any], Any]] = {}
+    result = []
+    for layer in repository.list_layers(organization_id, project_id):
+        revision_id = layer["project_revision_id"]
+        if revision_id not in contexts:
+            context = repository.get_revision(organization_id, revision_id)["context"]
+            contexts[revision_id] = (context, _snapshot(economics_repository, organization_id, context))
+        context, snapshot = contexts[revision_id]
+        result.append(_with_view(layer, snapshot, context))
+    return result
 
 
 def get_layer(
@@ -176,6 +181,12 @@ def create_layer(
         addressee, problems = _notification(snapshot, context, data)
         if any(item["level"] == "error" for item in problems):
             raise ValueError(problems[0]["message"])
+        code = str(data.get("notification_code") or "")
+        if code and any(
+            layer["kind"] == "NOTIFICATION" and layer["payload"].get("notification_code") == code
+            for layer in repository.list_layers(organization_id, project_id)
+        ):
+            raise ValueError("Уведомление этому адресату у проекта уже есть: на адресата — одно уведомление.")
     layer = repository.create_layer(
         organization_id, actor, project_id, kind=kind, project_revision_id=revision["id"],
         allowed_statuses=set(LAYER_OPEN_AFTER[kind]), single=kind not in MULTI_LAYER_KINDS,

@@ -108,7 +108,7 @@ def parameter_table(
 
     enabled = [hole for hole in design.holes if hole.enabled]
     loads: dict[str, HoleLoad] = {load.hole_id: load for load in design.loads}
-    first_row, _ = first_row_selection(design)
+    first_row, first_row_issues = first_row_selection(design)
     burdens = floor_burdens(design) if first_row else {}
     steps = _row_steps(enabled)
     same_row: dict[int, list[Hole]] = {}
@@ -132,6 +132,7 @@ def parameter_table(
         volume = bench * spacing * step if spacing and step else None
         charge_length = sum(abs(d.to_m - d.from_m) for d in decks if is_explosive_deck_kind(d.kind))
         water = _water_column(hole)
+        stem = (stemming_by_hole or {}).get(hole.id, 0.0) if charge > 0 else None
         rows.append(
             {
                 "hole_id": hole.id,
@@ -151,7 +152,8 @@ def parameter_table(
                 "burden_fact_m": None,
                 "charge_kg": round_to_step(charge, charge_round_kg),
                 "charge_fact_kg": None,
-                "stemming_m": round((stemming_by_hole or {}).get(hole.id, 0.0), 1),
+                # Забойка — над верхним зарядом; у скважины без заряда её нет.
+                "stemming_m": None if stem is None else round(stem, 1),
                 "stemming_fact_m": None,
                 "primers_pcs": len(primers),
                 "note": note,
@@ -171,7 +173,11 @@ def parameter_table(
         for row in rows:
             parts = [part.strip() for part in row["note"].split(";") if part.strip()]
             row["note"] = "; ".join(part for part in parts if part != common)
-    return ParameterTable(rows=rows, totals=_totals(rows), common_note=common, charge_round_kg=charge_round_kg)
+    issues = [
+        {"level": issue.level, "code": issue.code, "message": issue.message, "path": "parameter_table"}
+        for issue in first_row_issues
+    ]
+    return ParameterTable(rows=rows, totals=_totals(rows), common_note=common, charge_round_kg=charge_round_kg, issues=issues)
 
 
 def _common_note(rows: Sequence[Mapping[str, Any]]) -> str:
@@ -208,7 +214,7 @@ def _totals(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "burden_mean_m": None if mean_b is None else round(mean_b, 2),
         "charge_kg": round(charge, 3),
         "charge_max_kg": max(known("charge_kg")) if rows else None,
-        "stemming_min_m": min(known("stemming_m")) if rows else None,
+        "stemming_min_m": min(known("stemming_m")) if known("stemming_m") else None,
         "primers_pcs": int(sum(known("primers_pcs"))),
         "first_row_count": sum(1 for row in rows if row["first_row"]),
         # служебные

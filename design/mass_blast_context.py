@@ -81,13 +81,22 @@ def _manual_zones(payload: Mapping[str, Any]) -> tuple[dict[str, tuple[float, st
     issues: list[dict[str, str]] = []
     raw = (payload.get("safety_plan") or {}).get("manual_zones") or {}
     for kind in MANUAL_ZONE_KINDS:
-        entry = raw.get(kind)
+        entry = raw.get(kind) if isinstance(raw, Mapping) else None
         if not entry:
             continue
         try:
+            if not isinstance(entry, Mapping):
+                raise TypeError(entry)
             value = float(entry.get("value"))
         except (TypeError, ValueError):
-            issues.append(_issue("error", "manual_value_invalid", f"Ручная опасная зона «{kind}» — не число.", f"safety_plan.manual_zones.{kind}"))
+            issues.append(
+                _issue(
+                    "error",
+                    "manual_value_invalid",
+                    f"Ручная опасная зона «{kind}» задаётся значением и причиной ({{value, reason}}), значение — число.",
+                    f"safety_plan.manual_zones.{kind}",
+                )
+            )
             continue
         zones[kind] = (value, _text(entry.get("reason")))
     return zones, issues
@@ -227,6 +236,7 @@ def build_document_context_v2(
             stemming_by_hole={hole.hole_id: hole.stemming_m for hole in safety.holes},
         )
         issues += _scaled_issues(safety.issues, f"{path}.safety")
+        issues += [{**issue, "path": issue.get("path") or f"{path}.parameter_table"} for issue in table.issues]
         for line in consumption:
             if line.warning:
                 issues.append(_issue("warning", line.warning, line.message, f"{path}.consumption"))
@@ -440,6 +450,7 @@ def _object_zones(results: Sequence[SafetyResult], zones: Mapping[str, Mapping[s
         buildings_m=float(zones["buildings"]["value"] or 0.0),
         k_ground=params.k_ground if params else 0.0,
         k_structure=params.k_structure if params else 0.0,
+        buildings_manual=zones["buildings"].get("source") == "MANUAL_OVERRIDE",
     )
 
 

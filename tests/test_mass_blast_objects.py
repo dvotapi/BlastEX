@@ -81,3 +81,21 @@ def test_manual_objects_and_incomplete_entries():
     rows, issues = assess_project_objects([], entries, ZONES)
     assert [(row.name, row.position) for row in rows] == [("Вахтовый посёлок", "вне зоны")]
     assert {issue.code for issue in issues} == {"object_incomplete", "object_kind_unknown"}
+
+
+def test_smaller_own_coefficients_lower_the_required_distance():
+    """Меньшие K_г·K_с объекта уменьшают r_с: расчётная зона для зданий их не перекрывает."""
+
+    notes = [{"source": "SITUATION", "key": "SITUATION:Здания ДСК", "k_ground": 5, "k_structure": 1}]
+    zones = ObjectZones(
+        people_m=300.0, mechanisms_m=200.0, seismic_m=200.0, seismic_raw_m=172.0, airblast_m=50.0,
+        buildings_m=200.0, k_ground=5.0, k_structure=2.0,
+    )
+    rows, _ = assess_project_objects(situation_candidates(LAYERS, BLOCK, []), notes, zones)
+    building = next(row for row in rows if row.name == "Здания ДСК")
+    # 172·(5·1)/(5·2) = 86 → 100 м: здание в 100 м — вне зоны, фактор — сейсмика.
+    assert building.required_m == 100 and building.factor == "сейсмика" and building.position == "вне зоны"
+    manual = ObjectZones(**{**zones.__dict__, "buildings_m": 400.0, "buildings_manual": True})
+    rows, _ = assess_project_objects(situation_candidates(LAYERS, BLOCK, []), notes, manual)
+    building = next(row for row in rows if row.name == "Здания ДСК")
+    assert building.required_m == 400 and building.factor == "принято проектом"

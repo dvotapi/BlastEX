@@ -260,8 +260,10 @@ def technical_calculation(
             source="CALCULATED",
         )
     )
-    stem_mean = sum(row["stemming_m"] for row in rows) / hole_count if hole_count else 0.0
-    depth_mean = totals.get("depth_mean_m") or 0.0
+    # Типовая скважина — заряженная: у скважины без заряда забойки нет.
+    charged = [row for row in rows if row["stemming_m"] is not None]
+    stem_mean = sum(row["stemming_m"] for row in charged) / len(charged) if charged else 0.0
+    depth_mean = sum(row["depth_m"] for row in charged) / len(charged) if charged else 0.0
     typical = p_kg_m * (depth_mean - stem_mean)
     items.append(
         _value(

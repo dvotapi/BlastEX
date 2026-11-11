@@ -238,3 +238,25 @@ def test_multi_block_warning_and_project_zones():
     people = [block["safety"]["zones"]["people"]["value"] for block in context["blocks_v2"]]
     assert context["zones"]["people"]["value"] == max(people)
     assert len(context["blocks_v2"]) == 2
+
+
+def test_manual_zone_that_is_not_an_object_is_an_issue():
+    _, issues = build(safety_plan={"manual_zones": {"people": 800}})
+    assert "manual_value_invalid" in codes(issues, "error")
+
+
+def test_first_row_guess_is_reported():
+    design = grid_design()
+    design.contour.free_faces = []
+    _, issues = build(design)
+    assert "first_row_guessed" in codes(issues, "warning")
+
+
+def test_uncharged_hole_has_no_stemming():
+    design = grid_design()
+    design.loads = [load for load in design.loads if load.hole_id != "1-01"]
+    context, _ = build(design)
+    table = context["blocks_v2"][0]["parameter_table"]
+    row = next(item for item in table["rows"] if item["hole_id"] == "1-01")
+    assert row["stemming_m"] is None and row["charge_kg"] == 0
+    assert table["totals"]["stemming_min_m"] == 3.0

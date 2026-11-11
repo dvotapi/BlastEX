@@ -54,6 +54,7 @@ class ObjectZones:
     buildings_m: float          # принятая зона для зданий (с ручным вводом)
     k_ground: float
     k_structure: float
+    buildings_manual: bool = False  # зона для зданий задана вручную (`MANUAL_OVERRIDE`)
 
     @property
     def largest_m(self) -> float:
@@ -172,7 +173,9 @@ def _required(kind: str, zones: ObjectZones, k_ground: float | None, k_structure
         scale = (k_ground or zones.k_ground) * (k_structure or zones.k_structure) / (zones.k_ground * zones.k_structure)
         seismic = ceil_to(zones.seismic_raw_m * scale)
     buildings = max((seismic, "сейсмика"), (zones.airblast_m, "УВВ"))
-    if zones.buildings_m > buildings[0]:
+    # Расчётная зона для зданий — тот же max(r_с, r_в) без K объекта: она не
+    # должна перекрывать пересчёт по K объекта. Перекрывает только ручная.
+    if zones.buildings_manual and zones.buildings_m > buildings[0]:
         buildings = (zones.buildings_m, "принято проектом")
     return {
         "people": (zones.people_m, "люди"),

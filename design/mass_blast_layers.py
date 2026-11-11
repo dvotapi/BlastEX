@@ -14,7 +14,8 @@
   трогается.
 - Наряд-путёвка: строки ВМ «по проекту / запас / к выдаче»; к выдаче = по
   проекту + запас. Запас по умолчанию — из раздела `blast_safety` объекта
-  (ПД, НСИ, стартеры), иначе 0. Расчёты проекта запас не меняет.
+  (ПД, НСИ, стартеры) один раз на группу — на самую большую её строку,
+  иначе 0. Расчёты проекта запас не меняет.
 - «Устарел» — ревизия проекта слоя не текущая. `seed_diff` показывает, что
   изменится при повторном переносе; перенос — только с подтверждения.
 
@@ -198,13 +199,23 @@ def naryad_lines(
 
     reserve = dict(payload.get("reserve") or {})
     defaults = dict(reserve_defaults or {})
+    materials = list(seed.get("materials") or [])
+    # Запас справочника — на группу (ПД, НСИ, стартеры), а не на каждую строку:
+    # он ложится на самую большую строку группы, остальные — 0.
+    target: dict[str, str] = {}
+    for line in sorted(materials, key=lambda item: -float(item["project_qty"])):
+        group = _RESERVE_DEFAULTS.get(line["kind"])
+        if group:
+            target.setdefault(group, line["key"])
     lines: list[dict[str, Any]] = []
-    for line in seed.get("materials") or []:
+    for line in materials:
         key = line["key"]
+        group = _RESERVE_DEFAULTS.get(line["kind"], "")
         if key in reserve and reserve[key] is not None:
             extra, source = float(reserve[key]), "MANUAL_OVERRIDE"
         else:
-            extra, source = float(defaults.get(_RESERVE_DEFAULTS.get(line["kind"], ""), 0) or 0), "REFERENCE"
+            extra = float(defaults.get(group, 0) or 0) if group and target.get(group) == key else 0.0
+            source = "REFERENCE"
         lines.append(
             {
                 **line,

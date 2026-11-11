@@ -114,6 +114,15 @@ def _write_in(width: float, height: float = 6 * mm, value: str = "", style: str 
     return table
 
 
+def kg_text(value: Any) -> str:
+    """Килограммы наряда: дробные массы не округляются до целых (2 × 0,9 = 1,8 кг),
+    большие — до десятых, чтобы влезали в узкую графу."""
+
+    if value is None:
+        return ""
+    return short(value, 1 if abs(float(value)) >= 100 else 3)
+
+
 def material_name(line: Mapping[str, Any]) -> str:
     """Наименование ВМ с замедлением (НСИ одной марки бывают с разными замедлениями)."""
 
@@ -359,13 +368,13 @@ def _naryad_materials(revision: Mapping[str, Any], width: float) -> list:
             cell(num(unit_mass, 3) if unit_mass is not None else "", "td_c"),
             cell(num(line.get("issue_qty"), 0), "td_bc"),
             # Килограммы — как в ревизии (0,9 кг × 2 = 1,8 кг), без округления до целых.
-            cell(short(line.get("issue_kg"), 3) if line.get("issue_kg") is not None else "", "td_c"),
+            cell(kg_text(line.get("issue_kg")), "td_c"),
             "", "", "", "", cell(returned, "td_c"), cell(returned, "td_c"), cell(distribution), "",
         ])
     rows.append([cell(len(lines) + 1, "td_c")] + [""] * 16)
     first_total = len(rows)
     rows.append([cell("Итого ВВ, кг", "td_br"), "", "", "", "", "", "", "",
-                 cell(short(totals.get("explosive_issue_kg"), 3), "td_bc")] + [""] * 8)
+                 cell(kg_text(totals.get("explosive_issue_kg")), "td_bc")] + [""] * 8)
     rows.append([cell("Итого средства инициирования, шт", "td_br"), "", "", "", "", "", "",
                  cell(num(totals.get("initiation_issue_pcs"), 0), "td_bc"), ""] + [""] * 8)
     style += [("SPAN", (0, first_total), (6, first_total)), ("SPAN", (0, first_total + 1), (6, first_total + 1)),
@@ -373,7 +382,17 @@ def _naryad_materials(revision: Mapping[str, Any], width: float) -> list:
     fractions = (0.025, 0.15, 0.08, 0.05, 0.06, 0.035, 0.045, 0.045, 0.045, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.13)
     widths = [width * f for f in fractions]
     widths.append(width - sum(widths))
-    table = Table(rows, colWidths=widths, rowHeights=[None, None] + [4.4 * mm] * (len(rows) - 2))
+    # Строки ВМ растут по содержимому (распределение по нескольким блокам
+    # переносится), не ниже 4,4 мм; пустая строка и итоги — 4,4 мм.
+    heights: list[float | None] = [None, None]
+    for row in rows[2:first_total - 1]:
+        needed = max(
+            (value.wrap(widths[col] - 4, 10_000)[1] + 1.2 for col, value in enumerate(row) if hasattr(value, "wrap")),
+            default=0.0,
+        )
+        heights.append(max(4.4 * mm, needed))
+    heights += [4.4 * mm] * (len(rows) - len(heights))
+    table = Table(rows, colWidths=widths, rowHeights=heights)
     table.setStyle(TableStyle(grid_style(header_rows=2, rows=len(rows) - 2, zebra=False, padding=0.6) + style))
     return [_bar("2. УЧЁТ ВЗРЫВЧАТЫХ МАТЕРИАЛОВ — в количестве и в килограммах (кг = кол-во × масса единицы)", width), table]
 

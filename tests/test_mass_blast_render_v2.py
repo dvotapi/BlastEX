@@ -407,3 +407,19 @@ def test_long_readiness_remarks_stay_in_the_box(context):
     assert "".join(remarks[:200].split()) in text
     # Условия готовности над рамкой не перекрыты: текст условий читается целиком.
     assert "Забоечныйматериалзавезённаблоквтребуемомобъёме" in text
+
+
+def test_naryad_material_rows_grow_with_block_distribution(context):
+    from reportlab.lib.units import mm
+
+    from design.reporting.mass_blast.layers import _naryad_materials
+
+    revision = _layer_revision(context, "NARYAD")
+    block = revision["seed"]["blocks"][0]
+    revision["seed"]["blocks"] = [{**block, "code": f"Б{n}"} for n in range(1, 8)]
+    table = _naryad_materials(revision, frame.frame_width(True))[1]
+    lines = len(revision["view"]["lines"])
+    material_rows = table._argH[2:2 + lines]
+    assert all(height > 4.4 * mm for height in material_rows)
+    text = _text(_pages(render_layer_document(revision))[0])
+    assert all(f"Блок Б{n}" in text for n in range(1, 8))

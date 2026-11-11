@@ -338,13 +338,14 @@ def _naryad_materials(revision: Mapping[str, Any], width: float) -> list:
             cell(index, "td_c"), cell(line.get("name")), "", "", "", cell(line.get("unit"), "td_c"),
             cell(num(unit_mass, 3) if unit_mass is not None else "", "td_c"),
             cell(num(line.get("issue_qty"), 0), "td_bc"),
-            cell(num(line.get("issue_kg"), 0) if line.get("issue_kg") is not None else "", "td_c"),
+            # Килограммы — как в ревизии (0,9 кг × 2 = 1,8 кг), без округления до целых.
+            cell(short(line.get("issue_kg"), 3) if line.get("issue_kg") is not None else "", "td_c"),
             "", "", "", "", cell(returned, "td_c"), cell(returned, "td_c"), cell(distribution), "",
         ])
     rows.append([cell(len(lines) + 1, "td_c")] + [""] * 16)
     first_total = len(rows)
     rows.append([cell("Итого ВВ, кг", "td_br"), "", "", "", "", "", "", "",
-                 cell(num(totals.get("explosive_issue_kg"), 0), "td_bc")] + [""] * 8)
+                 cell(short(totals.get("explosive_issue_kg"), 3), "td_bc")] + [""] * 8)
     rows.append([cell("Итого средства инициирования, шт", "td_br"), "", "", "", "", "", "",
                  cell(num(totals.get("initiation_issue_pcs"), 0), "td_bc"), ""] + [""] * 8)
     style += [("SPAN", (0, first_total), (6, first_total)), ("SPAN", (0, first_total + 1), (6, first_total + 1)),

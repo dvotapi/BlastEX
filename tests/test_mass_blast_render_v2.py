@@ -335,3 +335,43 @@ def test_naryad_prints_every_block(context):
 def test_acceptance_appendix_from_payload(context):
     revision = _layer_revision(context, "ACCEPTANCE_ACT", {"appendix_no": "7"})
     assert "Приложение № 7" in _text(_pages(render_layer_document(revision))[0])
+
+
+def test_naryad_keeps_fractional_kilograms(context):
+    revision = _layer_revision(context, "NARYAD")
+    primer = next(line for line in revision["view"]["lines"] if line["kind"] == "primer")
+    primer.update(unit_mass_kg=0.9, issue_qty=2.0, issue_kg=1.8)
+    text = _text(_pages(render_layer_document(revision))[0])
+    assert "1,8" in text and "0,900" in text
+
+
+def test_long_common_note_keeps_63_rows_on_first_page(context):
+    data = copy.deepcopy(context)
+    data["blocks_v2"][0]["parameter_table"]["common_note"] = "отсев; " * 80
+    pages = _pages(render_project_document(data, "parameter-table"))
+    assert len(pages) == 3
+    first, second = _text(pages[0]), _text(pages[1])
+    assert "общее для всех скважин: см. под таблицей" in first
+    assert "№ скв." in second   # заголовок таблицы — на каждой странице
+    assert "Общее для всех скважин: отсев" in _text(pages[2])
+
+
+def test_package_names_are_unique_for_blocks_with_one_code(context):
+    data = copy.deepcopy(context)
+    data["blocks"] = data["blocks"] * 2
+    data["blocks_v2"] = data["blocks_v2"] * 2
+    archive = zipfile.ZipFile(io.BytesIO(render_package(data, [], manifest={})))
+    names = archive.namelist()
+    assert len(names) == len(set(names))
+    assert sum(1 for name in names if name.startswith("02_")) == 2
+
+
+def test_objects_table_prints_the_governing_factor(context):
+    data = copy.deepcopy(context)
+    section = next(s for s in data["blocks_v2"][0]["technical_calculation"] if s["number"] == "17")
+    section["objects"] = [{
+        "name": "ЛЭП 6 кВ", "kind": "structures", "kind_label": "сооружения", "factor": "сейсмика",
+        "distance_m": 420.0, "required_m": 500.0, "position": "В ЗОНЕ",
+    }]
+    text = "".join(_text(_pages(render_project_document(data, "technical-calculation"))[1]).split())
+    assert "ЛЭП6кВ" in text and "сооружения" in text and "сейсмика" in text and "ВЗОНЕ" in text

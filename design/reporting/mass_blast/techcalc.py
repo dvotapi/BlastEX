@@ -171,24 +171,27 @@ def _consumption(section: Mapping[str, Any], width: float) -> Table:
 
 
 def _objects(section: Mapping[str, Any], width: float) -> Table:
+    """Охраняемые объекты: тип объекта и определяющий фактор (`factor`) — раздельно."""
+
     objects = list(section.get("objects") or [])
-    rows = [[cell(h, "th") for h in ("Охраняемый объект", "Фактор", "Расстояние, м", "Безопасное, м", "Положение")]]
+    heads = ("Охраняемый объект", "Тип", "Определяющий фактор", "Расстояние, м", "Безопасное, м", "Положение")
+    rows = [[cell(h, "th") for h in heads]]
     style_extra: list[tuple] = []
     for index, item in enumerate(objects, start=1):
         inside = text(item.get("position")) == "В ЗОНЕ"
         rows.append([
-            cell(item.get("name")), cell(item.get("kind_label") or item.get("kind"), "td_c"),
+            cell(item.get("name")), cell(item.get("kind_label") or item.get("kind"), "td_c"), cell(item.get("factor"), "td_c"),
             cell(num(item.get("distance_m"), 0), "td_c"), cell(num(item.get("required_m"), 0), "td_c"),
             cell(item.get("position"), "td_red" if inside else "td_bc"),
         ])
         if inside:
-            style_extra.append(("BACKGROUND", (4, index), (4, index), "#FCEDEE"))
+            style_extra.append(("BACKGROUND", (5, index), (5, index), "#FCEDEE"))
     # Пустые строки для дописывания, как в эталоне (не меньше трёх строк таблицы).
-    for _ in range(max(0, 3 - len(objects))):
-        rows.append(["", "", "", "", ""])
-    widths = [width * 0.34, width * 0.2, width * 0.15, width * 0.16]
+    blank = max(0, 3 - len(objects))
+    rows += [[""] * len(heads) for _ in range(blank)]
+    widths = [width * 0.3, width * 0.13, width * 0.17, width * 0.13, width * 0.13]
     widths.append(width - sum(widths))
-    table = Table(rows, colWidths=widths, rowHeights=[None] + [None] * len(objects) + [4.2 * mm] * max(0, 3 - len(objects)))
+    table = Table(rows, colWidths=widths, rowHeights=[None] + [None] * len(objects) + [4.2 * mm] * blank)
     table.setStyle(TableStyle(grid_style(rows=len(rows) - 1, padding=1) + style_extra))
     return table
 

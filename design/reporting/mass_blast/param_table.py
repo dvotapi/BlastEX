@@ -19,7 +19,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.platypus import PageBreak, Paragraph, Table, TableStyle
 
 from design.reporting.brand import FONT, FONT_BOLD, GRAPHITE, LINE, RED, ZEBRA
-from design.reporting.mass_blast.common import DASH, cell, date, num, p, person_line, rich, short, spacer, text
+from design.reporting.mass_blast.common import DASH, S, cell, date, num, p, person_line, rich, short, spacer, text
 from design.reporting.mass_blast.frame import Margins
 
 FIRST_PAGE_ROWS = 63
@@ -197,7 +197,10 @@ def _page_table(
     return table
 
 
-def _summary_line(context: Mapping[str, Any], block: Mapping[str, Any]) -> str:
+SUMMARY_MAX_LINES = 2   # строка «Объект; ВВ; P; ПД; f; общее…» над таблицей — не выше двух строк
+
+
+def _summary_line(context: Mapping[str, Any], block: Mapping[str, Any], *, common: bool = True) -> str:
     project = context.get("project") or {}
     consumption = list((block.get("consumption") or []))
     explosives = ", ".join(dict.fromkeys(text(line.get("name")) for line in consumption if line.get("kind") == "explosive"))
@@ -207,14 +210,15 @@ def _summary_line(context: Mapping[str, Any], block: Mapping[str, Any]) -> str:
         None,
     )
     hardness = ((block.get("safety") or {}).get("params") or {}).get("hardness_f")
-    common = text((block.get("parameter_table") or {}).get("common_note"))
+    common_note = text((block.get("parameter_table") or {}).get("common_note"))
     parts = [
         f"Объект: {text(project.get('object_name'))}" if text(project.get("object_name")) else "",
         f"ВВ: {explosives}" if explosives else "",
         f"P = {short(p_kg_m, 2)} кг/м" if p_kg_m else "",
         f"ПД: {primers}" if primers else "",
         f"f = {short(hardness, 1)}" if hardness is not None else "",
-        f"общее для всех скважин: {common}" if common else "",
+        (f"общее для всех скважин: {common_note}" if common else "общее для всех скважин: см. под таблицей")
+        if common_note else "",
     ]
     return ";  ".join(part for part in parts if part)
 
@@ -239,7 +243,14 @@ def table_story(context: Mapping[str, Any], block_index: int, width: float) -> l
     head = Table([[p(title, "doc_red"), p("", "grey_r", markup=when)]], colWidths=[width * 0.68, width * 0.32])
     head.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
                               ("VALIGN", (0, 0), (-1, -1), "BOTTOM"), ("BOTTOMPADDING", (0, 0), (-1, -1), 1)]))
-    story: list = [head, p(_summary_line(context, block), "note"), spacer(1)]
+    # Строка шапки не выше двух строк: длинное общее примечание — под таблицей,
+    # иначе первая страница не вместит 63 скважины.
+    summary = p(_summary_line(context, block), "note")
+    common_below = False
+    if summary.wrap(width, 1000)[1] > SUMMARY_MAX_LINES * S["note"].leading + 0.5:
+        summary = p(_summary_line(context, block, common=False), "note")
+        common_below = True
+    story: list = [head, summary, spacer(1)]
     pages = paginate(len(rows))
     overflow: list[tuple[str, str]] = []
     for number, (start, end) in enumerate(pages):
@@ -263,6 +274,8 @@ def table_story(context: Mapping[str, Any], block_index: int, width: float) -> l
         ("VALIGN", (0, 0), (-1, -1), "BOTTOM"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
     ]))
     story += [spacer(1), p(NOTE_TEXT.format(round_kg=round_kg), "small")]
+    if common_below:
+        story.append(p(f"Общее для всех скважин: {text(table.get('common_note'))}.", "small"))
     if overflow:
         full = "; ".join(f"№ {hole} — {note}" for hole, note in overflow)
         story.append(p(f"* Примечания к скважинам полностью: {full}.", "small"))

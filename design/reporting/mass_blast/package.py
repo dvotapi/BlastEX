@@ -29,6 +29,21 @@ def _file_name(number: str, label: str, suffix: str = "") -> str:
     return f"{number}_{name}{suffix}.pdf"
 
 
+def _unique_names(entries: list[tuple[str, bytes]]) -> list[tuple[str, bytes]]:
+    """Одинаковые имена (два блока с одним кодом на разных горизонтах) — с номером:
+    иначе при распаковке второй файл затрёт первый."""
+
+    seen: dict[str, int] = {}
+    result: list[tuple[str, bytes]] = []
+    for name, data in entries:
+        seen[name] = seen.get(name, 0) + 1
+        if seen[name] > 1:
+            stem = name[: -len(".pdf")] if name.endswith(".pdf") else name
+            name = f"{stem}_{seen[name]}.pdf"
+        result.append((name, data))
+    return result
+
+
 def ordered_layers(layers: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
     """Ревизии слоёв в порядке комплекта; внутри вида — как пришли (по дате создания)."""
 
@@ -61,6 +76,7 @@ def render_package(
         suffix = f"_{seen[kind]}" if sum(1 for other in layer_items if other.get("kind") == kind) > 1 else ""
         label = LAYER_DOCUMENTS[kind][0]
         entries.append((_file_name(LAYER_NUMBERS[kind], label, suffix), frame.render([part], title=label, duplex=False)))
+    entries = _unique_names(entries)
     files = [{"name": name, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)} for name, data in entries]
     document = {**dict(manifest), "files": files}
     entries.append(("manifest.json", json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8")))

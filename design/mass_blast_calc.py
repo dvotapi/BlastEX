@@ -205,30 +205,42 @@ def _downhole_connector(
 ) -> tuple[str, str, float | None]:
     """Вид, марка и замедление скважинного инициатора ПД.
 
-    Вид — коннектора (`downhole_nsi`, `electronic`, `detonating_cord`), без
-    коннектора — по системе сети. В расход НСИ идёт только `downhole_nsi`;
-    шнур — отдельной строкой ДШ (следующая версия).
-
-    Порядок: коннектор этого ПД; коннектор деки, в которой ПД стоит; общий
-    коннектор скважины (у единственного ПД — любой без номера ПД); иначе
-    замедление из старого словаря сети без марки.
+    Вид — у коннектора (`downhole_nsi`, `electronic`, `detonating_cord`),
+    иначе у назначенного детонатора (`network.detonators`), иначе по системе
+    сети. В расход НСИ идёт только `downhole_nsi`; шнур — отдельной строкой ДШ
+    (следующая версия). Марка — коннектора, иначе детонатора.
     """
 
-    match = next((item for item in own if item.primer_index == primer_index), None)
-    if match is None:
-        deck = _deck_of(load, primer.position_m)
-        if deck is not None:
-            match = next((item for item in own if item.primer_index is None and item.deck_index == deck), None)
-    if match is None:
-        match = next((item for item in own if item.primer_index is None and item.deck_index is None), None)
-    if match is None and primer_count == 1:
-        match = next((item for item in own if item.primer_index is None), None)
-    if match is not None:
-        return match.kind, match.product, float(match.delay_ms)
+    deck = _deck_of(load, primer.position_m)
+    connector = _assigned(own, primer_index, deck, primer_count)
+    detonators = [item for item in design.network.detonators if item.hole_id == load.hole_id]
+    detonator = _assigned(detonators, primer_index, deck, primer_count)
+    if connector is not None:
+        product = connector.product or (detonator.product if detonator else "")
+        return connector.kind, product, float(connector.delay_ms)
+    if detonator is not None:
+        kind = detonator.kind if detonator.kind in ("electronic", "detonating_cord") else "downhole_nsi"
+        return kind, detonator.product, float(detonator.delay_ms)
     delay = design.network.downhole_delay_ms.get(load.hole_id)
     system = design.network.system
     kind = "electronic" if system == "electronic" else "detonating_cord" if system == "detcord" else "downhole_nsi"
     return kind, "", None if delay is None else float(delay)
+
+
+def _assigned(items: list[Any], primer_index: int, deck: int | None, primer_count: int) -> Any:
+    """Назначение ПД (коннектор или детонатор): своё; деки, где ПД стоит; скважины.
+
+    У единственного ПД годится любое назначение без номера ПД.
+    """
+
+    match = next((item for item in items if item.primer_index == primer_index), None)
+    if match is None and deck is not None:
+        match = next((item for item in items if item.primer_index is None and item.deck_index == deck), None)
+    if match is None:
+        match = next((item for item in items if item.primer_index is None and item.deck_index is None), None)
+    if match is None and primer_count == 1:
+        match = next((item for item in items if item.primer_index is None), None)
+    return match
 
 
 def _deck_of(load: HoleLoad, position_m: float) -> int | None:

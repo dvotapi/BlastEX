@@ -200,3 +200,21 @@ def test_electronic_downhole_is_not_nonel() -> None:
     # Без коннекторов вид берётся по системе сети.
     design.network.downhole_connectors = []
     assert _by_kind(explosives_consumption(design, MATERIAL_ROWS), "nsi_downhole") == []
+
+
+def test_electronic_detonator_product_is_kept() -> None:
+    """Марка электронного детонатора задана назначением `network.detonators`, а не коннектором."""
+
+    from design.models import Detonator
+
+    design = _design()
+    design.network.system = "electronic"
+    design.network.downhole_connectors = []
+    design.network.detonators = [
+        Detonator(id=f"d{h}", hole_id=h, product="DaveyTronic", kind="electronic") for h in ("1", "2", "3")
+    ]
+    materials = MATERIAL_ROWS + [{"code": "MAT_EDET", "name": "DaveyTronic", "payload": {"nomenclature_role": "DETONATOR_ELECTRIC"}}]
+    electronic = _by_kind(explosives_consumption(design, materials), "detonator_electronic")
+    assert [(line.name, line.quantity, line.material_code, line.warning) for line in electronic] == [
+        ("DaveyTronic", 4.0, "MAT_EDET", "")
+    ]

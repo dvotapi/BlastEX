@@ -54,10 +54,11 @@ def _point_value(value: Any) -> Any:
     if isinstance(value, Mapping):
         cells = [
             p(date_short(value.get("from_date")), "bold"), p(date_short(value.get("to_date")), "bold"),
-            p(text(value.get("shift_from")), "bold"),
+            # Смена заряжания — оба края («10:00–17:00»), отдельно от срока в день взрыва.
+            p("–".join(filter(None, (text(value.get("shift_from")), text(value.get("shift_to"))))), "bold"),
             p("", markup=f'<font color="{RED_HEX}"><b>{rich(value.get("blast_day_until"))}</b></font>'),
         ]
-        table = Table([cells], colWidths=[20 * mm, 20 * mm, 16 * mm, 16 * mm])
+        table = Table([cells], colWidths=[18 * mm, 18 * mm, 24 * mm, 16 * mm])
         table.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("TOPPADDING", (0, 0), (-1, -1), 0),
                                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0)]))
         return table

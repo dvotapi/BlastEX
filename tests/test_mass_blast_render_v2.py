@@ -375,3 +375,16 @@ def test_objects_table_prints_the_governing_factor(context):
     }]
     text = "".join(_text(_pages(render_project_document(data, "technical-calculation"))[1]).split())
     assert "ЛЭП6кВ" in text and "сооружения" in text and "сейсмика" in text and "ВЗОНЕ" in text
+
+
+def test_naryad_prints_warehouse_permit_and_transport(context):
+    payload = {"warehouse": "Склад ВМ № 2", "permit": "Разрешение № 17-ВР от 01.10.2026", "vehicle": "Урал 4320 А123ВС",
+               "driver": "Сидоров П.П."}
+    text = "".join(_text(_pages(render_layer_document(_layer_revision(context, "NARYAD", payload)))[0]).split())
+    for value in payload.values():
+        assert "".join(value.split()) in text
+
+
+def test_schedule_prints_both_shift_boundaries(context):
+    text = "".join(_text(_pages(render_project_document(context, "schedule"))[0]).split())
+    assert "10:00–17:00" in text and "12:00" in text

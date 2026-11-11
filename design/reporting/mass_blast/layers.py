@@ -271,13 +271,18 @@ def _info_grid(revision: Mapping[str, Any], width: float) -> Table:
          num(totals.get("blocks_holes"), 0), "Масса зарядов (проект), кг", num(totals.get("blocks_charge_kg"), 0)),
         ("Взрывник (Ф. И. О.)", person_line(people.get("blaster")), "Индивид. индекс взрывника", text(payload.get("blaster_index")),
          "Зав. складом / раздатчик", person_line(people.get("storekeeper"))),
+        ("Склад выдачи ВМ", text(payload.get("warehouse")), "Спецавтомобиль", text(payload.get("vehicle")),
+         "Водитель", text(payload.get("driver"))),
+        ("Разрешение на ведение ВР", text(payload.get("permit")), "", "", "", ""),
     ]
     data = [[cell(a, "td"), cell(b, "td_b"), cell(c, "td"), cell(d, "td_b"), cell(e, "td"), cell(f, "td_b")] for a, b, c, d, e, f in rows]
     w = width / 3
     table = Table(data, colWidths=[w * 0.38, w * 0.62] * 3)
     style = [("GRID", (0, 0), (-1, -1), 0.4, LINE), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
              ("TOPPADDING", (0, 0), (-1, -1), 1), ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
-             ("LEFTPADDING", (0, 0), (-1, -1), 2)]
+             ("LEFTPADDING", (0, 0), (-1, -1), 2),
+             # Разрешение на ведение ВР — длинное: на всю строку.
+             ("SPAN", (1, len(rows) - 1), (5, len(rows) - 1))]
     table.setStyle(TableStyle(style))
     return table
 

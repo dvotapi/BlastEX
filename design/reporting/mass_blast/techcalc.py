@@ -22,6 +22,7 @@ from design.reporting.mass_blast.common import (
     num,
     p,
     rich,
+    short,
     signature_row,
     spacer,
     text,
@@ -160,7 +161,9 @@ def _consumption(section: Mapping[str, Any], width: float) -> Table:
         digits = 0
         mass = line.get("mass_kg")
         rows.append([
-            cell(line.get("item"), "td_red"), cell(line.get("name")),
+            cell(line.get("item"), "td_red"),
+            cell(f"{text(line.get('name'))}, {short(line.get('delay_ms'), 1)} мс" if line.get("delay_ms") is not None
+                 else line.get("name")),
             cell(num(quantity, digits) if quantity is not None else DASH, "td_bc"),
             cell(line.get("unit"), "td_c"), cell(num(mass, 1) if mass is not None else DASH, "td_r"),
         ])

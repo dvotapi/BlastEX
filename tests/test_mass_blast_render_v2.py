@@ -388,3 +388,22 @@ def test_naryad_prints_warehouse_permit_and_transport(context):
 def test_schedule_prints_both_shift_boundaries(context):
     text = "".join(_text(_pages(render_project_document(context, "schedule"))[0]).split())
     assert "10:00–17:00" in text and "12:00" in text
+
+
+def test_naryad_and_consumption_show_delays(context):
+    revision = _layer_revision(context, "NARYAD")
+    surface = next(line for line in revision["view"]["lines"] if line["kind"] == "nsi_surface")
+    text = _text(_pages(render_layer_document(revision))[0])
+    assert f"{surface['name']}, {int(surface['delay_ms'])} мс" in text
+    techcalc = _text(_pages(render_project_document(context, "technical-calculation"))[0])
+    assert f"{surface['name']}, {int(surface['delay_ms'])} мс" in techcalc
+
+
+def test_long_readiness_remarks_stay_in_the_box(context):
+    remarks = "Бровка у скважин 11–16 подработана, требуется зачистка экскаватором. " * 14
+    revision = _layer_revision(context, "READINESS_ACT", {"remarks": remarks[:1000]})
+    pages = _pages(render_layer_document(revision))
+    text = "".join("".join(_text(page).split()) for page in pages)
+    assert "".join(remarks[:200].split()) in text
+    # Условия готовности над рамкой не перекрыты: текст условий читается целиком.
+    assert "Забоечныйматериалзавезённаблоквтребуемомобъёме" in text

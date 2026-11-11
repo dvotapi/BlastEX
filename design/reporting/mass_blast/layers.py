@@ -97,14 +97,29 @@ def _date_words(value: str) -> str:
 
 
 def _write_in(width: float, height: float = 6 * mm, value: str = "", style: str = "bold") -> Table:
-    """Белая клетка с рамкой для записи от руки (заполненная — со значением)."""
+    """Белая клетка с рамкой для записи от руки; заполненная растёт по тексту
+    (не меньше `height`), чтобы длинный текст не вылезал за рамку."""
 
-    table = Table([[p(value, style) if value else ""]], colWidths=[width], rowHeights=[height])
+    content: Any = ""
+    row_height = height
+    if value:
+        content = p(value, style)
+        row_height = max(height, content.wrap(width - 6, 10_000)[1] + 4)
+    table = Table([[content]], colWidths=[width], rowHeights=[row_height])
     table.setStyle(TableStyle([
         ("BOX", (0, 0), (-1, -1), 0.6, GRAPHITE), ("BACKGROUND", (0, 0), (-1, -1), white),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 3),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
     ]))
     return table
+
+
+def material_name(line: Mapping[str, Any]) -> str:
+    """Наименование ВМ с замедлением (НСИ одной марки бывают с разными замедлениями)."""
+
+    name = text(line.get("name"))
+    delay = line.get("delay_ms")
+    return f"{name}, {short(delay, 1)} мс" if delay is not None else name
 
 
 def _sign(width: float, label: str, who: str, caption: str = "должность, фамилия, инициалы") -> Table:
@@ -340,7 +355,7 @@ def _naryad_materials(revision: Mapping[str, Any], width: float) -> list:
         returned = "—" if explosive and vv_site else ""
         distribution = "; ".join(f"Блок {code} — ____ {text(line.get('unit'))}" for code in codes) or ""
         rows.append([
-            cell(index, "td_c"), cell(line.get("name")), "", "", "", cell(line.get("unit"), "td_c"),
+            cell(index, "td_c"), cell(material_name(line)), "", "", "", cell(line.get("unit"), "td_c"),
             cell(num(unit_mass, 3) if unit_mass is not None else "", "td_c"),
             cell(num(line.get("issue_qty"), 0), "td_bc"),
             # Килограммы — как в ревизии (0,9 кг × 2 = 1,8 кг), без округления до целых.

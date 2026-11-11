@@ -105,7 +105,9 @@ def _construction_groups(design: BlastDesign, table_rows: Sequence[Mapping[str, 
     by_key: dict[tuple, list[str]] = {}
     for row in table_rows:
         load = loads.get(row["hole_id"])
-        if load is None or not any(is_explosive_deck_kind(deck.kind) for deck in load.decks):
+        # Конструкция — у заряженной скважины: взрывчатая дека с нулевой массой
+        # зарядом не считается (забойки у такой скважины в таблице нет).
+        if load is None or row["stemming_m"] is None:
             continue
         ordered = sorted(load.decks, key=lambda deck: min(deck.from_m, deck.to_m))
         key = tuple((deck.kind, deck.product or deck.explosive_key if is_explosive_deck_kind(deck.kind) else "") for deck in ordered)
@@ -128,7 +130,7 @@ def _construction_groups(design: BlastDesign, table_rows: Sequence[Mapping[str, 
                 "decks": [kind for kind, _ in key],
                 "products": sorted({product for _, product in key if product}),
                 "depth_mean_m": round(sum(lengths) / len(lengths), 1),
-                "bench_height_mean_m": round(sum(l - s for l, s in zip(lengths, subdrills)) / len(ids), 1),
+                "bench_height_mean_m": round(sum(holes[i].bench_height_m for i in ids) / len(ids), 1),
                 "subdrill_mean_m": round(sum(subdrills) / len(subdrills), 1),
                 "stemming_mean_m": round(sum(stems) / len(stems), 1),
                 "stemming_min_m": round(stem_min, 1),

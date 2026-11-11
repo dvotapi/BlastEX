@@ -286,3 +286,23 @@ def test_construction_charge_length_excludes_gaps():
     context, _ = build(design)
     section = next(item for item in context["blocks_v2"][0]["technical_calculation"] if item["number"] == "7")
     assert section["constructions"][0]["charge_length_mean_m"] == 6.0
+
+
+def test_zero_mass_charge_is_not_a_construction():
+    design = grid_design()
+    for deck in design.loads[0].decks:
+        deck.mass_kg = 0.0
+    context, issues = build(design)
+    section = next(item for item in context["blocks_v2"][0]["technical_calculation"] if item["number"] == "7")
+    assert section["constructions"][0]["hole_count"] == 17
+    assert "holes_not_charged" in codes(issues, "warning")
+
+
+def test_construction_bench_height_is_vertical():
+    design = grid_design()
+    for hole in design.holes:
+        hole.toe = type(hole.toe)(hole.toe.x + 8.0, hole.toe.y, hole.toe.z)
+    context, _ = build(design)
+    section = next(item for item in context["blocks_v2"][0]["technical_calculation"] if item["number"] == "7")
+    table = context["blocks_v2"][0]["parameter_table"]["rows"]
+    assert section["constructions"][0]["bench_height_mean_m"] == pytest.approx(table[0]["bench_height_m"], abs=0.05)

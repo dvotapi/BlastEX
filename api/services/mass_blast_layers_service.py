@@ -256,9 +256,11 @@ def refresh_layer(
     addressee = layer["seed"].get("addressee") or None
     if layer["kind"] == "NOTIFICATION" and layer["payload"].get("notification_code"):
         try:
-            addressee, _ = _notification(snapshot, context, layer["payload"])
+            found, _ = _notification(snapshot, context, layer["payload"])
         except ValueError:
-            pass  # адресата убрали из справочника — остаётся прежний
+            found = None
+        # Адресата убрали из справочника или справочник не прочитан — остаётся прежний.
+        addressee = found or addressee
     new_seed = layer_seed(layer["kind"], context, notification=addressee)
     changes = seed_diff(layer["seed"], new_seed)
     if revision["id"] != layer["project_revision_id"]:

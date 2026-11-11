@@ -247,3 +247,13 @@ def test_list_shows_each_layer_by_its_own_revision(context66_v2):
     listed = service.list_layers(repository, economics, ORG, "p1")[0]
     single = service.get_layer(repository, economics, ORG, layer["id"])
     assert listed["view"] == single["view"] and listed["stale"] is True
+
+
+def test_refresh_keeps_the_addressee_when_the_registry_is_gone(context66_v2):
+    repository = _Repository(context66_v2)
+    economics = _economics(notifications=[("RTN", {"recipient_position": "Ростехнадзор"})])
+    layer = service.create_layer(repository, economics, ORG, "user", "p1", "NOTIFICATION", {"notification_code": "RTN"})
+    repository.reissue_project(context66(payload=payload66(blast_time="14:00")))
+    applied = service.refresh_layer(repository, _economics(), ORG, "user", layer["id"], layer["version"], confirm=True)
+    assert applied["layer"]["seed"]["addressee"]["recipient_position"] == "Ростехнадзор"
+    assert "notification_addressee_missing" not in {issue["code"] for issue in applied["layer"]["issues"]}

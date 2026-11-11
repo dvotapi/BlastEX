@@ -218,3 +218,9 @@ def test_electronic_detonator_product_is_kept() -> None:
     assert [(line.name, line.quantity, line.material_code, line.warning) for line in electronic] == [
         ("DaveyTronic", 4.0, "MAT_EDET", "")
     ]
+
+
+def test_electronic_timing_seeds_are_not_starters() -> None:
+    design = _design()
+    design.network.system = "electronic"
+    assert _by_kind(explosives_consumption(design, MATERIAL_ROWS), "starter") == []

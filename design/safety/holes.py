@@ -9,7 +9,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping
 
-from design.editing import local_spacing, previous_row_distance, row_index
+import math
+
+from design.editing import local_spacing, previous_row_holes, row_index
 from design.models import (
     BlastDesign,
     Deck,
@@ -37,7 +39,7 @@ class SafetyHole:
     free_length_m: float     # l_св — свободная от заряда верхняя часть
     charge_kg: float         # масса ВВ по декам
     spacing_m: float | None  # между скважинами в ряду
-    row_step_m: float | None  # между рядами; у первого ряда нет (ЛСПП — не «между рядами»)
+    row_step_m: float | None  # между рядами поперёк ряда; у первого ряда нет (ЛСПП — не «между рядами»)
     primer_count: int
     primer_kg: float
 
@@ -186,12 +188,53 @@ def safety_holes(
                 free_length_m=_free_length(decks),
                 charge_kg=charge_kg,
                 spacing_m=local_spacing(same_row[hole.row], hole),
-                row_step_m=previous_row_distance(rows, hole),
+                row_step_m=_row_step(rows, same_row[hole.row], hole),
                 primer_count=len(primers),
                 primer_kg=primer_kg,
             )
         )
     return holes, uncharged, sorted(set(no_mass))
+
+
+# Соседи предыдущего ряда для шага между рядами: не дальше этой доли от ближайшего.
+_ROW_NEIGHBOUR_SPREAD = 1.5
+
+
+def _row_step(rows: dict, row_mates: list[Hole], hole: Hole) -> float | None:
+    """Шаг между рядами у скважины — поперёк ряда, а не диагональ до соседа.
+
+    На шахматной сетке ближайшая скважина ряда позади стоит наискосок, и
+    расстояние до неё больше шага рядов: a формулы (1) вышло бы завышенным,
+    а разлёт — заниженным. Направление ряда — на ближайшую соседку в своём
+    ряду (как `editing.previous_row_step`, но без направления продвижения
+    сетки: годится и для проекта без параметров сетки); соседки нет —
+    расстояние до ближайшей скважины ряда позади.
+    """
+
+    others = previous_row_holes(rows, hole)
+    if not others:
+        return None
+    distances = [math.hypot(o.collar.x - hole.collar.x, o.collar.y - hole.collar.y) for o in others]
+    nearest = min(distances)
+    mates = [o for o in row_mates if o is not hole]
+    if not mates:
+        return nearest
+    mate = min(mates, key=lambda o: math.hypot(o.collar.x - hole.collar.x, o.collar.y - hole.collar.y))
+    dx, dy = mate.collar.x - hole.collar.x, mate.collar.y - hole.collar.y
+    length = math.hypot(dx, dy)
+    if length <= 0:
+        return nearest
+    ux, uy = dx / length, dy / length
+    # Скважина «ряда позади», стоящая почти на линии своего ряда (угол к ряду
+    # меньше 30°), шага между рядами не задаёт — ряды проекта не разложены.
+    steps = [
+        across
+        for o, distance in zip(others, distances)
+        if distance <= _ROW_NEIGHBOUR_SPREAD * nearest
+        for across in (abs((o.collar.x - hole.collar.x) * uy - (o.collar.y - hole.collar.y) * ux),)
+        if across >= 0.5 * distance
+    ]
+    return min(steps) if steps else nearest
 
 
 def _top_stemming(decks: list[Deck]) -> float:

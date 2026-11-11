@@ -166,7 +166,11 @@ def explosives_consumption(
     )
 
     # Как `timing._starter_seeds`: без объектов стартов — старый список скважин.
+    # У электронной сети старты — точки отсчёта тайминга, а не стартовые
+    # устройства НСИ: расходом они не считаются.
     starter_holes = [item.hole_id for item in design.network.starter_items] or list(design.network.starters)
+    if design.network.system == "electronic":
+        starter_holes = []
     starters = [hole_id for hole_id in starter_holes if hole_id in enabled]
     if starters:
         lines.append(_starter_line(len(starters), starter_product, index))

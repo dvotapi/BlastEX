@@ -282,3 +282,21 @@ def test_manual_values_respect_the_reference_limits() -> None:
     assert sum(issue.code == "manual_value_invalid" for issue in params.issues) == 3
     accepted = safety_params(SITE_SAFETY, {"hardness_f": 14}, overrides={"people_min_m": 250})
     assert accepted.people_min_m == 250 and accepted.source("people_min_m") == "MANUAL_OVERRIDE"
+
+
+def test_row_step_on_staggered_grid_is_perpendicular(params) -> None:
+    """Шахматка 4 × 3 м со сдвигом 2 м: a = 3 м (поперёк рядов), а не диагональ √13."""
+
+    from design.safety.holes import material_index, safety_holes
+
+    holes = [
+        Hole(id=f"{row}-{col}", row=row, col=col, collar=Point3(col * 4.0 + (2.0 if row % 2 else 0.0), row * 3.0, 10.0),
+             toe=Point3(col * 4.0 + (2.0 if row % 2 else 0.0), row * 3.0, 0.0), diameter_mm=144.0)
+        for row in range(3) for col in range(4)
+    ]
+    loads = apply_charge_rules(holes, {"stemming_m": 2.5}, EXPLOSIVE)
+    design = BlastDesign(design_id="stagger", holes=holes, loads=loads)
+    rows, _, _ = safety_holes(design, material_index(None))
+    steps = [hole.row_step_m for hole in rows if hole.row_step_m is not None]
+    assert len(steps) == 8 and steps == pytest.approx([3.0] * 8)
+    assert min(hole.distance_m for hole in rows) == pytest.approx(3.0)

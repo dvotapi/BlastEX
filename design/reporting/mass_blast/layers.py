@@ -244,7 +244,7 @@ def notification_story(revision: Mapping[str, Any], width: float) -> list:
             cell(1, "td_c"),
             cell("\n".join(filter(None, (customer, text(seed.get("customer_tech_contact")))))),
             cell(f"{date(project.get('blast_date'))}  {text(project.get('blast_time'))}\n{place}", "td_c"),
-            cell(f"{names}\n{num(seed.get('explosive_kg'), 0)}", "td_c"),
+            cell(f"{names}\n{kg_text(seed.get('explosive_kg'))}", "td_c"),
             cell(f"{diameters or DASH}\n{depths or DASH}", "td_c"),
             cell("; ".join(text(i) for i in seed.get("intervals") or []) or DASH, "td_c"),
         ],
@@ -366,7 +366,7 @@ def _naryad_materials(revision: Mapping[str, Any], width: float) -> list:
         rows.append([
             cell(index, "td_c"), cell(material_name(line)), "", "", "", cell(line.get("unit"), "td_c"),
             cell(num(unit_mass, 3) if unit_mass is not None else "", "td_c"),
-            cell(num(line.get("issue_qty"), 0), "td_bc"),
+            cell(kg_text(line.get("issue_qty")) if line.get("unit") == "кг" else num(line.get("issue_qty"), 0), "td_bc"),
             # Килограммы — как в ревизии (0,9 кг × 2 = 1,8 кг), без округления до целых.
             cell(kg_text(line.get("issue_kg")), "td_c"),
             "", "", "", "", cell(returned, "td_c"), cell(returned, "td_c"), cell(distribution), "",

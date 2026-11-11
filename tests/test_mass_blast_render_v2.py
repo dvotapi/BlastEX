@@ -458,3 +458,11 @@ def test_consumption_keeps_fractional_kilograms(context):
     line.update(quantity=60.4, mass_kg=60.4)
     text = _text(_pages(render_project_document(data, "technical-calculation"))[0])
     assert text.count("60,4") >= 2
+
+
+def test_naryad_keeps_fractional_kilogram_quantity(context):
+    revision = _layer_revision(context, "NARYAD")
+    explosive = next(line for line in revision["view"]["lines"] if line["kind"] == "explosive")
+    explosive.update(issue_qty=60.4, issue_kg=60.4, unit_mass_kg=1.0)
+    text = _text(_pages(render_layer_document(revision))[0])
+    assert text.count("60,4") >= 2

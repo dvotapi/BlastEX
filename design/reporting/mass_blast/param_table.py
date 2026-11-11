@@ -122,6 +122,7 @@ def _base_style(rows: int) -> list[tuple]:
 
 
 NOTE_FONT = 7.0
+NOTE_PREVIEW_CHARS = 60   # две строки узкой графы мелким шрифтом — заведомо меньше
 NOTE_SMALL = ParagraphStyle("mb_table_note", fontName=FONT, fontSize=4.8, leading=4.9, textColor=GRAPHITE)
 
 
@@ -136,7 +137,9 @@ def _note_cell(hole_id: str, note: str, width: float, overflow: list[tuple[str, 
     if paragraph.wrap(inner, ROW_H)[1] <= ROW_H - 1:
         return paragraph
     overflow.append((hole_id, note))
-    cut = note
+    # В графе — только начало (полный текст — под таблицей): потолок длины,
+    # чтобы подбор не перебирал тысячи знаков длинного примечания.
+    cut = note[:NOTE_PREVIEW_CHARS]
     while cut and Paragraph(rich(cut + "…*"), NOTE_SMALL).wrap(inner, ROW_H)[1] > ROW_H - 1:
         cut = cut[:-1]
     return Paragraph(rich(cut.rstrip() + "…*"), NOTE_SMALL)

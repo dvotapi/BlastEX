@@ -17,6 +17,7 @@ from fastapi import HTTPException, status
 from api import config
 from api.schemas.mass_blast import MassBlastProjectInputSchema
 from api.services.economics_service import get_economics_repository
+from api.services.mass_blast_v2 import V2_PAYLOAD_KEYS, context_v2
 from cost.auth import configured_users
 from cost.v2.repository import EconomicsRepository
 from design import persistence as design_persistence
@@ -31,6 +32,8 @@ from design.mass_blast import (
     normalize_account_email,
     validate_project_context,
 )
+from design.mass_blast_calc import MASS_BLAST_CALC_VERSION
+from design.mass_blast_context import CONTEXT_VERSION_V2, validate_project_context_v2
 from design.mass_blast_rendering import render_pdf, render_xlsx, render_zip
 from design.mass_blast_repository import (
     MassBlastConflictError,
@@ -96,11 +99,36 @@ def _bind_accounts(organization_id: str, responsibilities: list[dict[str, Any]])
         item["account_email"] = email
 
 
+def is_v2(payload: dict[str, Any]) -> bool:
+    return int(payload.get("context_version") or 1) == CONTEXT_VERSION_V2
+
+
+def _check_context_version(payload: MassBlastProjectInputSchema, current: dict[str, Any] | None) -> None:
+    """v2 — только при включённом флаге (новый проект или перевод черновика), и только вперёд."""
+
+    stored_v2 = current is not None and is_v2(current)
+    if payload.context_version == 2 and not stored_v2 and not config.mass_blast_v2_enabled():
+        raise ValueError("Проект по форме ВМ.09.03 (контекст v2) недоступен: модуль выключен.")
+    if payload.context_version == 1 and stored_v2:
+        raise ValueError("Проект уже переведён на форму ВМ.09.03 (контекст v2): обратно на v1 перевести нельзя.")
+
+
 def _payload_with_snapshots(organization_id: str, payload: MassBlastProjectInputSchema) -> dict[str, Any]:
     data = payload.model_dump(exclude={"expected_version"})
     _bind_accounts(organization_id, data["responsibilities"])
     blocks = _blocks_from_payload(organization_id, data)
-    data["blocks"] = [block.to_dict() for block in blocks]
+    if is_v2(data):
+        data["blocks"] = [
+            {**block.to_dict(), "details": item.get("details") or {}} for block, item in zip(blocks, data["blocks"])
+        ]
+    else:
+        # Payload проекта v1 — тот же, что до TASK-018: ключей v2 у него нет.
+        data["blocks"] = [block.to_dict() for block in blocks]
+        for key in V2_PAYLOAD_KEYS:
+            data.pop(key, None)
+        for item in payload.blocks:
+            if item.details is not None:
+                raise ValueError("Поля блока по форме ВМ.09.03 есть только у проекта v2.")
     return data
 
 
@@ -148,6 +176,7 @@ def create_project(
     actor: str,
     payload: MassBlastProjectInputSchema,
 ) -> dict[str, Any]:
+    _check_context_version(payload, None)
     stored = _payload_with_snapshots(organization_id, payload)
     stored["reference_revision_id"] = _resolve_reference_revision(
         economics_repository, organization_id, payload.reference_revision_id
@@ -165,6 +194,7 @@ def update_project(
 ) -> dict[str, Any]:
     if payload.expected_version is None:
         raise ValueError("Для сохранения требуется версия черновика.")
+    _check_context_version(payload, repository.get_project(organization_id, project_id))
     stored = _payload_with_snapshots(organization_id, payload)
     stored["reference_revision_id"] = _resolve_reference_revision(
         economics_repository, organization_id, payload.reference_revision_id
@@ -172,8 +202,43 @@ def update_project(
     return repository.update_project(organization_id, actor, project_id, stored, payload.expected_version)
 
 
-def validate_project(repository: PostgresMassBlastRepository, organization_id: str, project_id: str, *, require_attachments: bool = False) -> dict[str, Any]:
+def _validate_v2(
+    repository: PostgresMassBlastRepository,
+    economics_repository: EconomicsRepository,
+    organization_id: str,
+    project: dict[str, Any],
+    reference_revision_id: str | None,
+    *,
+    require_attachments: bool,
+) -> tuple[dict[str, Any], list[ValidationIssue], list[ProjectBlock]]:
+    _, blocks = _context_from_stored(project)
+    context, stale = context_v2(organization_id, project, blocks, economics_repository, reference_revision_id)
+    context["attachments"] = list(repository.list_draft_attachments(organization_id, project["id"]))
+    issues = validate_project_context_v2(context, require_attachments=require_attachments)
+    issues += [ValidationIssue("error", "stale_source", message, "blocks") for message in stale]
+    return context, issues, blocks
+
+
+def validate_project(
+    repository: PostgresMassBlastRepository,
+    organization_id: str,
+    project_id: str,
+    *,
+    require_attachments: bool = False,
+    economics_repository: EconomicsRepository | None = None,
+) -> dict[str, Any]:
     project = repository.get_project(organization_id, project_id)
+    if is_v2(project):
+        try:
+            context, issues, _ = _validate_v2(
+                repository, economics_repository or get_economics_repository(), organization_id, project,
+                project.get("reference_revision_id"), require_attachments=require_attachments,
+            )
+        except ValueError as exc:
+            # Проект блока удалён: без него расчёта v2 нет — показываем снимок и ошибку.
+            context, _ = _context_from_stored(project)
+            issues = [ValidationIssue("error", "stale_source", str(exc), "blocks")]
+        return {"valid": not has_blocking_issues(issues), "issues": [issue.to_dict() for issue in issues], "context": context}
     context, blocks = _context_from_stored(project)
     context["attachments"] = list(repository.list_draft_attachments(organization_id, project_id))
     issues = validate_project_context(context, require_attachments=require_attachments)
@@ -199,6 +264,22 @@ def create_revision(
         raise MassBlastConflictError("Проект изменён другим пользователем. Обновите данные перед выпуском ревизии.")
     # Учётку могли отключить после сохранения черновика: подписать за роль будет некому.
     _bind_accounts(organization_id, list(project.get("responsibilities") or []))
+    if is_v2(project):
+        reference_revision_id = _resolve_reference_revision(
+            economics_repository, organization_id, project.get("reference_revision_id")
+        )
+        context, issues, blocks = _validate_v2(
+            repository, economics_repository, organization_id, project, reference_revision_id,
+            require_attachments=require_attachments,
+        )
+        if has_blocking_issues(issues):
+            messages = "; ".join(issue.message for issue in issues if issue.level == "error")
+            raise ValueError(f"Ревизию нельзя выпустить: {messages}")
+        return repository.create_revision(
+            organization_id, actor, project_id, expected_version, reference_revision_id, context,
+            [block.to_dict() for block in blocks], MASS_BLAST_CALC_VERSION,
+            DOCUMENT_TEMPLATE_VERSION, content_sha256(context),
+        )
     context, blocks = _context_from_stored(project)
     context["attachments"] = list(repository.list_draft_attachments(organization_id, project_id))
     _assert_sources_current(organization_id, blocks)

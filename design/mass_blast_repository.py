@@ -169,6 +169,54 @@ class MassBlastApprovalRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class MassBlastLayerRow(Base):
+    """Слой дня взрыва (TASK-018, PR 2): наряд-путёвка, уведомление, акты, талон."""
+
+    __tablename__ = "mass_blast_layers"
+    __table_args__ = (Index("ix_mass_blast_layer_project", "project_id", "kind"), {"schema": SCHEMA})
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    organization_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    project_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey(f"{SCHEMA}.mass_blast_projects.id", ondelete="RESTRICT"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(40), nullable=False)
+    project_revision_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey(f"{SCHEMA}.mass_blast_project_revisions.id", ondelete="RESTRICT"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    current_revision_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    seed: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(320), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(320), nullable=False)
+
+
+class MassBlastLayerRevisionRow(Base):
+    __tablename__ = "mass_blast_layer_revisions"
+    __table_args__ = (
+        UniqueConstraint("layer_id", "revision_no", name="uq_mass_blast_layer_revision_no"),
+        Index("ix_mass_blast_layer_revision_layer", "layer_id", "revision_no"),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    layer_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey(f"{SCHEMA}.mass_blast_layers.id", ondelete="RESTRICT"), nullable=False
+    )
+    revision_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    project_revision_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey(f"{SCHEMA}.mass_blast_project_revisions.id", ondelete="RESTRICT"), nullable=False
+    )
+    context: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False)
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(320), nullable=False)
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc).replace(microsecond=0)
 
@@ -616,6 +664,143 @@ class PostgresMassBlastRepository:
             raise MassBlastConflictError(
                 f"{exc} Верните проект в черновик, назначьте учётки и выпустите ревизию заново."
             ) from exc
+
+    # --- слои дня взрыва (TASK-018, PR 2) ---------------------------------
+
+    @staticmethod
+    def _layer(row: MassBlastLayerRow, project_revision_id: str | None) -> dict[str, Any]:
+        return {
+            "id": row.id,
+            "project_id": row.project_id,
+            "kind": row.kind,
+            "project_revision_id": row.project_revision_id,
+            "status": row.status,
+            "version": row.version,
+            "current_revision_id": row.current_revision_id,
+            "seed": dict(row.seed or {}),
+            "payload": dict(row.payload or {}),
+            # Слой основан не на текущей ревизии проекта — данные проекта могли измениться.
+            "stale": project_revision_id is not None and row.project_revision_id != project_revision_id,
+            "created_at": row.created_at.isoformat(),
+            "created_by": row.created_by,
+            "updated_at": row.updated_at.isoformat(),
+            "updated_by": row.updated_by,
+        }
+
+    @staticmethod
+    def _layer_revision(row: MassBlastLayerRevisionRow) -> dict[str, Any]:
+        return {
+            "id": row.id,
+            "layer_id": row.layer_id,
+            "revision_no": row.revision_no,
+            "project_revision_id": row.project_revision_id,
+            "content_sha256": row.content_sha256,
+            "created_at": row.created_at.isoformat(),
+            "created_by": row.created_by,
+            "context": dict(row.context or {}),
+        }
+
+    def _layer_row(self, session: Session, organization_id: str, layer_id: str, *, lock: bool = False) -> MassBlastLayerRow:
+        query = select(MassBlastLayerRow).where(MassBlastLayerRow.id == layer_id)
+        row = session.scalar(query.with_for_update() if lock else query)
+        if row is None or row.organization_id != organization_id:
+            raise MassBlastNotFoundError(f"Слой проекта массового взрыва {layer_id} не найден.")
+        return row
+
+    def list_layers(self, organization_id: str, project_id: str) -> Sequence[dict[str, Any]]:
+        with self.session_factory() as session:
+            project = self._project_row(session, organization_id, project_id)
+            rows = session.scalars(
+                select(MassBlastLayerRow)
+                .where(MassBlastLayerRow.project_id == project_id)
+                .order_by(MassBlastLayerRow.kind, MassBlastLayerRow.created_at)
+            ).all()
+            return tuple(self._layer(row, project.current_revision_id) for row in rows)
+
+    def get_layer(self, organization_id: str, layer_id: str) -> dict[str, Any]:
+        with self.session_factory() as session:
+            row = self._layer_row(session, organization_id, layer_id)
+            project = session.get(MassBlastProjectRow, row.project_id)
+            return self._layer(row, project.current_revision_id if project else None)
+
+    def create_layer(
+        self, organization_id: str, actor: str, project_id: str, *, kind: str, project_revision_id: str,
+        allowed_statuses: set[str], single: bool, seed: dict[str, Any], payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        now = _now()
+        with self.session_factory() as session, session.begin():
+            project = session.scalar(
+                select(MassBlastProjectRow).where(MassBlastProjectRow.id == project_id).with_for_update()
+            )
+            if project is None or project.organization_id != organization_id:
+                raise MassBlastNotFoundError(f"Проект массового взрыва {project_id} не найден.")
+            if project.lifecycle_status not in allowed_statuses or project.current_revision_id != project_revision_id:
+                raise MassBlastConflictError("Проект изменился: обновите его и откройте слой заново.")
+            if single and session.scalar(
+                select(MassBlastLayerRow.id).where(MassBlastLayerRow.project_id == project_id, MassBlastLayerRow.kind == kind)
+            ):
+                raise MassBlastConflictError("Такой слой у проекта уже есть.")
+            row = MassBlastLayerRow(
+                id=str(uuid4()), organization_id=organization_id, project_id=project_id, kind=kind,
+                project_revision_id=project_revision_id, status="draft", version=1, current_revision_id=None,
+                seed=seed, payload=payload, created_at=now, created_by=actor, updated_at=now, updated_by=actor,
+            )
+            session.add(row)
+            self._audit(session, organization_id, actor, "CREATE_MASS_BLAST_LAYER", project_id, None, {"layer_id": row.id, "kind": kind}, now)
+        return self.get_layer(organization_id, row.id)
+
+    def update_layer(
+        self, organization_id: str, actor: str, layer_id: str, *, expected_version: int,
+        payload: dict[str, Any] | None = None, seed: dict[str, Any] | None = None, project_revision_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Правка введённого вручную или повторный перенос данных проекта (`seed`)."""
+
+        now = _now()
+        with self.session_factory() as session, session.begin():
+            row = self._layer_row(session, organization_id, layer_id, lock=True)
+            if row.version != expected_version:
+                raise MassBlastConflictError("Слой изменён другим пользователем. Обновите данные.")
+            before = {"version": row.version, "project_revision_id": row.project_revision_id}
+            if payload is not None:
+                row.payload = payload
+            if seed is not None:
+                row.seed = seed
+            if project_revision_id is not None:
+                row.project_revision_id = project_revision_id
+            row.version += 1
+            row.updated_at = now
+            row.updated_by = actor
+            self._audit(session, organization_id, actor, "UPDATE_MASS_BLAST_LAYER", row.project_id, before, {"layer_id": layer_id, "refresh": seed is not None}, now)
+        return self.get_layer(organization_id, layer_id)
+
+    def create_layer_revision(
+        self, organization_id: str, actor: str, layer_id: str, *, expected_version: int,
+        context: dict[str, Any], content_sha256: str,
+    ) -> dict[str, Any]:
+        now = _now()
+        with self.session_factory() as session, session.begin():
+            row = self._layer_row(session, organization_id, layer_id, lock=True)
+            if row.version != expected_version:
+                raise MassBlastConflictError("Слой изменён другим пользователем. Обновите данные перед выпуском.")
+            latest = session.scalar(
+                select(MassBlastLayerRevisionRow)
+                .where(MassBlastLayerRevisionRow.layer_id == layer_id)
+                .order_by(desc(MassBlastLayerRevisionRow.revision_no))
+                .limit(1)
+            )
+            revision = MassBlastLayerRevisionRow(
+                id=str(uuid4()), layer_id=layer_id, revision_no=(latest.revision_no + 1) if latest else 1,
+                project_revision_id=row.project_revision_id, context=context, content_sha256=content_sha256,
+                created_at=now, created_by=actor,
+            )
+            session.add(revision)
+            row.status = "issued"
+            row.current_revision_id = revision.id
+            row.version += 1
+            row.updated_at = now
+            row.updated_by = actor
+            self._audit(session, organization_id, actor, "ISSUE_MASS_BLAST_LAYER", row.project_id, None, {"layer_id": layer_id, "revision_id": revision.id}, now)
+            return self._layer_revision(revision)
 
     @staticmethod
     def _project_row(session: Session, organization_id: str, project_id: str) -> MassBlastProjectRow:

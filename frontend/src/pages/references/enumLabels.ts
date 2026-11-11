@@ -39,6 +39,13 @@ const ENUM_LABELS: Record<string, string> = {
   IX_PLUS: "IX группа и выше",
   VI_VIII: "VI–VIII группы",
   V_MINUS: "V группа и ниже",
+  // Уведомление о массовом взрыве (п. 154 ФНП 494)
+  LETTER: "Письмо",
+  EMAIL: "Электронная почта",
+  PHONEGRAM: "Телефонограмма",
+  FNP: "ФНП 494 п. 154",
+  CONTRACT: "Договор подряда",
+  CUSTOMER_RULES: "Регламент заказчика",
   // Техника
   DRILL_RIG: "Буровой станок",
   SZM: "СЗМ",

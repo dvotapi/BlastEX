@@ -28,6 +28,7 @@ from api.schemas.drilling_passport import (
 )
 from api.services.cad_service import active_work_object_name, get_cad_repository, resolve_site_code
 from api.services.cad_situation_service import source_situation
+from api.services.situation_layers import SITUATION_CACHE, design_situation, situation_refs
 from api.services.drilling_passport_prefill import drilling_condition, prefill, previous_of_site
 from cost.v2.repository import EconomicsRepository, EconomicsRepositoryError
 from design import persistence as design_persistence
@@ -56,7 +57,6 @@ from design.reporting.drill.coords_pdf import render_coords_pdf
 from design.reporting.drill.coords_xlsx import render_coords_xlsx
 from design.reporting.drill.pdf import render_passport_pdf
 from design.models import BlastDesign, BlockContour
-from design.spatial.cad.repository import CadSourceNotFound
 
 
 logger = logging.getLogger(__name__)
@@ -307,33 +307,9 @@ def update_passport(
 
 
 # Ситуация для плана: (организация, источник, версия) → слои и урезанные слои.
-# Проверку паспорта фронт зовёт часто, а чтение и упрощение ситуации большого
-# чертежа — секунды; переимпорт файла меняет `revision`, и ключ устаревает.
-_SITUATION_CACHE: OrderedDict[tuple[str, str, int], tuple[list[dict[str, Any]], list[str]]] = OrderedDict()
-_SITUATION_CACHE_SIZE = 8
-_SITUATION_CACHE_LOCK = Lock()
-
-
-def _situation_layers(repository, organization_id: str, source_id: str, revision: int):
-    key = (organization_id, source_id, int(revision))
-    with _SITUATION_CACHE_LOCK:
-        if key in _SITUATION_CACHE:
-            _SITUATION_CACHE.move_to_end(key)
-            return _SITUATION_CACHE[key]
-    geometry = source_situation(repository, organization_id, source_id)
-    value = (
-        [
-            {"kind": layer.kind, "lines": [{"points": line.points, "closed": line.closed} for line in layer.lines]}
-            for layer in geometry.layers
-            if layer.lines
-        ],
-        [layer.name for layer in geometry.layers if layer.omitted],
-    )
-    with _SITUATION_CACHE_LOCK:
-        _SITUATION_CACHE[key] = value
-        while len(_SITUATION_CACHE) > _SITUATION_CACHE_SIZE:
-            _SITUATION_CACHE.popitem(last=False)
-    return value
+# Кэш слоёв ситуации — общий с проектом МВ (`situation_layers`); имя оставлено
+# для тестов, которые его чистят.
+_SITUATION_CACHE = SITUATION_CACHE
 
 
 def _plan_situation(organization_id: str, design: BlastDesign) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
@@ -343,52 +319,36 @@ def _plan_situation(organization_id: str, design: BlastDesign) -> tuple[list[dic
     уместившийся в предел вершин, — предупреждение: план без них.
     """
 
-    refs, seen = [], set()
-    for ref in (design.contour.cad or {}).get("situation") or ():
-        source_id = str(ref.get("source_id") or "")
-        if source_id and source_id not in seen:
-            seen.add(source_id)
-            refs.append(ref)
-    if not refs:
-        return [], []
-    layers: list[dict[str, Any]] = []
-    issues: list[dict[str, str]] = []
-    try:
-        repository = get_cad_repository()
-    except Exception:  # noqa: BLE001 — ситуация только фон плана: без неё паспорт выпускается
-        logger.exception("База чертежей недоступна для плана паспорта на бурение")
-        repository = None
-    for ref in refs:
-        title = str(ref.get("title") or ref["source_id"])
-        unavailable = _warning(
-            "plan_situation_unavailable",
-            f"Ситуация «{title}» не прочитана (база чертежей недоступна или файл повреждён) — на плане её нет.",
-            "plan",
-        )
-        if repository is None:
-            issues.append(unavailable)
-            continue
-        source_id = str(ref["source_id"])
-        try:
-            record = repository.get_source(organization_id, source_id)
-            if record is None:
-                raise CadSourceNotFound(source_id)
-            source_layers, capped = _situation_layers(repository, organization_id, source_id, record.revision)
-        except CadSourceNotFound:
-            issues.append(_warning("plan_situation_missing", f"Версия ситуации «{title}» удалена — на плане её нет.", "plan"))
-            continue
-        except Exception:  # noqa: BLE001 — повреждённый чертёж не должен ронять проверку паспорта
+    def log(source_id: str) -> None:
+        if source_id:
             logger.exception("Ситуация %s не прочитана для плана паспорта на бурение", source_id)
-            issues.append(unavailable)
-            continue
-        if capped:
+        else:
+            logger.exception("База чертежей недоступна для плана паспорта на бурение")
+
+    # Только чтение: plan_geometry строит свои списки, кэш не меняется.
+    layers, problems = design_situation(
+        organization_id,
+        situation_refs(design.contour.cad),
+        repository_factory=lambda: get_cad_repository(),
+        reader=lambda repository, org, source_id: source_situation(repository, org, source_id),
+        on_error=log,
+    )
+    issues: list[dict[str, str]] = []
+    for problem in problems:
+        if problem.kind == "missing":
+            issues.append(_warning("plan_situation_missing", f"Версия ситуации «{problem.title}» удалена — на плане её нет.", "plan"))
+        elif problem.kind == "capped":
             issues.append(_warning(
                 "plan_situation_capped",
-                f"Ситуация «{title}» слишком большая: на плане нет слоёв {', '.join(capped[:5])}.",
+                f"Ситуация «{problem.title}» слишком большая: на плане нет слоёв {', '.join(problem.layers[:5])}.",
                 "plan",
             ))
-        # Только чтение: plan_geometry строит свои списки, кэш не меняется.
-        layers += source_layers
+        else:
+            issues.append(_warning(
+                "plan_situation_unavailable",
+                f"Ситуация «{problem.title}» не прочитана (база чертежей недоступна или файл повреждён) — на плане её нет.",
+                "plan",
+            ))
     return layers, issues
 
 

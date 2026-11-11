@@ -37,7 +37,7 @@ def test_section_behind_a_disabled_flag_is_not_published(monkeypatch) -> None:
 
     monkeypatch.delenv("BLASTEX_MASS_BLAST_V2_ENABLED", raising=False)
     gated = {code for code, meta in REFERENCE_SECTION_DEFINITIONS.items() if meta.get("feature")}
-    assert "blast_safety" in gated
+    assert {"blast_safety", "mass_blast_sites", "mass_blast_profiles", "blast_notifications"} <= gated
     payload = _schema(monkeypatch)
     assert set(payload["sections"]) == set(SECTION_SCHEMAS) - gated
 

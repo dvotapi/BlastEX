@@ -11,6 +11,13 @@ from api.schemas.mass_blast import (
     MassBlastAttachmentSchema,
     MassBlastDocumentCreateSchema,
     MassBlastDocumentSchema,
+    MassBlastLayerCreateSchema,
+    MassBlastLayerIssueSchema,
+    MassBlastLayerRefreshResponse,
+    MassBlastLayerRefreshSchema,
+    MassBlastLayerRevisionSchema,
+    MassBlastLayerSchema,
+    MassBlastLayerUpdateSchema,
     MassBlastLifecycleSchema,
     MassBlastProjectInputSchema,
     MassBlastProjectSchema,
@@ -19,7 +26,9 @@ from api.schemas.mass_blast import (
     MassBlastValidationResponse,
     RevisionCreateSchema,
 )
+from api import config
 from api.security import require_human, require_internal_access
+from api.services import mass_blast_layers_service as layers_service
 from api.services.economics_service import get_economics_repository
 from api.services.mass_blast_service import (
     approve_revision,
@@ -119,10 +128,14 @@ def post_validate(
     require_attachments: bool = False,
     session: dict[str, object] = Depends(require_internal_access),
     repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
+    economics_repository: EconomicsRepository = Depends(get_economics_repository),
 ) -> MassBlastValidationResponse:
     organization_id, _ = _identity(session)
     try:
-        return MassBlastValidationResponse.model_validate(validate_project(repository, organization_id, project_id, require_attachments=require_attachments))
+        return MassBlastValidationResponse.model_validate(validate_project(
+            repository, organization_id, project_id, require_attachments=require_attachments,
+            economics_repository=economics_repository,
+        ))
     except Exception as exc:
         raise repository_error(exc) from exc
 
@@ -309,3 +322,121 @@ def download_document(
         return FileResponse(path, media_type=media_type, filename=document["filename"])
     except Exception as exc:
         raise repository_error(exc) from exc
+
+
+# --- Слои дня взрыва (TASK-018, PR 2): за флагом `mass_blast_v2` -------------
+
+
+def _require_layers() -> None:
+    if not config.mass_blast_v2_enabled():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Слои проекта массового взрыва недоступны.")
+
+
+def _layer_errors(exc: Exception) -> HTTPException:
+    if isinstance(exc, HTTPException):
+        return exc
+    if isinstance(exc, ValueError):
+        return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+    return repository_error(exc)
+
+
+@router.get("/{project_id}/layers", response_model=list[MassBlastLayerSchema], dependencies=[Depends(_require_layers)])
+def get_layers(
+    project_id: str,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
+    economics_repository: EconomicsRepository = Depends(get_economics_repository),
+) -> list[MassBlastLayerSchema]:
+    organization_id, _ = _identity(session)
+    try:
+        return [MassBlastLayerSchema.model_validate(item) for item in layers_service.list_layers(repository, economics_repository, organization_id, project_id)]
+    except Exception as exc:
+        raise _layer_errors(exc) from exc
+
+
+@router.post(
+    "/{project_id}/layers", response_model=MassBlastLayerSchema, status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(_require_layers)],
+)
+def post_layer(
+    project_id: str,
+    payload: MassBlastLayerCreateSchema,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
+    economics_repository: EconomicsRepository = Depends(get_economics_repository),
+) -> MassBlastLayerSchema:
+    organization_id, actor = _identity(session)
+    try:
+        return MassBlastLayerSchema.model_validate(layers_service.create_layer(
+            repository, economics_repository, organization_id, actor, project_id, payload.kind, payload.payload,
+        ))
+    except Exception as exc:
+        raise _layer_errors(exc) from exc
+
+
+@router.get("/layers/{layer_id}", response_model=MassBlastLayerSchema, dependencies=[Depends(_require_layers)])
+def get_layer(
+    layer_id: str,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
+    economics_repository: EconomicsRepository = Depends(get_economics_repository),
+) -> MassBlastLayerSchema:
+    organization_id, _ = _identity(session)
+    try:
+        return MassBlastLayerSchema.model_validate(layers_service.get_layer(repository, economics_repository, organization_id, layer_id))
+    except Exception as exc:
+        raise _layer_errors(exc) from exc
+
+
+@router.put("/layers/{layer_id}", response_model=MassBlastLayerSchema, dependencies=[Depends(_require_layers)])
+def put_layer(
+    layer_id: str,
+    payload: MassBlastLayerUpdateSchema,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
+    economics_repository: EconomicsRepository = Depends(get_economics_repository),
+) -> MassBlastLayerSchema:
+    organization_id, actor = _identity(session)
+    try:
+        return MassBlastLayerSchema.model_validate(layers_service.update_layer(
+            repository, economics_repository, organization_id, actor, layer_id, payload.payload, payload.expected_version,
+        ))
+    except Exception as exc:
+        raise _layer_errors(exc) from exc
+
+
+@router.post("/layers/{layer_id}/refresh", response_model=MassBlastLayerRefreshResponse, dependencies=[Depends(_require_layers)])
+def post_layer_refresh(
+    layer_id: str,
+    payload: MassBlastLayerRefreshSchema,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
+    economics_repository: EconomicsRepository = Depends(get_economics_repository),
+) -> MassBlastLayerRefreshResponse:
+    organization_id, actor = _identity(session)
+    try:
+        return MassBlastLayerRefreshResponse.model_validate(layers_service.refresh_layer(
+            repository, economics_repository, organization_id, actor, layer_id, payload.expected_version, payload.confirm,
+        ))
+    except Exception as exc:
+        raise _layer_errors(exc) from exc
+
+
+@router.post(
+    "/layers/{layer_id}/revisions", response_model=MassBlastLayerRevisionSchema, status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(_require_layers)],
+)
+def post_layer_revision(
+    layer_id: str,
+    payload: MassBlastLayerIssueSchema,
+    session: dict[str, object] = Depends(require_human),
+    repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
+    economics_repository: EconomicsRepository = Depends(get_economics_repository),
+) -> MassBlastLayerRevisionSchema:
+    organization_id, actor = _identity(session)
+    try:
+        return MassBlastLayerRevisionSchema.model_validate(layers_service.issue_layer(
+            repository, economics_repository, organization_id, actor, layer_id, payload.expected_version,
+        ))
+    except Exception as exc:
+        raise _layer_errors(exc) from exc

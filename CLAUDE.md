@@ -462,6 +462,38 @@ draft=True)`, с ошибками проверки — 422; PDF ревизии �
 пород для УВВ — поле породы `blast_rock_group`, главнее флагов объекта.
 План и расхождения с формой — `Docs/plans/2026-11-11-task-018-pr1.md`.
 
+## Проект МВ v2: техрасчёт, таблица, распорядок, слои (TASK-018, PR 2)
+
+Контекст v2 — `design/mass_blast_context.py::build_document_context_v2`:
+надмножество v1 (`build_document_context` не меняется, хэш v1 — тест
+`test_v1_context_is_unchanged`) плюс `requisites`, `personnel`, `blocks_v2`
+(по блоку: `safety`, `consumption`, `technical_calculation` — разд. 1–17
+`design/mass_blast_techcalc.py`, `parameter_table` — прил. 11
+`design/mass_blast_table.py`), `zones` (наибольшие по блокам),
+`protected_objects`, `schedule` (прил. 12, `design/mass_blast_schedule.py`,
+тексты формы v0.11 по умолчанию) и `issues`. Версия — в проекте
+(`payload.context_version`): v2 создаётся только при флаге `mass_blast_v2`,
+обратно на v1 нельзя; у проекта v1 ключей v2 в payload нет. Сервис —
+`api/services/mass_blast_v2.py` (проекты блоков, справочник ревизии,
+ситуация); проверка — `validate_project_context_v2` (без ручного радиуса —
+он расчётный). Масса в таблице — по декам, кратно шагу профиля (5 кг),
+итоги по округлённым; в разд. 4 и расходе — без округления. «Снизить
+заряд» — ЛСПП у подошвы < 0,8·W (`FloorBurden.short`) плюс ручное
+примечание. Охраняемые объекты — `design/mass_blast_objects.py`: слои
+ситуации «здания» → здания, «ЛЭП», «дороги» → сооружения, по объекту на
+слой, расстояние от контура, в списке — ближе наибольшей зоны; пометки —
+по ключу `SITUATION:<слой>`; «В ЗОНЕ» без мероприятий — ошибка. Ситуация
+по ссылкам `contour.cad.situation` — общий модуль
+`api/services/situation_layers.py` (им же пользуется паспорт на бурение).
+Роли согласования — по-прежнему две (#113); роли распорядка — `personnel`
+без учёток. Справочники за флагом: `mass_blast_sites` (одна запись на
+объект: ТП, q по ТП, обоснование, подписанты), `mass_blast_profiles`,
+`blast_notifications`. Слои дня взрыва — `design/mass_blast_layers.py`
+(открытие по статусу, `layer_seed`, `naryad_lines`, `seed_diff`), таблицы
+`mass_blast_layers`/`mass_blast_layer_revisions` (миграция 0014), API
+`/{project_id}/layers`, `/layers/{id}` (за флагом, выпуск —
+`require_human`). Подробности — `Docs/plans/2026-11-11-task-018-pr2.md`.
+
 ## Нумерация скважин
 
 `design/numbering.py::number_by_position`, зовёт `pattern._finish_pattern`.

@@ -290,7 +290,9 @@ def _naryad_blocks(revision: Mapping[str, Any], width: float) -> list:
              "Отказы, шт", "Отклонение факт − проект, кг", "Примечание")
     rows = [[cell(h, "th") for h in heads]]
     blocks = _blocks(seed)
-    for index in range(5):
+    # Форма 4: 5 строк (до 5 блоков во взрыве); блоков больше — строка на каждый.
+    row_count = max(5, len(blocks))
+    for index in range(row_count):
         block = blocks[index] if index < len(blocks) else None
         if block:
             rows.append([cell(index + 1, "td_c"), cell(block.get("code"), "td_c"), cell(block.get("horizon"), "td_c"),
@@ -302,8 +304,9 @@ def _naryad_blocks(revision: Mapping[str, Any], width: float) -> list:
     fractions = (0.03, 0.14, 0.06, 0.08, 0.08, 0.07, 0.08, 0.07, 0.08, 0.06, 0.08)
     widths = [width * f for f in fractions]
     widths.append(width - sum(widths))
-    table = Table(rows, colWidths=widths, rowHeights=[None] + [4.6 * mm] * 6)
-    table.setStyle(TableStyle(grid_style(rows=6, zebra=False, padding=0.8) + [("SPAN", (0, 6), (1, 6))]))
+    table = Table(rows, colWidths=widths, rowHeights=[None] + [4.6 * mm] * (row_count + 1))
+    table.setStyle(TableStyle(grid_style(rows=row_count + 1, zebra=False, padding=0.8)
+                              + [("SPAN", (0, row_count + 1), (1, row_count + 1))]))
     reserve = "; ".join(f"{item['label']} {num(item['qty'], 0)} {item['unit']}" for item in totals.get("reserve") or [])
     story: list = [_bar("1. МЕСТО ПРОИЗВОДСТВА РАБОТ И ЗАРЯДЫ (по проекту массового взрыва / паспорту БВР)", width), table]
     if reserve:
@@ -502,7 +505,7 @@ def acceptance_story(revision: Mapping[str, Any], width: float) -> list:
     seed, payload = _seed(revision), _payload(revision)
     customer, contractor = _parties(seed)
     contract = seed.get("contract") or {}
-    appendix = text(contract.get("acceptance_appendix_no"))
+    appendix = text(payload.get("appendix_no")) or text(contract.get("acceptance_appendix_no"))
     contract_no = text(payload.get("contract_no")) or text(contract.get("contract_no"))
     contract_date = text(payload.get("contract_date")) or text(contract.get("contract_date"))
     customer_person = text(payload.get("customer_person")) or text(contract.get("customer_responsible"))

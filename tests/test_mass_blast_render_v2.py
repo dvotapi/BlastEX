@@ -307,3 +307,31 @@ def test_user_text_does_not_become_markup(context):
     text = "".join(_text(_pages(pdf)[0]).split())
     assert '13:00<imgsrc="http://example.test/x.png"/>' in text
     assert "Карьер<b>«Тест»</b>&Ко" in text
+
+
+def test_long_hole_note_stays_in_its_cell(context):
+    data = copy.deepcopy(context)
+    rows = data["blocks_v2"][0]["parameter_table"]["rows"]
+    rows[0]["note"] = "снизить заряд"
+    rows[1]["note"] = "снизить заряд на 10 кг, забойка 3 м"
+    long_note = "снизить заряд до 120 кг, увеличить забойку до 3,5 м, проверить ЛСПП после зачистки бровки экскаватором"
+    rows[2]["note"] = long_note
+    pages = _pages(render_project_document(data, "parameter-table"))
+    assert len(pages) == 3   # строки 63 / 73 не сдвигаются
+    tail = "".join(_text(pages[-1]).split())
+    assert "".join(f"№ {rows[2]['hole_id']} — {long_note}".split()) in tail
+    first = "".join(_text(pages[0]).split())
+    assert "снизитьзаряд" in first and "…*" in first
+
+
+def test_naryad_prints_every_block(context):
+    revision = _layer_revision(context, "NARYAD")
+    block = revision["seed"]["blocks"][0]
+    revision["seed"]["blocks"] = [{**block, "code": f"Б{n}"} for n in range(1, 8)]
+    text = _text(_pages(render_layer_document(revision))[0])
+    assert all(f"Б{n}" in text for n in range(1, 8))
+
+
+def test_acceptance_appendix_from_payload(context):
+    revision = _layer_revision(context, "ACCEPTANCE_ACT", {"appendix_no": "7"})
+    assert "Приложение № 7" in _text(_pages(render_layer_document(revision))[0])

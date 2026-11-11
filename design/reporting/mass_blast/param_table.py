@@ -14,7 +14,9 @@ from typing import Any, Mapping, Sequence
 
 from reportlab.lib.colors import white
 from reportlab.lib.units import mm
-from reportlab.platypus import PageBreak, Table, TableStyle
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.pdfbase import pdfmetrics
+from reportlab.platypus import PageBreak, Paragraph, Table, TableStyle
 
 from design.reporting.brand import FONT, FONT_BOLD, GRAPHITE, LINE, RED, ZEBRA
 from design.reporting.mass_blast.common import DASH, cell, date, num, p, person_line, rich, short, spacer, text
@@ -119,7 +121,33 @@ def _base_style(rows: int) -> list[tuple]:
     return style
 
 
-def _page_table(rows: Sequence[Mapping[str, Any]], widths: Sequence[float], totals: Mapping[str, Any] | None) -> Table:
+NOTE_FONT = 7.0
+NOTE_SMALL = ParagraphStyle("mb_table_note", fontName=FONT, fontSize=4.8, leading=4.9, textColor=GRAPHITE)
+
+
+def _note_cell(hole_id: str, note: str, width: float, overflow: list[tuple[str, str]]) -> Any:
+    """Примечание в узкой графе: строкой 7 pt, иначе двумя строками мелко; не
+    помещается и так — начало с «…*», полный текст — под таблицей (`overflow`)."""
+
+    inner = width - 2.4
+    if not note or pdfmetrics.stringWidth(note, FONT, NOTE_FONT) <= inner:
+        return note
+    paragraph = Paragraph(rich(note), NOTE_SMALL)
+    if paragraph.wrap(inner, ROW_H)[1] <= ROW_H - 1:
+        return paragraph
+    overflow.append((hole_id, note))
+    cut = note
+    while cut and Paragraph(rich(cut + "…*"), NOTE_SMALL).wrap(inner, ROW_H)[1] > ROW_H - 1:
+        cut = cut[:-1]
+    return Paragraph(rich(cut.rstrip() + "…*"), NOTE_SMALL)
+
+
+def _page_table(
+    rows: Sequence[Mapping[str, Any]],
+    widths: Sequence[float],
+    totals: Mapping[str, Any] | None,
+    overflow: list[tuple[str, str]] | None = None,
+) -> Table:
     head, head_style = _head()
     data = list(head)
     style = _base_style(len(rows)) + head_style
@@ -133,6 +161,8 @@ def _page_table(rows: Sequence[Mapping[str, Any]], widths: Sequence[float], tota
                 shown = value if previous.get(key) != value else ""
                 previous[key] = value
                 value = shown
+            if key == "note":
+                value = _note_cell(text(row.get("hole_id")), value, widths[-1], overflow if overflow is not None else [])
             line.append(value)
         data.append(line)
         if row.get("first_row"):
@@ -208,6 +238,7 @@ def table_story(context: Mapping[str, Any], block_index: int, width: float) -> l
                               ("VALIGN", (0, 0), (-1, -1), "BOTTOM"), ("BOTTOMPADDING", (0, 0), (-1, -1), 1)]))
     story: list = [head, p(_summary_line(context, block), "note"), spacer(1)]
     pages = paginate(len(rows))
+    overflow: list[tuple[str, str]] = []
     for number, (start, end) in enumerate(pages):
         last = number == len(pages) - 1
         if number:
@@ -215,7 +246,7 @@ def table_story(context: Mapping[str, Any], block_index: int, width: float) -> l
         # Итог — строкой под последней скважиной, если помещается на странице.
         capacity = FIRST_PAGE_ROWS if number == 0 else NEXT_PAGE_ROWS
         tail_fits = (capacity - (end - start)) * ROW_H >= TAIL_H
-        story.append(_page_table(rows[start:end], widths, totals if last and tail_fits else None))
+        story.append(_page_table(rows[start:end], widths, totals if last and tail_fits else None, overflow))
         if last and not tail_fits:
             story += [PageBreak(), _page_table([], widths, totals)]
     round_kg = short(table.get("charge_round_kg") or 5, 1)
@@ -228,7 +259,11 @@ def table_story(context: Mapping[str, Any], block_index: int, width: float) -> l
         ("LINEBELOW", (2, 0), (2, 0), 0.5, LINE), ("LINEBELOW", (5, 0), (5, 0), 0.5, LINE),
         ("VALIGN", (0, 0), (-1, -1), "BOTTOM"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
     ]))
-    story += [spacer(1), p(NOTE_TEXT.format(round_kg=round_kg), "small"), spacer(3), sign]
+    story += [spacer(1), p(NOTE_TEXT.format(round_kg=round_kg), "small")]
+    if overflow:
+        full = "; ".join(f"№ {hole} — {note}" for hole, note in overflow)
+        story.append(p(f"* Примечания к скважинам полностью: {full}.", "small"))
+    story += [spacer(3), sign]
     return story
 
 

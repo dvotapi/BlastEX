@@ -33,7 +33,16 @@ def _payload(kind: str, payload: Mapping[str, Any]) -> dict[str, Any]:
     """Введённое вручную по схеме вида слоя: лишнее поле или неверное значение — ошибка."""
 
     schema = LAYER_PAYLOAD_SCHEMAS[kind]
-    return schema.model_validate(dict(payload)).model_dump()
+    data = schema.model_validate(dict(payload)).model_dump()
+    if kind == "NOTIFICATION" and data["notification_code"] and any(
+        str(data[key]).strip() for key in _MANUAL_RECIPIENT
+    ):
+        raise ValueError("Адресат из справочника карьера вручную не правится: заведите уведомление без кода адресата.")
+    return data
+
+
+# Адресат уведомления вручную — только когда справочника уведомлений у карьера нет.
+_MANUAL_RECIPIENT = ("recipient_position", "recipient_name", "salutation")
 
 
 def _current_revision(repository: PostgresMassBlastRepository, organization_id: str, project: Mapping[str, Any]) -> dict[str, Any]:
@@ -113,15 +122,30 @@ def _with_view(layer: dict[str, Any], snapshot: Any, context: Mapping[str, Any])
     if layer["kind"] == "NARYAD":
         view["lines"] = naryad_lines(layer["seed"], layer["payload"], _reserve_defaults(snapshot, context))
         view["vv_site"] = bool(layer["payload"].get("vv_site"))
-    if layer["kind"] == "NOTIFICATION" and not (layer["seed"].get("addressee") or {}):
-        issues.append(
-            {
-                "level": "warning",
-                "code": "notify_registry_missing",
-                "message": "Адресат уведомления не из справочника карьера: проверьте реквизиты.",
-                "path": "seed.addressee",
-            }
-        )
+    if layer["kind"] == "NOTIFICATION":
+        registry = dict(layer["seed"].get("addressee") or {})
+        if registry:
+            view["addressee"] = registry
+        else:
+            payload = layer["payload"]
+            view["addressee"] = {key: payload.get(key, "") for key in (*_MANUAL_RECIPIENT, "signer")}
+            issues.append(
+                {
+                    "level": "warning",
+                    "code": "notify_registry_missing",
+                    "message": "Адресат уведомления введён вручную, не из справочника карьера: проверьте реквизиты.",
+                    "path": "payload.recipient_position",
+                }
+            )
+            if not str(payload.get("recipient_position") or "").strip():
+                issues.append(
+                    {
+                        "level": "error",
+                        "code": "notification_addressee_missing",
+                        "message": "Укажите адресата уведомления: справочника уведомлений у карьера нет.",
+                        "path": "payload.recipient_position",
+                    }
+                )
     if layer["stale"]:
         issues.append(
             {

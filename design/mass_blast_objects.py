@@ -4,9 +4,10 @@
 
 - ситуация карьера TASK-013: слой вида «здания» — охраняемые здания, «ЛЭП» и
   «дороги» — сооружения; один объект на слой (имя слоя), расстояние — от
-  ближайшей точки контура блока (нет контура — от ближайшего устья) до линий
-  слоя; в список идут объекты не дальше наибольшей опасной зоны («в радиусе
-  максимальной опасной зоны», форма ВМ.09.03). Склады, контур карьера,
+  ближайшей точки контура блока (у блока без контура — от ближайшего его
+  устья) до линий слоя; в список идут объекты не дальше наибольшей опасной
+  зоны («в радиусе максимальной опасной зоны», форма ВМ.09.03) или своего
+  требуемого расстояния (свои K_г, K_с). Склады, контур карьера,
   развалы и «прочее» охраняемыми не считаются — их добавляют руками;
 - ручной список проекта МВ.
 
@@ -100,15 +101,17 @@ class ObjectRow:
         }
 
 
-def _block_geometry(contours: Sequence[Sequence[tuple[float, float]]], collars: Sequence[tuple[float, float]]):
+def _block_geometry(blocks: Sequence[tuple[Sequence[tuple[float, float]], Sequence[tuple[float, float]]]]):
+    """Блоки проекта одной геометрией: контур блока, а у блока без контура — его устья."""
+
     shapes = []
-    for ring in contours:
+    for ring, collars in blocks:
         if len(ring) >= 3:
             polygon = Polygon(ring)
             shapes.append(polygon if polygon.is_valid else polygon.buffer(0))
-    if shapes:
-        return shapely.union_all(shapes)
-    return MultiPoint(list(collars)) if collars else None
+        elif collars:
+            shapes.append(MultiPoint(list(collars)))
+    return shapely.union_all(shapes) if shapes else None
 
 
 def _layer_geometry(lines: Iterable[Mapping[str, Any]]):
@@ -126,15 +129,16 @@ def _layer_geometry(lines: Iterable[Mapping[str, Any]]):
 
 def situation_candidates(
     layers: Sequence[Mapping[str, Any]],
-    contours: Sequence[Sequence[tuple[float, float]]],
-    collars: Sequence[tuple[float, float]],
+    blocks: Sequence[tuple[Sequence[tuple[float, float]], Sequence[tuple[float, float]]]],
 ) -> list[dict[str, Any]]:
     """Слои ситуации охраняемых видов с расстоянием до блоков, без отбора по зоне.
 
-    Слой с одним именем из разных версий ситуации — один объект, по ближайшей.
+    `blocks` — по каждому блоку (кольцо контура, устья); расстояние — от
+    контура, а у блока без контура — от ближайшего его устья. Слой с одним
+    именем из разных версий ситуации — один объект, по ближайшей.
     """
 
-    block = _block_geometry(contours, collars)
+    block = _block_geometry(blocks)
     if block is None or block.is_empty:
         return []
     by_name: dict[str, dict[str, Any]] = {}
@@ -205,11 +209,16 @@ def assess_project_objects(
     rows: list[ObjectRow | None] = []
     largest = zones.largest_m
     for candidate in candidates:
-        if candidate["distance_m"] > largest:
-            continue
         note = notes.get(candidate["key"], {})
         kind = str(note.get("kind") or candidate["kind"])
-        rows.append(_row(candidate["key"], candidate["name"], kind, OBJECT_SOURCE_SITUATION, candidate["distance_m"], note, zones, issues, candidate.get("situation_kind", "")))
+        own: list[SafetyIssue] = []
+        row = _row(candidate["key"], candidate["name"], kind, OBJECT_SOURCE_SITUATION, candidate["distance_m"], note, zones, own, candidate.get("situation_kind", ""))
+        # В список — ближе наибольшей зоны или своего требуемого расстояния:
+        # свои K_г, K_с объекта могут увеличить его зону сверх зон проекта.
+        if row is not None and candidate["distance_m"] > max(largest, row.required_m):
+            continue
+        rows.append(row)
+        issues.extend(own)
     for index, entry in enumerate(entries):
         if str(entry.get("source") or OBJECT_SOURCE_MANUAL) != OBJECT_SOURCE_MANUAL:
             continue

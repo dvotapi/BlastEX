@@ -265,9 +265,14 @@ def build_document_context_v2(
 
     zones = _project_zones([item["safety"] for item in computed])
     object_zones = _object_zones([item["safety"] for item in computed], zones)
-    contours = [item["design"].contour.points_xy for item in computed if len(item["design"].contour.vertices) >= 3]
-    collars = [(hole.collar.x, hole.collar.y) for item in computed for hole in item["design"].holes if hole.enabled]
-    candidates = situation_candidates(references.situation_layers, contours, collars)
+    geometry = [
+        (
+            item["design"].contour.points_xy if len(item["design"].contour.vertices) >= 3 else [],
+            [(hole.collar.x, hole.collar.y) for hole in item["design"].holes if hole.enabled],
+        )
+        for item in computed
+    ]
+    candidates = situation_candidates(references.situation_layers, geometry)
     rows, object_issues = assess_project_objects(candidates, list(payload.get("protected_objects") or []), object_zones)
     issues += _scaled_issues(object_issues, "protected_objects")
     objects = [row.to_dict() for row in rows]

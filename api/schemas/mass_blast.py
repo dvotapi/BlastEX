@@ -333,9 +333,15 @@ class NaryadPayloadSchema(BaseModel):
 
 
 class NotificationPayloadSchema(BaseModel):
+    """Уведомление: адресат — из справочника карьера (`notification_code`) или, без справочника, вручную."""
+
     model_config = ConfigDict(extra="forbid")
 
     notification_code: str = Field("", max_length=120)
+    recipient_position: str = Field("", max_length=300)
+    recipient_name: str = Field("", max_length=120)
+    salutation: str = Field("", max_length=200)
+    signer: str = Field("", max_length=200)
     out_no: str = Field("", max_length=40)
     out_date: str = Field("", max_length=10)
 

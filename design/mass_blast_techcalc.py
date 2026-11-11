@@ -132,7 +132,17 @@ def _construction_groups(design: BlastDesign, table_rows: Sequence[Mapping[str, 
                 "subdrill_mean_m": round(sum(subdrills) / len(subdrills), 1),
                 "stemming_mean_m": round(sum(stems) / len(stems), 1),
                 "stemming_min_m": round(stem_min, 1),
-                "charge_length_mean_m": round(sum(l - s for l, s in zip(lengths, stems)) / len(ids), 1),
+                # Длина заряда — сумма взрывчатых дек: воздушные и инертные промежутки не заряд.
+                "charge_length_mean_m": round(
+                    sum(
+                        abs(deck.to_m - deck.from_m)
+                        for hole_id in ids
+                        for deck in loads[hole_id].decks
+                        if is_explosive_deck_kind(deck.kind)
+                    )
+                    / len(ids),
+                    1,
+                ),
                 "primer_from_bottom_m": round(min(bottoms), 1) if bottoms else None,
                 "primers_per_hole": primer_count,
                 "stemming_to_d_min": round(stem_min / diameter, 1) if diameter > 0 else None,

@@ -260,3 +260,29 @@ def test_uncharged_hole_has_no_stemming():
     row = next(item for item in table["rows"] if item["hole_id"] == "1-01")
     assert row["stemming_m"] is None and row["charge_kg"] == 0
     assert table["totals"]["stemming_min_m"] == 3.0
+
+
+def test_inclined_hole_bench_height_is_vertical():
+    design = grid_design()
+    hole = design.holes[0]
+    hole.toe = type(hole.toe)(hole.toe.x + 8.0, hole.toe.y, hole.toe.z)
+    table = parameter_table(design, material_index(MATERIALS))
+    row = next(item for item in table.rows if item["hole_id"] == hole.id)
+    assert row["bench_height_m"] == pytest.approx(round(hole.bench_height_m, 1))
+    assert row["bench_height_m"] < round(hole.length_m - hole.subdrill_m, 1)
+
+
+def test_construction_charge_length_excludes_gaps():
+    from design.models import Deck
+
+    design = grid_design()
+    for load in design.loads:
+        load.decks = [
+            Deck("stemming", 0.0, 3.0),
+            Deck("bulk_explosive", 3.0, 6.0, mass_kg=50.0, product="Порэмит"),
+            Deck("air", 6.0, 8.0),
+            Deck("bulk_explosive", 8.0, 11.0, mass_kg=50.0, product="Порэмит"),
+        ]
+    context, _ = build(design)
+    section = next(item for item in context["blocks_v2"][0]["technical_calculation"] if item["number"] == "7")
+    assert section["constructions"][0]["charge_length_mean_m"] == 6.0

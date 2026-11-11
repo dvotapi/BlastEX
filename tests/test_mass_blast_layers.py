@@ -220,9 +220,18 @@ def test_notification_per_addressee(context66_v2):
         service.create_layer(repository, economics, ORG, "user", "p1", "NOTIFICATION", {"notification_code": "RTN"})
     with pytest.raises(ValueError, match="Адресат уведомления не меняется"):
         service.update_layer(repository, economics, ORG, "user", layer["id"], {"notification_code": "OTHER"}, layer["version"])
-    # Справочника уведомлений нет — слой открывается с предупреждением.
-    layer = service.create_layer(_Repository(context66_v2), _economics(), ORG, "user", "p1", "NOTIFICATION", {})
-    assert "notify_registry_missing" in {issue["code"] for issue in layer["issues"]}
+    with pytest.raises(ValueError, match="вручную не правится"):
+        service.create_layer(repository, economics, ORG, "user", "p1", "NOTIFICATION", {"notification_code": "RTN", "recipient_name": "Иванову"})
+    # Справочника уведомлений нет — адресат вручную, без него слой не выпускается.
+    bare = _Repository(context66_v2)
+    layer = service.create_layer(bare, _economics(), ORG, "user", "p1", "NOTIFICATION", {})
+    assert {"notify_registry_missing", "notification_addressee_missing"} <= {issue["code"] for issue in layer["issues"]}
+    with pytest.raises(ValueError, match="Укажите адресата"):
+        service.issue_layer(bare, _economics(), ORG, "user", layer["id"], layer["version"])
+    layer = service.update_layer(bare, _economics(), ORG, "user", layer["id"], {"recipient_position": "Глава района"}, layer["version"])
+    assert layer["view"]["addressee"]["recipient_position"] == "Глава района"
+    revision = service.issue_layer(bare, _economics(), ORG, "user", layer["id"], layer["version"])
+    assert revision["context"]["view"]["addressee"]["recipient_position"] == "Глава района"
 
 
 def test_talon_admittance_time(context66_v2):

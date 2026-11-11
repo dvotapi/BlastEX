@@ -126,7 +126,9 @@ def parameter_table(
         burden = burdens.get(hole.id) if is_first else None
         spacing = local_spacing(same_row[hole.row], hole)
         step = steps.get(hole.id)
-        bench = hole.length_m - hole.subdrill_m
+        # Высота уступа — по вертикали (`Hole.bench_height_m`): у наклонной
+        # скважины L − l_пер по оси завысила бы высоту и объём.
+        bench = hole.bench_height_m
         auto = NOTE_REDUCE_CHARGE if burden is not None and burden.short else ""
         note = "; ".join(item for item in (auto, notes.get(hole.id, "")) if item)
         volume = bench * spacing * step if spacing and step else None

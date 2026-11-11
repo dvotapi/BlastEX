@@ -35,7 +35,7 @@ STARTER_FALLBACK = "Стартовое устройство"
 class ConsumptionLine:
     """Строка расхода ВМ: что, сколько и откуда взялась марка."""
 
-    kind: str               # explosive | primer | nsi_downhole | nsi_surface | starter
+    kind: str               # explosive | primer | nsi_downhole | detonator_electronic | nsi_surface | starter
     name: str
     quantity: float
     unit: str               # «кг» | «шт»
@@ -104,10 +104,10 @@ def explosives_consumption(
         items = primer_items(load)
         for position, primer in enumerate(items):
             primers.setdefault(primer.product, []).append(primer_mass_kg(primer, index))
-            product, delay = _downhole_connector(
+            kind, product, delay = _downhole_connector(
                 design, connectors.get(load.hole_id, []), load, primer, position, len(items)
             )
-            downhole[(product, delay)] = downhole.get((product, delay), 0) + 1
+            downhole[(kind, product, delay)] = downhole.get((kind, product, delay), 0) + 1
     for product, masses in sorted(primers.items()):
         material = index.find(product)
         known = [mass for mass in masses if mass is not None]
@@ -124,10 +124,21 @@ def explosives_consumption(
                 message=f"Масса не задана у {missing} шт." if missing else "",
             )
         )
+    ordered = sorted(downhole.items(), key=lambda item: (item[0][0], item[0][1], item[0][2] or 0))
     lines.extend(
         _merged(
             _nsi_line("nsi_downhole", "NSI_DOWNHOLE", "НСИ скважинное", product, delay, count, index)
-            for (product, delay), count in sorted(downhole.items(), key=lambda item: (item[0][0], item[0][1] or 0))
+            for (kind, product, delay), count in ordered
+            if kind == "downhole_nsi"
+        )
+    )
+    # Электронный детонатор — не НСИ: марку по замедлению среди скважинных НСИ
+    # не подбираем, строка — с маркой из сети или подписью и предупреждением.
+    lines.extend(
+        _merged(
+            _nsi_line("detonator_electronic", "", "Электронный детонатор", product, None, count, index)
+            for (kind, product, delay), count in ordered
+            if kind == "electronic"
         )
     )
 
@@ -191,8 +202,12 @@ def _downhole_connector(
     primer: Primer,
     primer_index: int,
     primer_count: int,
-) -> tuple[str, float | None]:
-    """Марка и замедление скважинного НСИ для ПД.
+) -> tuple[str, str, float | None]:
+    """Вид, марка и замедление скважинного инициатора ПД.
+
+    Вид — коннектора (`downhole_nsi`, `electronic`, `detonating_cord`), без
+    коннектора — по системе сети. В расход НСИ идёт только `downhole_nsi`;
+    шнур — отдельной строкой ДШ (следующая версия).
 
     Порядок: коннектор этого ПД; коннектор деки, в которой ПД стоит; общий
     коннектор скважины (у единственного ПД — любой без номера ПД); иначе
@@ -209,9 +224,11 @@ def _downhole_connector(
     if match is None and primer_count == 1:
         match = next((item for item in own if item.primer_index is None), None)
     if match is not None:
-        return match.product, float(match.delay_ms)
+        return match.kind, match.product, float(match.delay_ms)
     delay = design.network.downhole_delay_ms.get(load.hole_id)
-    return "", None if delay is None else float(delay)
+    system = design.network.system
+    kind = "electronic" if system == "electronic" else "detonating_cord" if system == "detcord" else "downhole_nsi"
+    return kind, "", None if delay is None else float(delay)
 
 
 def _deck_of(load: HoleLoad, position_m: float) -> int | None:

@@ -182,3 +182,21 @@ def test_network_without_v2_objects_is_read_by_legacy_fields() -> None:
     lines = explosives_consumption(design, MATERIAL_ROWS)
     assert _by_kind(lines, "starter")[0].quantity == 1
     assert sum(line.quantity for line in _by_kind(lines, "nsi_surface")) == 2
+
+
+def test_electronic_downhole_is_not_nonel() -> None:
+    """Электронная сеть: на ПД — электронный детонатор, а не НСИ 700 мс из справочника."""
+
+    design = _design()
+    design.network.system = "electronic"
+    design.network.downhole_connectors = [
+        DownholeConnector(id=f"e{h}", hole_id=h, delay_ms=700, kind="electronic") for h in ("1", "2", "3")
+    ]
+    lines = explosives_consumption(design, MATERIAL_ROWS)
+    assert _by_kind(lines, "nsi_downhole") == []
+    electronic = _by_kind(lines, "detonator_electronic")
+    assert [(line.name, line.quantity, line.material_code) for line in electronic] == [("Электронный детонатор", 4.0, "")]
+    assert electronic[0].warning == "detonator_electronic_unmapped"
+    # Без коннекторов вид берётся по системе сети.
+    design.network.downhole_connectors = []
+    assert _by_kind(explosives_consumption(design, MATERIAL_ROWS), "nsi_downhole") == []

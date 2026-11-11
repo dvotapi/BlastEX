@@ -352,3 +352,10 @@ def test_kz_label_names_the_free_column_table() -> None:
     charge = AirblastCharge("1", 0.0, 18.24, 8.0, 0.144, 0.02, kz_by_free=True)
     result = airblast_glazing(airblast_groups([charge], 10.0), rock_group_ix=False, rock_group_v_reduce=False, frost=False)
     assert "l_св/d" in result.kz.formula
+
+
+def test_people_zone_never_below_200_m() -> None:
+    """Пол прил. 21 действует, даже если параметр минимума пришёл меньше 200 м."""
+
+    zones = danger_zones(flyrock_m=40.0, people_min_m=1.0, on_slope=False, k_mech=0.667, seismic_m=0, airblast_m=0)
+    assert zones.people.value == 200

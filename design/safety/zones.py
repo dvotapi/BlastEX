@@ -16,7 +16,9 @@ from design.safety import SafetyIssue, SafetyValue, ceil_to, num
 
 __all__ = ["SLOPE_PEOPLE_MIN_M", "Zones", "apply_manual", "danger_zones"]
 
-# Прил. 21, п. 1.5: на косогоре вниз по склону — не менее 300 м.
+# Прил. 21, п. 1.5: скважинные заряды — не менее 200 м, на косогоре вниз по
+# склону — не менее 300 м. Пол 200 м действует при любом параметре объекта.
+PEOPLE_MIN_FNP_M = 200.0
 SLOPE_PEOPLE_MIN_M = 300.0
 ZONE_LABELS = {"people": "для людей", "mechanisms": "для механизмов", "buildings": "для зданий и сооружений"}
 
@@ -80,7 +82,7 @@ def danger_zones(
 
     manual = manual or {}
     issues: list[SafetyIssue] = []
-    minimum = max(people_min_m, SLOPE_PEOPLE_MIN_M) if on_slope else people_min_m
+    minimum = max(people_min_m, PEOPLE_MIN_FNP_M, SLOPE_PEOPLE_MIN_M if on_slope else 0.0)
     rounded = ceil_to(flyrock_m) if flyrock_m else 0.0
     if rounded >= minimum:
         people_value, factor = rounded, "разлёт"

@@ -272,3 +272,13 @@ def test_invalid_manual_values_fall_back_with_a_warning() -> None:
     warnings = [issue for issue in params.issues if issue.code == "manual_value_invalid"]
     assert len(warnings) == 2
     assert all("hardness_f" not in issue.message and "k_ground" not in issue.message for issue in warnings)
+
+
+def test_manual_values_respect_the_reference_limits() -> None:
+    """Проект МВ не обходит пределы справочника: минимум для людей не меньше 200 м (прил. 21)."""
+
+    params = safety_params(SITE_SAFETY, {"hardness_f": 14}, overrides={"people_min_m": 1, "k_mech": 1.5, "slope_angle_deg": 95})
+    assert params.people_min_m == 200 and params.k_mech == pytest.approx(0.667) and params.slope_angle_deg is None
+    assert sum(issue.code == "manual_value_invalid" for issue in params.issues) == 3
+    accepted = safety_params(SITE_SAFETY, {"hardness_f": 14}, overrides={"people_min_m": 250})
+    assert accepted.people_min_m == 250 and accepted.source("people_min_m") == "MANUAL_OVERRIDE"

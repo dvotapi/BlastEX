@@ -236,6 +236,8 @@ def _manual_values(overrides: Mapping[str, Any] | None, issues: list[SafetyIssue
         except (TypeError, ValueError):
             number = float("nan")
         bad = not math.isfinite(number) or (number <= 0 if name in _POSITIVE else number < 0)
+        if not bad and name != "hardness_f":
+            bad = not _schema_accepts(name, number)
         if bad:
             issues.append(
                 SafetyIssue(
@@ -247,6 +249,24 @@ def _manual_values(overrides: Mapping[str, Any] | None, issues: list[SafetyIssue
             continue
         manual[name] = number
     return manual
+
+
+def _schema_accepts(name: str, value: float) -> bool:
+    """Ручное значение проходит пределы поля схемы раздела (минимум 200 м, доля ≤ 1, угол < 90°).
+
+    Проект МВ не может обойти пределы, которые справочник не пропускает.
+    """
+
+    from cost.v2.schemas.safety import BlastSafetyPayload
+    from pydantic import ValidationError
+
+    if name not in BlastSafetyPayload.model_fields:
+        return True
+    try:
+        BlastSafetyPayload.model_validate({"site_code": "MANUAL", name: value})
+    except ValidationError:
+        return False
+    return True
 
 
 def _coerce(name: str, value: Any) -> Any:

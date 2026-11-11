@@ -57,10 +57,17 @@ def assess_objects(
     mechanisms_m: float,
     seismic_m: float,
     airblast_m: float,
+    buildings_m: float | None = None,
 ) -> tuple[list[ObjectAssessment], list[SafetyIssue]]:
+    """`buildings_m` — принятая зона для зданий (с ручным вводом); не задана — max(r_с, r_в)."""
+
+    buildings = max((seismic_m, "сейсмика"), (airblast_m, "УВВ"))
+    if buildings_m is not None and buildings_m > buildings[0]:
+        buildings = (buildings_m, "принято проектом")
+    buildings_zone = buildings[0]
     required = {
         "people": (people_m, "люди"),
-        "buildings": max((seismic_m, "сейсмика"), (airblast_m, "УВВ")),
+        "buildings": buildings,
         "structures": max((mechanisms_m, "механизмы"), (seismic_m, "сейсмика")),
         "mechanisms": (mechanisms_m, "механизмы"),
     }
@@ -75,14 +82,13 @@ def assess_objects(
         need, factor = required[item.kind]
         position = INSIDE if item.distance_m < need else OUTSIDE
         rows.append(ObjectAssessment(item.name, item.kind, item.distance_m, need, factor, position))
-        buildings_m = max(seismic_m, airblast_m)
-        if item.sensitive and item.distance_m < buildings_m:
+        if item.sensitive and item.distance_m < buildings_zone:
             issues.append(
                 SafetyIssue(
                     "error",
                     "expert_required",
                     f"«{item.name}» ({num(item.distance_m)} м) — лечебное или детское учреждение ближе "
-                    f"{num(buildings_m)} м: безопасные расстояния определяет экспертная организация (п. 808).",
+                    f"{num(buildings_zone)} м: безопасные расстояния определяет экспертная организация (п. 808).",
                 )
             )
     return rows, issues

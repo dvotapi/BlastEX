@@ -14,15 +14,18 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable, Sequence, TypeVar
 
 __all__ = [
     "SAFETY_FORMULA_VERSION",
     "SafetyIssue",
     "SafetyValue",
     "ceil_to",
+    "chain_by_time",
     "num",
 ]
+
+T = TypeVar("T")
 
 SAFETY_FORMULA_VERSION = "safety-v1"
 
@@ -82,3 +85,21 @@ def num(value: float, digits: int = 0) -> str:
     if round(value, digits) == 0:
         value = 0.0  # «-0» в подстановке не печатаем
     return f"{value:,.{digits}f}".replace(",", " ").replace(".", ",")
+
+
+def chain_by_time(items: Sequence[T], time_of: Callable[[T], float], threshold_ms: float) -> list[list[T]]:
+    """Группы зарядов по моментам: соседние по времени ближе `threshold_ms` — в одной.
+
+    Внутри группы интервалы меньше порога, между группами — не меньше, поэтому
+    разбиение однозначно (пп. 794, 806). Общее для сейсмики и УВВ.
+    """
+
+    ordered = sorted(items, key=time_of)
+    groups: list[list[T]] = []
+    for item in ordered:
+        if groups and time_of(item) - time_of(groups[-1][-1]) < threshold_ms:
+            groups[-1].append(item)
+        else:
+            groups.append([item])
+    return groups
+

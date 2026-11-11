@@ -148,3 +148,20 @@ def test_project_values_override_the_reference() -> None:
     assert params.hardness_f == 16 and params.source("hardness_f") == "MANUAL_OVERRIDE"
     assert params.k_ground == 8 and params.source("k_ground") == "MANUAL_OVERRIDE"
     assert params.source("k_structure") == "REFERENCE"
+
+
+def test_file_export_and_public_settings_hide_the_section_without_the_flag(monkeypatch) -> None:
+    from cost.v2.reference_files import exportable_sections
+
+    assert "blast_safety" not in exportable_sections({"mass_blast_v2": False})
+    assert "blast_safety" in exportable_sections({"mass_blast_v2": True})
+    assert "blast_safety" in exportable_sections()  # импорт читает файл с этим листом
+
+    from api.services.public_sync_service import public_settings_payload
+    from cost.v2.public_sync.settings import PublicSyncSettings
+
+    settings = PublicSyncSettings(exchange_enabled=True, mirror_sections=frozenset())
+    monkeypatch.delenv("BLASTEX_MASS_BLAST_V2_ENABLED", raising=False)
+    assert "blast_safety" not in public_settings_payload(settings)["mirror_sections"]
+    monkeypatch.setenv("BLASTEX_MASS_BLAST_V2_ENABLED", "1")
+    assert "blast_safety" in public_settings_payload(settings)["mirror_sections"]

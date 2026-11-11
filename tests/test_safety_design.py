@@ -237,3 +237,38 @@ def test_missing_reference_and_hardness_fall_back_to_form(design) -> None:
     assert params.hardness_f == 14 and params.rock_group_ix and params.frost
     result = safety_for_design(design, params, materials=MATERIALS)
     assert {"safety_reference_missing", "hardness_unknown"} <= {issue.code for issue in result.issues}
+
+
+def test_stemming_between_decks_is_not_top_stemming(params) -> None:
+    """l_заб — только над верхним зарядом: промежуточная забойка K_з не уменьшает."""
+
+    from design.models import Deck, HoleLoad
+    from design.safety.holes import material_index, safety_holes
+
+    design = block66_design()
+    hole = design.holes[0]
+    length = hole.length_m
+    design.loads = [
+        HoleLoad(
+            hole_id=hole.id,
+            decks=[
+                Deck("stemming", 0.0, 2.5),
+                Deck("charge", 2.5, 5.0, explosive_key=EXPLOSIVE.name, mass_kg=45.0),
+                Deck("stemming", 5.0, 6.5),
+                Deck("charge", 6.5, length, explosive_key=EXPLOSIVE.name, mass_kg=75.0),
+            ],
+        )
+    ]
+    holes, _, _ = safety_holes(design, material_index(None))
+    assert holes[0].stemming_m == pytest.approx(2.5)
+    result = safety_for_design(design, params, materials=MATERIALS)
+    assert result.airblast.kz.value == 0.003  # 2,5/0,144 = 17,4, а не 4,0/0,144 = 27,8 → 0,002
+
+
+def test_invalid_manual_values_fall_back_with_a_warning() -> None:
+    params = safety_params(SITE_SAFETY, {"hardness_f": 14}, overrides={"hardness_f": "abc", "k_ground": 0, "frost": False})
+    assert params.hardness_f == 14 and params.source("hardness_f") == "REFERENCE"
+    assert params.k_ground == 5 and params.frost is False
+    warnings = [issue for issue in params.issues if issue.code == "manual_value_invalid"]
+    assert len(warnings) == 2
+    assert all("hardness_f" not in issue.message and "k_ground" not in issue.message for issue in warnings)

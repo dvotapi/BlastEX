@@ -14,6 +14,7 @@ from typing import Any, Sequence
 from fastapi import Depends
 from pydantic import ValidationError
 
+from api import config
 from api.schemas.economics import PublicSyncSettingsRequest, ReferenceItemSchema
 from api.services.economics_service import get_economics_repository
 from cost.v2.models import ReferenceItem
@@ -30,7 +31,7 @@ from cost.v2.public_sync import (
 )
 from cost.v2.public_sync.mapping import TABLES
 from cost.v2.public_sync.settings import MAPPED_SECTIONS, PublicSyncSettings, mirrorable_sections
-from cost.v2.references import ValidationIssue, validate_reference_sections
+from cost.v2.references import ValidationIssue, section_visible, validate_reference_sections
 from cost.v2.repository import EconomicsRepository, PublicLink
 from cost.v2.schemas import SECTION_SCHEMAS
 
@@ -83,7 +84,9 @@ def public_settings_payload(settings: PublicSyncSettings) -> dict[str, Any]:
     сам о разделах ничего не знает.
     """
 
-    sections = mirrorable_sections()
+    # Раздел за выключенным флагом модуля переключателем зеркала не показывается.
+    features = config.features()
+    sections = [section for section in mirrorable_sections() if section_visible(section, features)]
     return {
         "exchange_enabled": settings.exchange_enabled,
         "mirror_sections": {section: section in settings.mirror_sections for section in sections},

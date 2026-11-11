@@ -11,7 +11,14 @@ from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable
 
-from design.models import BlastDesign, is_explosive_deck_kind
+from design.models import (
+    BlastDesign,
+    DownholeConnector,
+    HoleLoad,
+    Primer,
+    SurfaceConnector,
+    is_explosive_deck_kind,
+)
 from design.safety.holes import MaterialIndex, material_index, primer_items, primer_mass_kg
 
 __all__ = ["MASS_BLAST_CALC_VERSION", "ConsumptionLine", "explosives_consumption"]
@@ -90,11 +97,16 @@ def explosives_consumption(
 
     primers: dict[str, list[float | None]] = {}
     downhole: dict[tuple[str, float | None], int] = {}
+    connectors: dict[str, list[DownholeConnector]] = {}
+    for connector in design.network.downhole_connectors:
+        connectors.setdefault(connector.hole_id, []).append(connector)
     for load in loads:
         items = primer_items(load)
         for position, primer in enumerate(items):
             primers.setdefault(primer.product, []).append(primer_mass_kg(primer, index))
-            product, delay = _downhole_connector(design, load.hole_id, position, len(items))
+            product, delay = _downhole_connector(
+                design, connectors.get(load.hole_id, []), load, primer, position, len(items)
+            )
             downhole[(product, delay)] = downhole.get((product, delay), 0) + 1
     for product, masses in sorted(primers.items()):
         material = index.find(product)
@@ -120,7 +132,12 @@ def explosives_consumption(
     )
 
     surface: dict[tuple[str, str, float], int] = {}
-    for connector in design.network.surface_connectors:
+    # Как `timing._surface_edges`: сеть без объектов 2.0 читается по старым полям.
+    surface_connectors = design.network.surface_connectors or [
+        SurfaceConnector(id="", from_hole=item.from_hole, to_hole=item.to_hole, delay_ms=item.delay_ms, kind=item.kind)
+        for item in design.network.connectors
+    ]
+    for connector in surface_connectors:
         if connector.kind not in _PIECE_SURFACE_KINDS:
             continue
         if connector.from_hole not in enabled or connector.to_hole not in enabled:
@@ -137,7 +154,9 @@ def explosives_consumption(
         )
     )
 
-    starters = [item for item in design.network.starter_items if item.hole_id in enabled]
+    # Как `timing._starter_seeds`: без объектов стартов — старый список скважин.
+    starter_holes = [item.hole_id for item in design.network.starter_items] or list(design.network.starters)
+    starters = [hole_id for hole_id in starter_holes if hole_id in enabled]
     if starters:
         lines.append(_starter_line(len(starters), starter_product, index))
     return lines
@@ -165,20 +184,43 @@ def _name(material: Any, product: str) -> str:
     return str(material["name"]) if material else product
 
 
-def _downhole_connector(design: BlastDesign, hole_id: str, primer_index: int, primer_count: int) -> tuple[str, float | None]:
-    """Марка и замедление скважинного НСИ для ПД: свой коннектор ПД, иначе коннектор скважины."""
+def _downhole_connector(
+    design: BlastDesign,
+    own: list[DownholeConnector],
+    load: HoleLoad,
+    primer: Primer,
+    primer_index: int,
+    primer_count: int,
+) -> tuple[str, float | None]:
+    """Марка и замедление скважинного НСИ для ПД.
 
-    network = design.network
-    own = [item for item in network.downhole_connectors if item.hole_id == hole_id]
+    Порядок: коннектор этого ПД; коннектор деки, в которой ПД стоит; общий
+    коннектор скважины (у единственного ПД — любой без номера ПД); иначе
+    замедление из старого словаря сети без марки.
+    """
+
     match = next((item for item in own if item.primer_index == primer_index), None)
-    if match is None and primer_count == 1:
-        match = next((item for item in own if item.primer_index is None), None)
+    if match is None:
+        deck = _deck_of(load, primer.position_m)
+        if deck is not None:
+            match = next((item for item in own if item.primer_index is None and item.deck_index == deck), None)
     if match is None:
         match = next((item for item in own if item.primer_index is None and item.deck_index is None), None)
+    if match is None and primer_count == 1:
+        match = next((item for item in own if item.primer_index is None), None)
     if match is not None:
         return match.product, float(match.delay_ms)
-    delay = network.downhole_delay_ms.get(hole_id)
+    delay = design.network.downhole_delay_ms.get(load.hole_id)
     return "", None if delay is None else float(delay)
+
+
+def _deck_of(load: HoleLoad, position_m: float) -> int | None:
+    """Номер взрывчатой деки, в которой стоит ПД."""
+
+    for number, deck in enumerate(load.decks):
+        if is_explosive_deck_kind(deck.kind) and min(deck.from_m, deck.to_m) - 1e-6 <= position_m <= max(deck.from_m, deck.to_m) + 1e-6:
+            return number
+    return None
 
 
 def _same_delay(payload: dict[str, Any], delay: float | None) -> bool:

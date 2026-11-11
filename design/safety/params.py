@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
@@ -51,7 +52,7 @@ FORM_DEFAULTS: dict[str, Any] = {
     "hardness_f": 14.0,
 }
 
-_NUMBERS = ("k_ground", "k_structure", "alpha_blast", "people_min_m", "k_mech", "delay_group_ms", "hardness_f")
+_NUMBERS = ("k_ground", "k_structure", "alpha_blast", "people_min_m", "k_mech", "delay_group_ms")
 _OPTIONAL_NUMBERS = ("relief_height_m", "slope_angle_deg")
 _FLAGS = ("rock_group_ix", "rock_group_v_reduce", "frost", "buildings_damaged")
 _TABLES = {"kz_by_stemming": KZ_BY_STEMMING, "kz_by_free": KZ_BY_FREE, "kn_external": KN_EXTERNAL}
@@ -108,7 +109,7 @@ def safety_params(
     sources: dict[str, str] = {}
     values: dict[str, Any] = {}
     site = _site_payload(site_safety, issues)
-    manual = {key: value for key, value in (overrides or {}).items() if value is not None}
+    manual = _manual_values(overrides, issues)
     if site_safety is None:
         issues.append(
             SafetyIssue(
@@ -120,8 +121,6 @@ def safety_params(
         )
 
     for name in (*_NUMBERS, *_OPTIONAL_NUMBERS, *_FLAGS):
-        if name == "hardness_f":
-            continue
         if name in manual:
             values[name], sources[name] = _coerce(name, manual[name]), "MANUAL_OVERRIDE"
         elif site.get(name) is not None:
@@ -199,6 +198,55 @@ def _site_payload(site_safety: Mapping[str, Any] | None, issues: list[SafetyIssu
         )
         return {}
     return model.model_dump(mode="python")
+
+
+_LABELS = {
+    "k_ground": "K_г",
+    "k_structure": "K_с",
+    "alpha_blast": "α",
+    "people_min_m": "минимум для людей",
+    "k_mech": "доля зоны для механизмов",
+    "delay_group_ms": "порог группы замедления",
+    "hardness_f": "крепость f",
+    "relief_height_m": "превышение блока",
+    "slope_angle_deg": "угол косогора",
+}
+
+# Ручные числа проекта МВ, которые должны быть больше нуля (угол косогора и
+# превышение могут быть нулём — «не косогор», «превышения нет»).
+_POSITIVE = (*_NUMBERS, "hardness_f")
+
+
+def _manual_values(overrides: Mapping[str, Any] | None, issues: list[SafetyIssue]) -> dict[str, Any]:
+    """Ручные значения проекта МВ; негодное — предупреждение и значение справочника.
+
+    Пробел или опечатка в проекте не роняют расчёт (как в модели
+    себестоимости), а ноль крепости или K_г не дают молча нулевую зону.
+    """
+
+    manual: dict[str, Any] = {}
+    for name, value in (overrides or {}).items():
+        if value is None or value == "":
+            continue
+        if name in _FLAGS:
+            manual[name] = bool(value)
+            continue
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            number = float("nan")
+        bad = not math.isfinite(number) or (number <= 0 if name in _POSITIVE else number < 0)
+        if bad:
+            issues.append(
+                SafetyIssue(
+                    "warning",
+                    "manual_value_invalid",
+                    f"Значение «{value}» ({_LABELS.get(name, name)}) в проекте МВ не годится: взято значение справочника.",
+                )
+            )
+            continue
+        manual[name] = number
+    return manual
 
 
 def _coerce(name: str, value: Any) -> Any:

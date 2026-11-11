@@ -19,7 +19,7 @@ import math
 from dataclasses import dataclass
 from typing import Any, Sequence
 
-from design.safety import SafetyIssue, SafetyValue, ceil_to, num
+from design.safety import SafetyIssue, SafetyValue, ceil_to, chain_by_time, num
 
 __all__ = [
     "AirblastCharge",
@@ -61,6 +61,7 @@ class AirblastCharge:
     charge_length_m: float
     diameter_m: float
     kz: float
+    kz_by_free: bool = False  # K_з по свободной части l_св/d — скважина без забойки
 
     @property
     def long(self) -> bool:
@@ -105,13 +106,7 @@ class AirblastGroup:
 
 
 def airblast_groups(charges: Sequence[AirblastCharge], threshold_ms: float) -> list[AirblastGroup]:
-    ordered = sorted(charges, key=lambda charge: (charge.time_ms, charge.hole_id))
-    groups: list[list[AirblastCharge]] = []
-    for charge in ordered:
-        if groups and charge.time_ms - groups[-1][-1].time_ms < threshold_ms:
-            groups[-1].append(charge)
-        else:
-            groups.append([charge])
+    groups = chain_by_time(sorted(charges, key=lambda charge: charge.hole_id), lambda charge: charge.time_ms, threshold_ms)
     return [AirblastGroup(tuple(group)) for group in groups]
 
 
@@ -258,7 +253,7 @@ def airblast_glazing(
     return AirblastResult(
         groups=tuple(groups),
         group=group,
-        kz=SafetyValue(kz, "—", "K_з по l_заб/d (п. 803)", f"K_з = {num(kz, 3)}", "ФНП 494 п. 804, таблица K_з"),
+        kz=SafetyValue(kz, "—", _kz_formula(group), f"K_з = {num(kz, 3)}", "ФНП 494 п. 804, таблица K_з"),
         qe=SafetyValue(qe, "кг", qe_formula, qe_sub, qe_basis),
         factors=factors,
         base=SafetyValue(base_r, "м", rv_formula, f"по Q_э = {num(qe, 3)} → {num(base_r, 1)}", f"ФНП 494 п. 804, формула {rv_number}"),
@@ -266,6 +261,15 @@ def airblast_glazing(
         accepted=SafetyValue(rounded, "м", "вверх до кратного 50 м", f"{num(r)} → {num(rounded)}", "принято проектом"),
         issues=tuple(issues),
     )
+
+
+def _kz_formula(group: AirblastGroup | None) -> str:
+    """По какой таблице п. 803 взят наибольший K_з группы."""
+
+    if group is None:
+        return "K_з по l_заб/d (п. 803)"
+    worst = max(group.charges, key=lambda charge: charge.kz)
+    return "K_з по l_св/d — без забойки (п. 803)" if worst.kz_by_free else "K_з по l_заб/d (п. 803)"
 
 
 # Поправки пп. 798–801 к расстоянию по (10) / (11).

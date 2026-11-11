@@ -155,3 +155,30 @@ def test_block66_consumption_against_form(record_property) -> None:
     )
     print(f"consumption_block66: {line}")
     record_property("consumption_block66", line)
+
+
+def test_downhole_nsi_by_deck_connector() -> None:
+    """Коннекторы по декам: ПД берёт марку коннектора своей деки."""
+
+    design = _design()
+    design.network.downhole_connectors = [
+        DownholeConnector(id="d1", hole_id="1", delay_ms=500, deck_index=1, product="НСИ ИСКРА-С-500-12"),
+        DownholeConnector(id="d3", hole_id="1", delay_ms=700, deck_index=3, product="НСИ ИСКРА-С-700-12"),
+    ]
+    lines = _by_kind(explosives_consumption(design, MATERIAL_ROWS), "nsi_downhole")
+    by_name = {line.name: line.quantity for line in lines}
+    # ПД на 9,5 м — в деке 3 (7–10 м), на 5,5 м — в деке 1 (2,5–6 м).
+    assert by_name["НСИ ИСКРА-С-500-12"] == 1 and by_name["НСИ ИСКРА-С-700-12"] == 1
+
+
+def test_network_without_v2_objects_is_read_by_legacy_fields() -> None:
+    from design.models import Connector
+
+    design = _design()
+    design.network.starter_items = []
+    design.network.starters = ["1"]
+    design.network.surface_connectors = []
+    design.network.connectors = [Connector("1", "2", 42), Connector("2", "3", 42)]
+    lines = explosives_consumption(design, MATERIAL_ROWS)
+    assert _by_kind(lines, "starter")[0].quantity == 1
+    assert sum(line.quantity for line in _by_kind(lines, "nsi_surface")) == 2

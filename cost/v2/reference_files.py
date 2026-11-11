@@ -16,7 +16,7 @@ from typing import Any, Mapping
 from openpyxl import Workbook, load_workbook
 
 from cost.v2.models import ReferenceItem, ReferenceSnapshot
-from cost.v2.references import REFERENCE_SECTION_DEFINITIONS
+from cost.v2.references import REFERENCE_SECTION_DEFINITIONS, section_visible
 from cost.v2.schemas import SECTION_SCHEMAS, section_json_schema
 
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -48,13 +48,17 @@ FIXED_COLUMNS: tuple[Column, ...] = (
 _FIXED_KEYS = {column.key for column in FIXED_COLUMNS}
 
 
-def exportable_sections() -> list[str]:
-    """Разделы со схемой в порядке каталога; устаревшие в файл не идут."""
+def exportable_sections(features: Mapping[str, bool] | None = None) -> list[str]:
+    """Разделы со схемой в порядке каталога; устаревшие в файл не идут.
+
+    `features` — флаги модулей: раздел за выключенным флагом в выгрузку не
+    идёт. Импорт зовёт без флагов — файл с таким листом по-прежнему читается.
+    """
 
     return [
         code
         for code, meta in REFERENCE_SECTION_DEFINITIONS.items()
-        if code in SECTION_SCHEMAS and not meta.get("deprecated", False)
+        if code in SECTION_SCHEMAS and not meta.get("deprecated", False) and section_visible(code, features)
     ]
 
 
@@ -108,10 +112,10 @@ def _kind(prop: Mapping[str, Any]) -> str:
 # --- Экспорт ----------------------------------------------------------------
 
 
-def export_xlsx(snapshot: ReferenceSnapshot) -> bytes:
+def export_xlsx(snapshot: ReferenceSnapshot, features: Mapping[str, bool] | None = None) -> bytes:
     book = Workbook()
     book.remove(book.active)
-    for section in exportable_sections():
+    for section in exportable_sections(features):
         sheet = book.create_sheet(section)
         columns = section_columns(section)
         sheet.append([column.key for column in columns])
@@ -127,9 +131,9 @@ def export_xlsx(snapshot: ReferenceSnapshot) -> bytes:
     return buffer.getvalue()
 
 
-def export_json(snapshot: ReferenceSnapshot) -> dict[str, Any]:
+def export_json(snapshot: ReferenceSnapshot, features: Mapping[str, bool] | None = None) -> dict[str, Any]:
     data = snapshot.to_dict()
-    known = set(exportable_sections())
+    known = set(exportable_sections(features))
     data["sections"] = {key: value for key, value in data["sections"].items() if key in known}
     return data
 

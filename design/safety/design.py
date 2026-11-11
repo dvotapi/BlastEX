@@ -194,6 +194,7 @@ def safety_for_design(
         mechanisms_m=zones.mechanisms.value or 0.0,
         seismic_m=seismic.accepted.value or 0.0,
         airblast_m=airblast.accepted.value or 0.0,
+        buildings_m=zones.buildings.value,
     )
     issues.extend(object_issues)
     return SafetyResult(
@@ -282,11 +283,12 @@ def _airblast_charges(
     untimed: list[AirblastCharge] = []
     free_column: list[str] = []
     for hole in holes:
-        if hole.stemming_m > 0:
-            kz = kz_lookup(hole.stemming_m / hole.diameter_m, params.kz_by_stemming)
-        else:
+        by_free = hole.stemming_m <= 0
+        if by_free:
             kz = kz_lookup(hole.free_length_m / hole.diameter_m, params.kz_by_free)
             free_column.append(hole.hole_id)
+        else:
+            kz = kz_lookup(hole.stemming_m / hole.diameter_m, params.kz_by_stemming)
         hole_times = times.get(hole.hole_id)
         for index, deck in _explosive_decks(loads.get(hole.hole_id)):
             length = abs(deck.to_m - deck.from_m)
@@ -299,6 +301,7 @@ def _airblast_charges(
                 charge_length_m=length,
                 diameter_m=hole.diameter_m,
                 kz=kz,
+                kz_by_free=by_free,
             )
             (timed if hole_times else untimed).append(charge)
     return timed, untimed, free_column

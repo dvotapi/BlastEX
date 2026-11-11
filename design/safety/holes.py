@@ -13,6 +13,7 @@ from design.editing import local_spacing, previous_row_distance, row_index
 from design.models import (
     BlastDesign,
     Deck,
+    Hole,
     HoleLoad,
     Primer,
     charge_column_bounds_m,
@@ -31,7 +32,7 @@ class SafetyHole:
     hole_id: str
     length_m: float          # L — глубина пробуренной скважины
     diameter_m: float        # d — с учётом разбуривания (поле скважины)
-    stemming_m: float        # l_заб
+    stemming_m: float        # l_заб — над верхним зарядом
     charge_length_m: float   # l_зар — сумма длин взрывчатых дек
     free_length_m: float     # l_св — свободная от заряда верхняя часть
     charge_kg: float         # масса ВВ по декам
@@ -152,6 +153,11 @@ def safety_holes(
     enabled = [hole for hole in design.holes if hole.enabled]
     loads = {load.hole_id: load for load in design.loads}
     rows = row_index(enabled)
+    # Соседи в ряду — по номеру ряда, как `editing.local_spacing`, но без
+    # перебора всех скважин на каждую.
+    same_row: dict[int, list[Hole]] = {}
+    for hole in enabled:
+        same_row.setdefault(hole.row, []).append(hole)
     holes: list[SafetyHole] = []
     uncharged: list[str] = []
     no_mass: list[str] = []
@@ -175,17 +181,36 @@ def safety_holes(
                 hole_id=hole.id,
                 length_m=hole.length_m,
                 diameter_m=hole.diameter_mm / 1000.0,
-                stemming_m=stemming_length_m(decks),
+                stemming_m=_top_stemming(decks),
                 charge_length_m=_charge_length(decks),
                 free_length_m=_free_length(decks),
                 charge_kg=charge_kg,
-                spacing_m=local_spacing(enabled, hole),
+                spacing_m=local_spacing(same_row[hole.row], hole),
                 row_step_m=previous_row_distance(rows, hole),
                 primer_count=len(primers),
                 primer_kg=primer_kg,
             )
         )
     return holes, uncharged, sorted(set(no_mass))
+
+
+def _top_stemming(decks: list[Deck]) -> float:
+    """l_заб — забойка над верхним зарядом (пп. 784, 803), без промежуточной между деками.
+
+    Промежуточная забойка свободную верхнюю часть скважины не закрывает:
+    с ней η_заб и l_заб/d были бы завышены, а разлёт и Q_э — занижены.
+    """
+
+    top, _ = charge_column_bounds_m(decks)
+    if top is None:
+        return stemming_length_m(decks)
+    total = 0.0
+    for deck in decks:
+        if str(deck.kind) != "stemming":
+            continue
+        low, high = sorted((float(deck.from_m), float(deck.to_m)))
+        total += max(0.0, min(high, top) - max(low, 0.0))
+    return total
 
 
 def _charge_length(decks: list[Deck]) -> float:

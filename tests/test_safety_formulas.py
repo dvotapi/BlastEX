@@ -333,3 +333,22 @@ def test_manual_zone_must_have_a_reason_and_not_be_smaller() -> None:
     assert value.value == 750 and [issue.code for issue in issues] == ["manual_reason_missing"]
     value, issues = apply_manual("people", calculated, (800.0, "ЛЭП на границе зоны"))
     assert value.value == 800 and value.source == "MANUAL_OVERRIDE" and not issues
+
+
+def test_manual_buildings_zone_drives_object_assessment() -> None:
+    """Ручная зона для зданий больше расчётной — по ней и «В ЗОНЕ», и `expert_required`."""
+
+    plant = ProtectedObject("Промплощадка", "buildings", 200.0)
+    school = ProtectedObject("Школа", "buildings", 250.0, sensitive=True)
+    rows, issues = assess_objects([plant, school], people_m=750, mechanisms_m=500, seismic_m=100, airblast_m=50, buildings_m=300)
+    assert [(row.required_m, row.factor, row.position) for row in rows] == [
+        (300, "принято проектом", "В ЗОНЕ"),
+        (300, "принято проектом", "В ЗОНЕ"),
+    ]
+    assert [issue.code for issue in issues] == ["expert_required"]
+
+
+def test_kz_label_names_the_free_column_table() -> None:
+    charge = AirblastCharge("1", 0.0, 18.24, 8.0, 0.144, 0.02, kz_by_free=True)
+    result = airblast_glazing(airblast_groups([charge], 10.0), rock_group_ix=False, rock_group_v_reduce=False, frost=False)
+    assert "l_св/d" in result.kz.formula

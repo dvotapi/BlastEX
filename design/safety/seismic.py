@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Sequence
 
-from design.safety import SafetyValue, ceil_to, num
+from design.safety import SafetyValue, ceil_to, chain_by_time, num
 
 __all__ = ["Charge", "DelayGroup", "SeismicResult", "delay_groups", "seismic_r", "seismic_safety"]
 
@@ -58,13 +58,7 @@ class DelayGroup:
 def delay_groups(charges: Sequence[Charge], threshold_ms: float) -> list[DelayGroup]:
     """Разбить заряды на группы: соседние по времени ближе `threshold_ms` — в одной."""
 
-    ordered = sorted(charges, key=lambda charge: (charge.time_ms, charge.hole_id))
-    groups: list[list[Charge]] = []
-    for charge in ordered:
-        if groups and charge.time_ms - groups[-1][-1].time_ms < threshold_ms:
-            groups[-1].append(charge)
-        else:
-            groups.append([charge])
+    groups = chain_by_time(sorted(charges, key=lambda charge: charge.hole_id), lambda charge: charge.time_ms, threshold_ms)
     return [DelayGroup(group[0].time_ms, group[-1].time_ms, tuple(group)) for group in groups]
 
 

@@ -27,7 +27,7 @@ from design.mass_blast_calc import MASS_BLAST_CALC_VERSION, explosives_consumpti
 from design.mass_blast_objects import ObjectZones, assess_project_objects, situation_candidates
 from design.mass_blast_schedule import PERSONNEL_ROLES, build_schedule
 from design.mass_blast_table import DEFAULT_CHARGE_ROUND_KG, parameter_table
-from design.mass_blast_techcalc import technical_calculation
+from design.mass_blast_techcalc import network_intervals, technical_calculation
 from design.models import BlastDesign
 from design.safety import SAFETY_FORMULA_VERSION, num
 from design.safety.design import SafetyResult, safety_for_design
@@ -356,11 +356,7 @@ def build_document_context_v2(
         "hole_count": sum(item["table"].totals["hole_count"] for item in computed),
     }
     explosive_names = sorted({line.name for item in computed for line in item["consumption"] if line.kind == "explosive"})
-    surface = sorted({float(c.delay_ms) for item in computed for c in item["design"].network.surface_connectors})
-    downhole = sorted({float(c.delay_ms) for item in computed for c in item["design"].network.downhole_connectors})
-    intervals = " / ".join(num(value, 0 if value.is_integer() else 1) for value in surface)
-    if downhole:
-        intervals += ("; " if intervals else "") + "в скважине " + " / ".join(num(value, 0 if value.is_integer() else 1) for value in downhole)
+    intervals = "; ".join(network_intervals([item["design"] for item in computed]))
     schedule, schedule_issues = build_schedule(
         project=context["project"],
         schedule=schedule_payload,
@@ -370,7 +366,7 @@ def build_document_context_v2(
         blocks=[{"code": item["block"].code, "horizon": item["block"].horizon} for item in computed],
         totals=totals,
         guard_posts=list(payload.get("guard_posts") or []),
-        texts={"explosives": ", ".join(explosive_names), "initiation": _text(explosives.get("initiation")), "intervals": f"{intervals} мс" if intervals else ""},
+        texts={"explosives": ", ".join(explosive_names), "initiation": _text(explosives.get("initiation")), "intervals": intervals},
         signals={
             "warning": _text(profile.get("signal_warning")),
             "combat": _text(profile.get("signal_combat")),

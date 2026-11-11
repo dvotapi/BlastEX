@@ -28,7 +28,7 @@ from design.safety import SafetyValue, num
 from design.safety.design import SafetyResult
 from design.safety.holes import primer_items
 
-__all__ = ["Q_DEVIATION_SHARE", "VOLUME_MISMATCH_SHARE", "technical_calculation"]
+__all__ = ["Q_DEVIATION_SHARE", "VOLUME_MISMATCH_SHARE", "network_intervals", "technical_calculation"]
 
 VOLUME_MISMATCH_SHARE = 0.10
 Q_DEVIATION_SHARE = 0.10
@@ -272,20 +272,21 @@ def technical_calculation(
             source="CALCULATED",
         )
     )
-    # Типовая скважина — заряженная: у скважины без заряда забойки нет.
+    # Типовая скважина — заряженная; l_зар — сумма взрывчатых дек: воздушные и
+    # инертные промежутки рассредоточенного заряда не заряд. При сплошной
+    # колонке l_зар = L − l_заб, как в форме.
     charged = [row for row in rows if row["stemming_m"] is not None]
-    stem_mean = sum(row["stemming_m"] for row in charged) / len(charged) if charged else 0.0
-    depth_mean = sum(row["depth_m"] for row in charged) / len(charged) if charged else 0.0
-    typical = p_kg_m * (depth_mean - stem_mean)
+    charge_mean = sum(row["charge_length_m"] for row in charged) / len(charged) if charged else 0.0
+    typical = p_kg_m * charge_mean
     items.append(
         _value(
             "Заряд типовой скважины, Q",
             round(typical),
             "кг",
-            formula="Q = P·(L − l_заб)",
-            substitution=f"{num(p_kg_m, 2)}·({num(depth_mean, 1)} − {num(stem_mean, 1)}) = {num(typical)}",
+            formula="Q = P·l_зар",
+            substitution=f"{num(p_kg_m, 2)}·{num(charge_mean, 1)} = {num(typical)}",
             source="CALCULATED",
-            note="по скважинам — таблица параметров",
+            note="l_зар — длина колонки ВВ (L − l_заб без промежутков), ср.; по скважинам — таблица параметров",
         )
     )
     items.append(
@@ -371,14 +372,8 @@ def technical_calculation(
     sections.append(
         {"number": "8", "title": "Тип детонирующего шнура и замедлителей", "items": [_text(f"{cord}. НСИ: {'; '.join(nsi) or '—'}")]}
     )
-    surface = sorted({float(item.delay_ms) for item in design.network.surface_connectors})
-    downhole = sorted({float(item.delay_ms) for item in design.network.downhole_connectors})
     scheme = str(texts.get("scheme") or "").strip()
-    intervals = []
-    if surface:
-        intervals.append("поверхностные " + ", ".join(num(value, _digits(value)) for value in surface) + " мс")
-    if downhole:
-        intervals.append("в скважине " + ", ".join(num(value, _digits(value)) for value in downhole) + " мс")
+    intervals = network_intervals([design])
     line = "; ".join(filter(None, [scheme, "интервалы: " + "; ".join(intervals) if intervals else ""]))
     sections.append({"number": "9", "title": "Схема взрывания с интервалами замедлений", "items": [_text(f"{line} (Г.4).".lstrip())]})
 
@@ -463,6 +458,32 @@ def technical_calculation(
         if "items" in section:
             section["items"] = [item for item in section["items"] if "text" not in item or item["text"].strip()]
     return sections, issues
+
+
+def network_intervals(designs: Sequence[BlastDesign]) -> list[str]:
+    """Интервалы замедления сети для текста: НСИ и ДШ — по соединителям, электронная — по каналам.
+
+    У электронной сети времена — абсолютные моменты каналов (`electronic_channels`),
+    поверхностных соединителей нет: печатаются диапазон времён и наименьший
+    интервал между соседними моментами.
+    """
+
+    surface = sorted({float(c.delay_ms) for design in designs for c in design.network.surface_connectors})
+    downhole = sorted({float(c.delay_ms) for design in designs for c in design.network.downhole_connectors})
+    times = sorted({float(c.time_ms) for design in designs for c in design.network.electronic_channels})
+    parts: list[str] = []
+    if surface:
+        parts.append("поверхностные " + ", ".join(num(value, _digits(value)) for value in surface) + " мс")
+    if downhole:
+        parts.append("в скважине " + ", ".join(num(value, _digits(value)) for value in downhole) + " мс")
+    if times:
+        text = f"электронные: время срабатывания {num(times[0], _digits(times[0]))}–{num(times[-1], _digits(times[-1]))} мс"
+        steps = [b - a for a, b in zip(times, times[1:]) if b - a > 0]
+        if steps:
+            step = min(steps)
+            text += f", наименьший интервал {num(step, _digits(step))} мс"
+        parts.append(text)
+    return parts
 
 
 def _density(design: BlastDesign) -> float:

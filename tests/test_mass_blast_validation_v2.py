@@ -286,6 +286,26 @@ def test_construction_charge_length_excludes_gaps():
     context, _ = build(design)
     section = next(item for item in context["blocks_v2"][0]["technical_calculation"] if item["number"] == "7")
     assert section["constructions"][0]["charge_length_mean_m"] == 6.0
+    # Q типовой — по длине колонки ВВ, без воздушного промежутка: P·6 м, а не P·8 м.
+    section4 = next(item for item in context["blocks_v2"][0]["technical_calculation"] if item["number"] == "4")
+    p = next(item for item in section4["items"] if item.get("label", "").startswith("Вместимость"))["value"]
+    typical = next(item for item in section4["items"] if item.get("label", "").startswith("Заряд типовой"))
+    assert typical["value"] == round(p * 6.0) and typical["formula"] == "Q = P·l_зар"
+
+
+def test_electronic_network_intervals_are_printed():
+    from design.models import ElectronicChannel
+
+    design = grid_design()
+    design.network = InitiationNetwork(
+        system="electronic",
+        electronic_channels=[ElectronicChannel(id=f"e{i}", hole_id=hole.id, time_ms=17.0 * i) for i, hole in enumerate(design.holes)],
+    )
+    context, _ = build(design)
+    section9 = next(item for item in context["blocks_v2"][0]["technical_calculation"] if item["number"] == "9")
+    assert "электронные: время срабатывания 0–289 мс, наименьший интервал 17 мс" in section9["items"][0]["text"]
+    point7 = next(item for item in context["schedule"]["points"] if item["point"] == "7")
+    assert "наименьший интервал 17 мс" in point7["value"]
 
 
 def test_zero_mass_charge_is_not_a_construction():

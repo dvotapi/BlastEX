@@ -162,6 +162,7 @@ def parameter_table(
                 # служебные — не печатаются
                 "charge_exact_kg": round(charge, 3),
                 "volume_m3": None if volume is None else round(volume, 1),
+                "charge_length_m": round(charge_length, 3),
                 "eta_charge": round(charge_length / hole.length_m, 3) if hole.length_m > 0 else None,
                 "flyrock_r_m": (flyrock_by_hole or {}).get(hole.id),
                 "nsi_downhole_pcs": len(primers),

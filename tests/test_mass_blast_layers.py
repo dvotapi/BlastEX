@@ -48,7 +48,7 @@ class _Repository:
     def get_layer(self, organization_id, layer_id):
         return self._view(self.layers[layer_id])
 
-    def create_layer(self, organization_id, actor, project_id, *, kind, project_revision_id, allowed_statuses, single, seed, payload):
+    def create_layer(self, organization_id, actor, project_id, *, kind, project_revision_id, allowed_statuses, single, seed, payload, unique_payload_key=None):
         if self.project["lifecycle_status"] not in allowed_statuses:
             raise MassBlastConflictError("статус")
         if single and any(layer["kind"] == kind for layer in self.layers.values()):

@@ -77,3 +77,19 @@ def test_refresh_moves_the_layer_to_the_new_revision(repository) -> None:
         ORG, AUTHOR, layer["id"], expected_version=1, seed={"kind": "NARYAD", "blocks": [1]}, project_revision_id=revision["id"],
     )
     assert refreshed["seed"]["blocks"] == [1] and refreshed["payload"] == {"number": "1"}
+
+
+def test_one_notification_per_addressee_in_the_transaction(repository) -> None:
+    project, revision = _approved(repository)
+
+    def notify(code):
+        return repository.create_layer(
+            ORG, AUTHOR, project["id"], kind="NOTIFICATION", project_revision_id=revision["id"],
+            allowed_statuses=APPROVED, single=False, seed={}, payload={"notification_code": code},
+            unique_payload_key="notification_code",
+        )
+
+    notify("RTN")
+    notify("ADM")
+    with pytest.raises(MassBlastConflictError, match="адресату"):
+        notify("RTN")

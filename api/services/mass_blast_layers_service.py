@@ -215,6 +215,9 @@ def create_layer(
         organization_id, actor, project_id, kind=kind, project_revision_id=revision["id"],
         allowed_statuses=set(LAYER_OPEN_AFTER[kind]), single=kind not in MULTI_LAYER_KINDS,
         seed=layer_seed(kind, context, notification=addressee), payload=data,
+        # Одно уведомление на адресата: окончательная проверка — в транзакции
+        # создания под блокировкой проекта (одновременные запросы).
+        unique_payload_key="notification_code" if kind == "NOTIFICATION" else None,
     )
     return _with_view(layer, snapshot, context)
 

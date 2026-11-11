@@ -726,7 +726,11 @@ class PostgresMassBlastRepository:
     def create_layer(
         self, organization_id: str, actor: str, project_id: str, *, kind: str, project_revision_id: str,
         allowed_statuses: set[str], single: bool, seed: dict[str, Any], payload: dict[str, Any],
+        unique_payload_key: str | None = None,
     ) -> dict[str, Any]:
+        """Новый слой. `unique_payload_key` — поле payload, непустое значение которого у слоёв
+        этого вида не повторяется (адресат уведомления); проверка — под блокировкой проекта."""
+
         now = _now()
         with self.session_factory() as session, session.begin():
             project = session.scalar(
@@ -740,6 +744,14 @@ class PostgresMassBlastRepository:
                 select(MassBlastLayerRow.id).where(MassBlastLayerRow.project_id == project_id, MassBlastLayerRow.kind == kind)
             ):
                 raise MassBlastConflictError("Такой слой у проекта уже есть.")
+            value = str(payload.get(unique_payload_key) or "") if unique_payload_key else ""
+            if value and any(
+                str((other.payload or {}).get(unique_payload_key) or "") == value
+                for other in session.scalars(
+                    select(MassBlastLayerRow).where(MassBlastLayerRow.project_id == project_id, MassBlastLayerRow.kind == kind)
+                )
+            ):
+                raise MassBlastConflictError("Такой слой этому адресату у проекта уже есть: на адресата — один.")
             row = MassBlastLayerRow(
                 id=str(uuid4()), organization_id=organization_id, project_id=project_id, kind=kind,
                 project_revision_id=project_revision_id, status="draft", version=1, current_revision_id=None,

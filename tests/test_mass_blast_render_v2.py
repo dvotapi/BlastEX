@@ -423,3 +423,29 @@ def test_naryad_material_rows_grow_with_block_distribution(context):
     assert all(height > 4.4 * mm for height in material_rows)
     text = _text(_pages(render_layer_document(revision))[0])
     assert all(f"Блок Б{n}" in text for n in range(1, 8))
+
+
+def test_title_summary_rows_do_not_overlap_with_many_blocks(context, monkeypatch):
+    from design.reporting.mass_blast import title
+
+    data = copy.deepcopy(context)
+    data["blocks"] = [{**data["blocks"][0], "code": str(code)} for code in range(66, 73)]
+    placed: list[tuple[str, float, float]] = []
+    original = title._put
+
+    def record(canvas, value, style, x, top, width, page_h):
+        height = original(canvas, value, style, x, top, width, page_h)
+        if style == "value":
+            placed.append((value, top, height))
+        return height
+
+    monkeypatch.setattr(title, "_put", record)
+    render_project_document(data, "title")
+    assert placed[0][2] > title._S["value"].leading   # список блоков перенёсся
+    for (_, top, height), (_, next_top, _) in zip(placed, placed[1:]):
+        assert next_top >= top + height
+
+
+def test_acceptance_keeps_fractional_volume(context):
+    revision = _layer_revision(context, "ACCEPTANCE_ACT", {"accepted_volume_m3": 1234.5})
+    assert "1 234,5" in _text(_pages(render_layer_document(revision))[0])

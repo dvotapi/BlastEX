@@ -560,7 +560,7 @@ def acceptance_story(revision: Mapping[str, Any], width: float) -> list:
                                     ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("TOPPADDING", (0, 0), (-1, -1), 3)]))
     accepted = payload.get("accepted_volume_m3")
     volume = Table([[p("— по технологическому взрыванию", "body"),
-                     _write_in(40 * mm, 6 * mm, num(accepted, 0) if accepted is not None else ""), p("м³", "body")]],
+                     _write_in(40 * mm, 6 * mm, short(accepted, 3) if accepted is not None else ""), p("м³", "body")]],
                    colWidths=[width * 0.55, 42 * mm, width * 0.45 - 42 * mm])
     volume.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("VALIGN", (0, 0), (-1, -1), "MIDDLE")]))
     blocks = _blocks(seed)

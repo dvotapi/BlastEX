@@ -160,13 +160,18 @@ def draw_title_page(canvas, context: Mapping[str, Any], page_w: float, page_h: f
         _put(canvas, project.get("object_name"), "object", TITLE_LEFT, OBJECT_TOP + 0.5, body_w, page_h)
     if customer:
         _put(canvas, f"Заказчик: {customer}", "customer", TITLE_LEFT, CUSTOMER_TOP + 1.0, body_w, page_h)
-    for index, (label, value) in enumerate(summary_rows(context)):
-        top = SUMMARY_TOP + index * SUMMARY_STEP
-        _put(canvas, label, "label", TITLE_LEFT, top + 1.0, SUMMARY_LABEL_RIGHT - TITLE_LEFT, page_h)
-        _put(canvas, value, "value", SUMMARY_VALUE_X, top + 0.5, right_edge - SUMMARY_VALUE_X, page_h)
+    # Строки сводки — с шагом эталона; длинное значение (много блоков)
+    # переносится и сдвигает следующие строки вниз, а не наезжает на них.
+    top = SUMMARY_TOP
+    line_h = _S["value"].leading
+    for label, value in summary_rows(context):
+        label_h = _put(canvas, label, "label", TITLE_LEFT, top + 1.0, SUMMARY_LABEL_RIGHT - TITLE_LEFT, page_h)
+        value_h = _put(canvas, value, "value", SUMMARY_VALUE_X, top + 0.5, right_edge - SUMMARY_VALUE_X, page_h)
+        top += SUMMARY_STEP + max(0.0, max(label_h, value_h) - line_h)
     agreements = [a for a in requisites.get("agreements") or [] if text(a.get("name")) or text(a.get("position"))]
+    agreement_top = max(AGREEMENT_TOP, top + (AGREEMENT_TOP - SUMMARY_TOP - 8 * SUMMARY_STEP))
     for index, item in enumerate(agreements):
-        top = AGREEMENT_TOP + index * AGREEMENT_STEP
+        top = agreement_top + index * AGREEMENT_STEP
         _put(canvas, "Согласовано:", "label", TITLE_LEFT, top + 1.0, SUMMARY_LABEL_RIGHT - TITLE_LEFT, page_h)
         who = " ".join(filter(None, (text(item.get("position")), text(item.get("name")))))
         _put(canvas, who, "line", SUMMARY_VALUE_X, top + 1.0, 160, page_h)

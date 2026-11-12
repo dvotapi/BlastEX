@@ -338,7 +338,6 @@ h5 { margin:14px 0 6px; font-size:12px; color:#3b4b43; }
 .passport-bar .passport-fields { align-content:start; gap:7px; }
 .passport-fields label { display:grid; gap:3px; min-width:0; font-size:var(--fs-label); font-weight:var(--font-weight-strong); color:#3b4b43; }
 .passport-fields input { width:100%; height:var(--control-h); padding:4px 8px; border:1px solid #cfd9d4; border-radius:var(--radius-control); background:#fbfcfb; color:#17231d; outline:none; }
-/* Не `.passport-row`: так называется строка паспорта в `design.css`. */
 .passport-line { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:end; gap:6px; }
 .passport-line button { white-space:nowrap; }
 .passport-saved { grid-template-columns:minmax(0,1fr) auto auto; }

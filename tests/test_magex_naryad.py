@@ -310,7 +310,9 @@ def test_availability_column_and_shortage():
     repository = MemoryRepository()
     fake = FakeMagex(stock={**{key: Decimal(100000) for key in MATERIAL_IDS.values()}, MATERIAL_IDS["MAT_PD_1000"]: Decimal(100)})
     answer = magex.availability(repository, economics(), ORG, LAYER_ID, transport=fake)
-    assert answer["items"]["primer:ПД Сферит-ДП 1000 г:"] == {"available": 100.0, "short": True, "shared": False}
+    assert answer["items"]["primer:ПД Сферит-ДП 1000 г:"] == {
+        "available": 100.0, "short": True, "shared": False, "material_id": MATERIAL_IDS["MAT_PD_1000"],
+    }
     assert answer["shortages"][0]["required"] == 198.0
     assert answer["calculated_at"] == "2026-10-14T02:11:00Z"
 
@@ -432,3 +434,24 @@ def test_more_than_50_blocks_is_an_error():
     _, issues = build_naryad_payload(LAYER_ID, seed, {"number": "1", "issue_date": "2026-10-14"}, _lines(), _ctx(),
                                      ver=1, iat=0, approved_at=NOW)
     assert "magex_too_many_blocks" in {item["code"] for item in issues if item["level"] == "error"}
+
+
+def test_cartridge_rounding_is_printed_and_reported():
+    """кг → целые патроны: печать «Выписано» как в выписке, округление — предупреждением (замечание Codex)."""
+
+    class Cartridges(FakeMagex):
+        def _catalog(self):
+            return [dict(item, accounting_unit="pcs", unit_mass_kg="25.000") if item["id"] == MATERIAL_IDS["MAT_EVV"] else item
+                    for item in CATALOG]
+
+    repository, fake = MemoryRepository(), Cartridges()
+    result = _approve(repository, fake)
+    assert result["outcome"] == "ACCEPTED"
+    assert "magex_qty_rounded" in {item["code"] for item in result["warnings"]}
+    signed = {line["material_id"]: line["qty"] for line in fake.naryads[LAYER_ID]["payload"]["lines"]}
+    assert signed[MATERIAL_IDS["MAT_EVV"]] == "1307.000"
+    context = repository.revisions[repository.layer["current_revision_id"]]["context"]
+    line = next(item for item in context["view"]["lines"] if item["kind"] == "explosive")
+    assert line["issue_qty"] == 32675.0 and line["issue_kg"] == 32675.0
+    assert line["reserve_qty"] == pytest.approx(32675.0 - 32659.326)
+    assert context["view"]["totals"]["explosive_issue_kg"] == 32675.0

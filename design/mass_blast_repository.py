@@ -1072,23 +1072,34 @@ class PostgresMassBlastRepository:
             return {"status": row.status, "execution": dict(row.execution or {}), "fetched_at": row.fetched_at.isoformat()}
 
     def magex_keys_in_use(self, organization_id: str) -> list[dict[str, Any]]:
-        """`kid` принятых версий с незакрытыми (по последнему известному статусу) нарядами."""
+        """`kid`, без которых пока нельзя: принятые версии незакрытых (по последнему известному
+        статусу) нарядов и версии в очереди или в отправке — их строки ещё уйдут в MagEX."""
 
         with self.session_factory() as session:
             rows = session.execute(
-                select(MassBlastMagexVersionRow.kid, MassBlastMagexVersionRow.layer_id, MassBlastMagexNaryadRow.status)
+                select(
+                    MassBlastMagexVersionRow.kid, MassBlastMagexVersionRow.layer_id, MassBlastMagexVersionRow.status,
+                    MassBlastMagexNaryadRow.status,
+                )
                 .join(MassBlastMagexNaryadRow, MassBlastMagexNaryadRow.layer_id == MassBlastMagexVersionRow.layer_id, isouter=True)
                 .where(
                     MassBlastMagexVersionRow.organization_id == organization_id,
-                    MassBlastMagexVersionRow.status == "ACCEPTED",
+                    MassBlastMagexVersionRow.status.in_(("ACCEPTED", "PENDING", "SENDING")),
                 )
             ).all()
         open_layers: dict[str, set[str]] = {}
-        for kid, layer_id, naryad_status in rows:
+        queued: dict[str, int] = {}
+        for kid, layer_id, version_status, naryad_status in rows:
+            if version_status in ("PENDING", "SENDING"):
+                queued[kid] = queued.get(kid, 0) + 1
+                continue
             if naryad_status in ("closed", "cancelled"):
                 continue
             open_layers.setdefault(kid, set()).add(layer_id)
-        return [{"kid": kid, "open_naryads": len(layers)} for kid, layers in sorted(open_layers.items())]
+        return [
+            {"kid": kid, "open_naryads": len(open_layers.get(kid, ())), "queued_versions": queued.get(kid, 0)}
+            for kid in sorted(set(open_layers) | set(queued))
+        ]
 
     @staticmethod
     def _project_row(session: Session, organization_id: str, project_id: str) -> MassBlastProjectRow:

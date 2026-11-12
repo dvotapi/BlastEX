@@ -65,13 +65,9 @@ def test_qr_is_the_accepted_jws_40mm_level_l(revision):
     assert code.value == online["magex"]["jws"]
     assert code.size == QR_SIZE and code.matrix == qr_matrix(online["magex"]["jws"])
     assert code.quiet == QR_QUIET_MODULES * code.module
-    # Форма 4 помещается на лист без сжатия: QR печатается 40 × 40 мм, а не меньше.
-    _page_w, page_h = frame.landscape(frame.A4)
-    keep = story[0]
-    frame.register_fonts()
-    keep.canv = Canvas(io.BytesIO())
-    keep.wrap(width, page_h - 23 * 2.834645669)
-    assert getattr(keep, "_scale", 1.0) == pytest.approx(1.0)
+    # QR — вне сжимаемой части формы: 40 × 40 мм при любом её объёме.
+    assert not any(isinstance(item, QrFlowable) for item in _flowables([story[-1]]))
+    assert isinstance(story[-1], KeepInFrame)
 
 
 def test_qr_print_is_one_page_with_caption_and_actual_size(revision):
@@ -121,3 +117,17 @@ def test_structured_fields_win_over_legacy_text(revision):
     text = pdfium.PdfDocument(render_layer_document(online))[0].get_textpage().get_text_range()
     assert "КамАЗ 43118 А123ВС96" in text and "№ РВ-66 от 15.01.2026" in text
     assert "ГАЗ старый" not in text and "старое разрешение" not in text
+
+
+def test_qr_keeps_40mm_on_a_crowded_form(revision):
+    online = _online(revision)
+    online["seed"] = {**online["seed"], "blocks": [{**online["seed"]["blocks"][0], "code": f"B{index}"} for index in range(50)]}
+    pdf = render_layer_document(online)
+    document = pdfium.PdfDocument(pdf)
+    assert len(document) == 1
+    story = naryad_story(online, frame.frame_width(True, layer_part(online).margins))
+    frame.register_fonts()
+    keep = story[-1]
+    keep.canv = Canvas(io.BytesIO())
+    keep.wrap(keep.maxWidth, keep.maxHeight)
+    assert keep._scale > 1.0  # форма сжата (ReportLab: делитель масштаба), а QR — нет

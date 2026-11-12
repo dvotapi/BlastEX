@@ -172,6 +172,24 @@ export function NaryadForm({ layer, draft, set, disabled, errors, afterBlast, re
   }, [online, layer.id, layer.version]);
   const common = { draft, set, disabled, layer, remember };
   const lines = ((layer.view.lines ?? []) as NaryadLine[]);
+  // «К выдаче» по форме (с несохранённым запасом); у строк одной позиции MagEX — сумма по позиции.
+  const toIssueNow = (line: NaryadLine): number | null => {
+    const own = ((draft.reserve ?? {}) as Record<string, string>)[line.key];
+    const parsed = parseNumber(own ?? "");
+    if (typeof parsed === "number") return line.project_qty + parsed;
+    return own?.trim() ? null : line.project_qty + line.reserve_qty;
+  };
+  const demandFor = (key: string): number | null => {
+    const group = availability?.items?.[key]?.material_id;
+    const members = group ? lines.filter((line) => availability?.items?.[line.key]?.material_id === group) : lines.filter((line) => line.key === key);
+    let total = 0;
+    for (const line of members) {
+      const value = toIssueNow(line);
+      if (value === null) return null;
+      total += value;
+    }
+    return total;
+  };
   const reserve = (draft.reserve ?? {}) as Record<string, string>;
   const issued = (draft.issued ?? {}) as Record<string, string>;
   const consumed = (draft.consumed ?? {}) as Record<string, string>;
@@ -227,24 +245,27 @@ export function NaryadForm({ layer, draft, set, disabled, errors, afterBlast, re
                   {errors[`reserve:${line.key}`] && <small className="form-error">{errors[`reserve:${line.key}`]}</small>}
                 </td>
                 <td title={extra === null ? "пересчитается после сохранения" : undefined}>{toIssue}</td>
-                {online && <AvailableCell availability={availability} line={line} toIssue={extra === null ? null : line.project_qty + extra} digits={digits} />}
+                {online && <AvailableCell availability={availability} line={line} demand={demandFor(line.key)} digits={digits} />}
                 {afterBlast && (
                   <>
                     <td>
-                      <input aria-label={`Выдано: ${line.name}`} inputMode="decimal" value={issued[line.key] ?? ""}
+                      <input aria-label={`Выдано: ${line.name}`} inputMode="decimal"
+                        value={line.issued_source === "MAGEX" ? magexValue(line.issued_qty) : issued[line.key] ?? ""}
                         disabled={disabled || line.issued_source === "MAGEX"}
                         placeholder={line.issued_source === "MAGEX" && line.issued_qty !== null && line.issued_qty !== undefined ? `${ruNum(line.issued_qty, 3)} (MagEX)` : ""}
                         onChange={(event) => setIn(draft, set, "issued", line.key, event.target.value)} />
                     </td>
                     <td>
-                      <input aria-label={`Израсходовано: ${line.name}`} inputMode="decimal" value={consumed[line.key] ?? ""}
+                      <input aria-label={`Израсходовано: ${line.name}`} inputMode="decimal"
+                        value={line.consumed_source === "MAGEX" ? magexValue(line.consumed_qty) : consumed[line.key] ?? ""}
                         disabled={disabled || line.consumed_source === "MAGEX"}
                         placeholder={line.consumed_qty === null || line.consumed_qty === undefined ? "" : `${ruNum(line.consumed_qty, 3)} (${line.consumed_source === "MAGEX" ? "MagEX" : "факт"})`}
                         onChange={(event) => setIn(draft, set, "consumed", line.key, event.target.value)} />
                     </td>
                     <td>
                       {noReturn ? "—" : (
-                        <input aria-label={`Возвращено: ${line.name}`} inputMode="decimal" value={returned[line.key] ?? ""}
+                        <input aria-label={`Возвращено: ${line.name}`} inputMode="decimal"
+                          value={line.returned_source === "MAGEX" ? magexValue(line.returned_qty) : returned[line.key] ?? ""}
                           disabled={disabled || line.returned_source === "MAGEX"}
                           placeholder={line.returned_qty === null || line.returned_qty === undefined ? "" : `${ruNum(line.returned_qty, 3)} (${line.returned_source === "MAGEX" ? "MagEX" : "выдано − израсходовано"})`}
                           onChange={(event) => setIn(draft, set, "returned", line.key, event.target.value)} />
@@ -272,13 +293,19 @@ export function NaryadForm({ layer, draft, set, disabled, errors, afterBlast, re
   );
 }
 
+/** Значение графы после взрыва из MagEX — в поле, а не подсказкой: ручной ввод закрыт. */
+function magexValue(value: number | null | undefined): string {
+  return value === null || value === undefined ? "" : ruNum(value, 3);
+}
+
 /** Графа «Доступно на складе»: в единице строки; нехватка — по выписанному сейчас в форме. */
-function AvailableCell({ availability, line, toIssue, digits }: {
-  availability: MagexAvailability | null; line: NaryadLine; toIssue: number | null; digits: number;
+function AvailableCell({ availability, line, demand, digits }: {
+  availability: MagexAvailability | null; line: NaryadLine; demand: number | null; digits: number;
 }) {
   const item = availability?.items?.[line.key];
   if (!item) return <td>—</td>;
-  const short = toIssue === null ? item.short : toIssue > item.available + 1e-9;
+  // Нехватка — по всей позиции MagEX (сумма строк), как её проверит MagEX.
+  const short = demand === null ? item.short : demand > item.available + 1e-9;
   return (
     <td className={short ? "form-error" : undefined} title={item.shared ? "одна позиция MagEX на несколько строк наряда" : undefined}>
       {ruNum(item.available, digits)}{short ? " — не хватает" : ""}{item.shared ? " *" : ""}

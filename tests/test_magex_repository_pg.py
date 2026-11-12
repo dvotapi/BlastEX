@@ -78,10 +78,12 @@ def test_execution_and_keys_in_use(repository) -> None:
     layer = _create(repository, project, revision)
     assert repository.magex_execution(ORG, layer["id"]) is None
     version = repository.create_magex_version(ORG, AUTHOR, layer["id"], _build())
+    # В отправке — ключ ещё нужен: строка уйдёт в MagEX.
+    assert repository.magex_keys_in_use(ORG) == [{"kid": "kid-1", "open_naryads": 0, "queued_versions": 1}]
     repository.update_magex_version(version["id"], status="ACCEPTED")
     repository.save_magex_execution(ORG, layer["id"], {"status": "issued", "lines": []})
     assert repository.magex_execution(ORG, layer["id"])["status"] == "issued"
-    assert repository.magex_keys_in_use(ORG) == [{"kid": "kid-1", "open_naryads": 1}]
+    assert repository.magex_keys_in_use(ORG) == [{"kid": "kid-1", "open_naryads": 1, "queued_versions": 0}]
     repository.save_magex_execution(ORG, layer["id"], {"status": "closed", "lines": []})
     assert repository.magex_keys_in_use(ORG) == []
     assert repository.magex_execution("other", layer["id"]) is None

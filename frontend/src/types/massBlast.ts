@@ -333,10 +333,12 @@ export type MagexApproveResult = MagexState & {
   rejection?: { code: string; message: string; details: Record<string, unknown> };
   /** Выписка та же, но выпущена новая ревизия для печати (графы после взрыва). */
   reprinted?: boolean;
+  /** Предупреждения выписки (округление до целых патронов, нет разрешения на ВР). */
+  warnings?: MassBlastIssue[];
 };
 
 export type MagexAvailability = {
-  items: Record<string, { available: number; short: boolean; shared: boolean }>;
+  items: Record<string, { available: number; short: boolean; shared: boolean; material_id?: string }>;
   shortages?: Array<{ material: string; required: number; available: number; unit: string }>;
   calculated_at?: string | null;
   error: string;

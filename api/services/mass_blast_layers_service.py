@@ -736,6 +736,18 @@ def issue_layer(
     }
     if magex is not None:
         snapshot["magex"] = dict(magex)
+        overrides = magex.get("issue_overrides") or {}
+        if overrides:
+            # «Выписано» — как в подписанной выписке: округление до целых патронов ложится в запас.
+            lines = []
+            for line in snapshot["view"].get("lines") or []:
+                if line.get("key") in overrides:
+                    issue = float(overrides[line["key"]])
+                    delta = issue - float(line.get("issue_qty") or 0.0)
+                    line = {**line, "issue_qty": issue, "issue_kg": issue,
+                            "reserve_qty": round(float(line.get("reserve_qty") or 0.0) + delta, 3)}
+                lines.append(line)
+            snapshot["view"] = {**snapshot["view"], "lines": lines, "totals": naryad_totals(layer["seed"], lines)}
     elif mode == "OFFLINE":
         snapshot["magex"] = {"mode": "OFFLINE", "reason": offline_reason(organization_id)}
     if skip_if_same and layer.get("current_revision_id"):

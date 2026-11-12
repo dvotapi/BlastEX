@@ -386,6 +386,8 @@ def approve(
     signed = decode_content(version["jws"])
     merged, _ = magex_lines(lines, ctx.materials, ctx.catalog)
     magex_snapshot = {
+        # Округление кг → целые патроны (решение В6): «Выписано» в печати — как в выписке.
+        "issue_overrides": _rounded_issue(lines, merged, ctx.catalog),
         "mode": "ONLINE",
         "ver": version["ver"],
         "kid": version["kid"],
@@ -406,7 +408,28 @@ def approve(
     # В очередь — только вместе с ревизией и со сроком аренды: упадёт процесс до ответа MagEX —
     # отправит очередь; версия без ревизии (сбой выпуска) остаётся SENDING и в очередь не попадает.
     version = repository.activate_magex_version(version["id"], revision["id"], now + timedelta(seconds=LEASE_S))
-    return _send(repository, organization_id, actor, layer_id, version, client, now)
+    warnings = [item for item in issues if item["level"] == "warning"]
+    return {**_send(repository, organization_id, actor, layer_id, version, client, now), "warnings": warnings}
+
+
+def _rounded_issue(
+    lines: Sequence[Mapping[str, Any]], merged: Sequence[Mapping[str, Any]], catalog: Mapping[str, Mapping[str, Any]],
+) -> dict[str, float]:
+    """Строки наряда в кг, выписанные штуками MagEX: «к выдаче» после округления до целых, кг."""
+
+    by_key = {str(line.get("key")): line for line in lines}
+    result: dict[str, float] = {}
+    for row in merged:
+        unit_mass = (catalog.get(row["material_id"]) or {}).get("unit_mass_kg")
+        keys = [key for key in row["keys"] if (by_key.get(key) or {}).get("unit") == "кг"]
+        if row["unit"] != "pcs" or not unit_mass or not keys:
+            continue
+        total = round(float(row["qty"]) * float(unit_mass), 3)
+        planned = sum(float(by_key[key].get("issue_qty") or 0.0) for key in keys)
+        if abs(total - planned) > 1e-6:
+            # Разница — на первую строку позиции (запас), остальные — как были.
+            result[keys[0]] = round(float(by_key[keys[0]].get("issue_qty") or 0.0) + total - planned, 3)
+    return result
 
 
 def _send(
@@ -647,7 +670,8 @@ def availability(
                 value = free * float(unit_mass)
             elif line.get("unit") == "шт" and row["unit"] == "kg" and line.get("unit_mass_kg"):
                 value = free / float(line["unit_mass_kg"])
-            result[key] = {"available": round(value, 3), "short": short, "shared": len(row["keys"]) > 1}
+            result[key] = {"available": round(value, 3), "short": short, "shared": len(row["keys"]) > 1,
+                           "material_id": row["material_id"]}
     return {
         "items": result, "shortages": shortages, "calculated_at": answer.get("calculated_at"),
         "warehouse_id": warehouse, "error": "",

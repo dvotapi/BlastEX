@@ -148,4 +148,36 @@ describe("наряд-путёвка в учёте MagEX", () => {
     await waitFor(() => expect(api.massBlast.magexCancel).toHaveBeenCalledWith("l1", { reason: "Взрыв перенесён" }));
     expect(await screen.findByText(/резерв освобождён/)).toBeTruthy();
   });
+
+  it("строки одной позиции MagEX — нехватка по сумме", async () => {
+    const shared = online();
+    shared.view.lines = [
+      { key: "nsi:A:", kind: "nsi_surface", name: "НСИ 25", unit: "шт", delay_ms: null, project_qty: 7, reserve_qty: 0, reserve_source: "REFERENCE", issue_qty: 7, issue_kg: null },
+      { key: "nsi:B:", kind: "nsi_surface", name: "НСИ 25 (2)", unit: "шт", delay_ms: null, project_qty: 7, reserve_qty: 0, reserve_source: "REFERENCE", issue_qty: 7, issue_kg: null },
+    ];
+    vi.mocked(api.massBlast.layers).mockResolvedValue([shared]);
+    vi.mocked(api.massBlast.magexAvailability).mockResolvedValue({
+      items: {
+        "nsi:A:": { available: 10, short: true, shared: true, material_id: "m" },
+        "nsi:B:": { available: 10, short: true, shared: true, material_id: "m" },
+      },
+      error: "",
+    });
+    render(<DayTab project={approved} />);
+    const row = (await screen.findByLabelText("Запас: НСИ 25")).closest("tr")!;
+    await waitFor(() => expect(within(row).getByText(/не хватает/)).toBeTruthy());
+  });
+
+  it("графы после взрыва из MagEX — значением в закрытом поле", async () => {
+    const done = online({ accepted_ver: 1 }, { payload: { reserve: {}, issued: { "primer:ПД:": 5 }, consumed: {}, returned: {} } });
+    done.view.lines = [{ key: "primer:ПД:", kind: "primer", name: "ПД", unit: "шт", delay_ms: null, project_qty: 20, reserve_qty: 2,
+      reserve_source: "REFERENCE", issue_qty: 22, issue_kg: 22, issued_qty: 22, issued_source: "MAGEX", consumed_qty: 20,
+      consumed_source: "MAGEX", returned_qty: 2, returned_source: "MAGEX" }];
+    vi.mocked(api.massBlast.layers).mockResolvedValue([done]);
+    render(<DayTab project={projectV2({ lifecycle_status: "executed", current_revision_id: "r1" })} />);
+    const issued = (await screen.findByLabelText("Выдано: ПД")) as HTMLInputElement;
+    expect(issued.value).toBe("22");
+    expect(issued.disabled).toBe(true);
+    expect((screen.getByLabelText("Израсходовано: ПД") as HTMLInputElement).value).toBe("20");
+  });
 });

@@ -170,7 +170,8 @@ function LayerCard({
     };
     if (result.outcome === "REJECTED") setRejection(result.rejection ?? null);
     const reprint = result.reprinted ? " Выпущена ревизия для печати с данными исполнения." : "";
-    setMessage({ text: texts[result.outcome] + reprint, error: result.outcome === "REJECTED" });
+    const warnings = (result.warnings ?? []).map((item) => ` ${item.message}`).join("");
+    setMessage({ text: texts[result.outcome] + reprint + warnings, error: result.outcome === "REJECTED" });
   }, "Не удалось разрешить наряд-путёвку.");
 
   const onDownload = () => run(async () => {

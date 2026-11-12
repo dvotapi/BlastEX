@@ -543,11 +543,17 @@ def _naryad_top(revision: Mapping[str, Any], width: float) -> list:
 
 
 def naryad_story(revision: Mapping[str, Any], width: float) -> list:
-    story: list = _naryad_top(revision, width)
-    story += _naryad_blocks(revision, width) + [spacer(2)]
-    story += _naryad_materials(revision, width) + [spacer(2)]
-    story += _naryad_signatures(revision, width) + [spacer(1.5), p(NARYAD_NOTE, "small")]
-    return [KeepInFrame(width, frame.landscape(frame.A4)[1] - 23 * mm, story, mode="shrink")]
+    height = frame.landscape(frame.A4)[1] - 23 * mm
+    top = _naryad_top(revision, width)
+    rest = _naryad_blocks(revision, width) + [spacer(2)]
+    rest += _naryad_materials(revision, width) + [spacer(2)]
+    rest += _naryad_signatures(revision, width) + [spacer(1.5), p(NARYAD_NOTE, "small")]
+    if (revision.get("magex") or {}).get("mode") == "ONLINE" and (revision.get("magex") or {}).get("jws"):
+        # QR не сжимается вместе с формой: 40 × 40 мм при любом числе блоков и позиций —
+        # сжимается только то, что ниже шапки (замечание Codex).
+        _, top_height = top[0].wrap(width, height)
+        return [*top, KeepInFrame(width, height - top_height - 2 * mm, rest, mode="shrink")]
+    return [KeepInFrame(width, height, top + rest, mode="shrink")]
 
 
 # --- 9. талон-допуск -------------------------------------------------------

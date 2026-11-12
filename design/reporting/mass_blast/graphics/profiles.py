@@ -39,6 +39,7 @@ DECK_STYLE = {
     "stemming": dict(fillColor=STEMMING, strokeColor=GRAPHITE),
     "water": dict(fillColor=WATER, strokeColor=GRAPHITE),
     "air": dict(fillColor=white, strokeColor=GRAPHITE),
+    "inert": dict(fillColor=HexColor("#ECEDEF"), strokeColor=GRAPHITE),
 }
 
 

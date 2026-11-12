@@ -59,11 +59,21 @@ def _points(graphics: Mapping[str, Any]) -> list[XY]:
         toe = plan_sheet.point(hole.get("toe"))
         if toe:
             found.append(toe)
-    found += plan_sheet.line(plan.get("contour") or ())
+    for ring in _contours(graphics):
+        found += ring
     for key in ("crest_top", "crest_toe"):
         for item in plan.get(key) or ():
             found += plan_sheet.line(item)
     return found
+
+
+def _contours(graphics: Mapping[str, Any]) -> list[list[XY]]:
+    """Кольца контура: все части контура по скважинам, иначе контур плана."""
+
+    rings = [plan_sheet.line(ring) for ring in graphics.get("contours") or ()]
+    if not rings:
+        rings = [plan_sheet.line((graphics.get("plan") or {}).get("contour") or ())]
+    return [ring for ring in rings if len(ring) >= 3]
 
 
 def block_view(graphics: Mapping[str, Any]) -> PlanView:
@@ -91,6 +101,17 @@ def _spacing_mm(holes: Sequence[XY]) -> float:
     return 10.0 if spacing is None else spacing
 
 
+SECTION_LABEL_INSET_MM = 3.0
+
+
+def _inset(line: Sequence[XY], inset: float) -> list[tuple[XY, ...]]:
+    """Части ломаной внутри поля с отступом `inset` мм от края."""
+
+    shifted = [(x - inset, y - inset) for x, y in line]
+    parts = plan_sheet.clip(shifted, FIELD_W_MM - 2 * inset, FIELD_H_MM - 2 * inset)
+    return [tuple((x + inset, y + inset) for x, y in part) for part in parts]
+
+
 def _clip(line: Sequence[XY]) -> list[tuple[XY, ...]]:
     return plan_sheet.clip(line, FIELD_W_MM, FIELD_H_MM)
 
@@ -105,8 +126,7 @@ def _base(view: PlanView, graphics: Mapping[str, Any], *, situation: bool, crest
             for item in layer.get("lines") or ():
                 for part in _clip(view.line(plan_sheet.line(item.get("points") or ()))):
                     d.add(PolyLine(pts(part), strokeColor=SITUATION, strokeWidth=0.3))
-    contour = plan_sheet.line(plan.get("contour") or ())
-    if len(contour) >= 3:
+    for contour in _contours(graphics):
         d.add(Polygon(pts(view.line(contour)), fillColor=ZEBRA, strokeColor=GRAPHITE, strokeWidth=0.7,
                       strokeDashArray=CONTOUR_DASH))
     if crests:
@@ -142,7 +162,7 @@ def _contour_label(graphics: Mapping[str, Any]) -> str:
 def _common_items(graphics: Mapping[str, Any], *, crests: bool) -> list[tuple[str, Mapping[str, Any], str]]:
     plan = graphics.get("plan") or {}
     items: list[tuple[str, Mapping[str, Any], str]] = []
-    if plan.get("contour"):
+    if _contours(graphics):
         items.append(("line", {"dash": CONTOUR_DASH, "width": 0.7}, _contour_label(graphics)))
     if crests and plan.get("crest_top"):
         items.append(("line", {"width": 1.0}, "верхняя бровка"))
@@ -181,8 +201,14 @@ def g1_drawings(graphics: Mapping[str, Any], view: PlanView) -> tuple[Drawing, D
         line = plan_sheet.line(section.get("line") or ())
         if len(line) != 2:
             continue
-        ends = view.line(line)
-        d.add(PolyLine(pts(ends), strokeColor=GRAPHITE, strokeWidth=0.6, strokeDashArray=SECTION_DASH))
+        # Линия разреза выходит за крайние скважины на 7 м — в вид блока она не
+        # входит и обрезается по полю с отступом под букву.
+        inset = _inset(view.line(line), SECTION_LABEL_INSET_MM)
+        if not inset:
+            continue
+        ends = (inset[0][0], inset[-1][-1])
+        for part in inset:
+            d.add(PolyLine(pts(part), strokeColor=GRAPHITE, strokeWidth=0.6, strokeDashArray=SECTION_DASH))
         for x, y in ends:
             name = text(section.get("name"))
             d.add(Circle(x * mm, y * mm, 2.2 * mm, fillColor=white, strokeColor=None))

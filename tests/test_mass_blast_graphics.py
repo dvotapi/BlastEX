@@ -226,3 +226,36 @@ def test_duplicate_post_codes_keep_first_number():
     graphics, issues = _g5(guard_posts=posts, layout_points=[{"kind": "guard_post", "ref": "1", "x": 400.0, "y": 15.0}])
     assert [row["number"] for row in graphics["points"]] == [1]
     assert not any(issue["code"] == "layout_point_missing" and "пост" in issue["message"] for issue in issues)
+
+
+def test_hole_contour_keeps_separate_groups():
+    design = _trunk66()
+    design.contour = BlockContour()
+    far = copy.deepcopy(design.holes[0])
+    far.id = "999"
+    far.collar.x += 500.0
+    far.toe.x += 500.0
+    design.holes.append(far)
+    graphics, _ = block_graphics(design, [])
+    rings = [Polygon(ring) for ring in graphics["contours"]]
+    assert len(rings) == 2 and graphics["plan"]["contour"] == graphics["contours"][0]
+    assert any(ring.contains(Point(far.collar.x, far.collar.y)) for ring in rings)
+
+
+def test_cord_is_split_at_disabled_hole():
+    from design.models import DetonatingCord
+
+    design = _trunk66()
+    ids = [hole.id for hole in design.holes[:5]]
+    design.network.detonating_cords = [DetonatingCord(id="dc", hole_ids=ids, product="ДШ")]
+    design.holes[2].enabled = False
+    graphics, _ = block_graphics(design, [])
+    assert [cord["hole_ids"] for cord in graphics["network"]["cords"]] == [ids[:2], ids[3:]]
+
+
+def test_canonical_deck_kinds_are_normalized():
+    from design.mass_blast_graphics import _deck_kind
+
+    assert [_deck_kind(kind) for kind in ("air_deck", "air", "water_deck", "inert_deck", "bulk_explosive", "stemming", "primer")] == [
+        "air", "air", "water", "inert", "explosive", "stemming", "other"
+    ]

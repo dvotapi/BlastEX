@@ -282,3 +282,34 @@ def test_sheet_overflow_is_an_error(context):
     part.page_titles = part.page_titles[:4]
     with pytest.raises(RuntimeError, match="не поместился"):
         frame.count_pages(part)
+
+
+def test_section_lines_stay_inside_field():
+    from reportlab.graphics.shapes import PolyLine
+
+    from design.models import Hole, Point3
+    from design.mass_blast_graphics import block_graphics
+
+    design = _design66()
+    # Блок 50 × 28 м: скважины до краёв, линия разреза (+7 м) вышла бы за поле.
+    design.holes = [
+        Hole(id=str(n), row=0, col=0, collar=Point3(1000 + x, 2000 + y, 400.0), toe=Point3(1000 + x, 2000 + y, 388.0),
+             diameter_mm=144.0, subdrill_m=1.5)
+        for n, (x, y) in enumerate(((x, y) for x in range(2, 50, 4) for y in range(2, 27, 4)), start=1)
+    ]
+    design.loads, design.contour = [], design.contour.__class__(
+        vertices=[Point3(1000 + x, 2000 + y, 0) for x, y in ((0, 0), (50, 0), (50, 28), (0, 28))], free_faces=[[0, 1]])
+    graphics, _ = block_graphics(design, [])
+    view = plans.block_view(graphics)
+    field, _legend = plans.g1_drawings(graphics, view)
+
+    def shapes(shape):
+        for item in getattr(shape, "contents", []):
+            yield from shapes(item)
+        yield shape
+
+    for shape in shapes(field):
+        if isinstance(shape, PolyLine):
+            xs, ys = shape.points[0::2], shape.points[1::2]
+            assert min(xs) >= -0.01 and max(xs) <= FIELD_W_MM * mm + 0.01
+            assert min(ys) >= -0.01 and max(ys) <= FIELD_H_MM * mm + 0.01

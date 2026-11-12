@@ -147,18 +147,19 @@ def _inward(front: np.ndarray, collars: np.ndarray, first: np.ndarray, crest) ->
 
 # --------------------------------------------------------------- контур
 
-def _hole_contour(collars: np.ndarray, step: float) -> list[list[float]]:
-    """Контур по скважинам: круги радиусом шаг, затем назад до отступа 1,9 м."""
+def _hole_contour(collars: np.ndarray, step: float) -> list[list[list[float]]]:
+    """Контур по скважинам: круги радиусом шаг, затем назад до отступа 1,9 м.
+
+    Разрозненные группы скважин дают несколько колец — печатаются все,
+    наибольшее — первым."""
 
     if len(collars) == 0:
         return []
     shape = unary_union([Point(float(x), float(y)).buffer(step, quad_segs=8) for x, y in collars])
     shape = shape.buffer(-step + HOLE_CONTOUR_OFFSET_M, quad_segs=8).simplify(0.3)
-    if shape.is_empty:
-        return []
-    if shape.geom_type == "MultiPolygon":
-        shape = max(shape.geoms, key=lambda item: item.area)
-    return [_xy(p) for p in list(shape.exterior.coords)[:-1]]
+    polygons = sorted((poly for poly in getattr(shape, "geoms", [shape]) if poly.geom_type == "Polygon" and not poly.is_empty),
+                      key=lambda poly: -poly.area)
+    return [[_xy(p) for p in list(poly.exterior.coords)[:-1]] for poly in polygons]
 
 
 # --------------------------------------------------------------- сеть
@@ -229,14 +230,18 @@ def _network(design: BlastDesign, holes: Sequence[Hole]) -> tuple[dict[str, Any]
     index = {key: number for number, (key, _group) in enumerate(ordered_groups)}
     for link in links:
         link["group"] = index[(link["product"], link["kind"], link["delay_ms"])]
-    cords = [
-        {
-            "hole_ids": [hole_id for hole_id in cord.hole_ids if hole_id in ids],
-            "product": cord.product,
-            "relay_delay_ms": _r(cord.relay_delay_ms, 1),
-        }
-        for cord in network.detonating_cords
-    ]
+    # Шнур рвётся на скважине вне блока (выключенной): резолвер сети такие
+    # участки не использует — на Г.4 их нет, а не прямая через пропуск.
+    cords = []
+    for cord in network.detonating_cords:
+        run: list[str] = []
+        for hole_id in [*cord.hole_ids, None]:
+            if hole_id is not None and hole_id in ids:
+                run.append(hole_id)
+                continue
+            if len(run) >= 2:
+                cords.append({"hole_ids": run, "product": cord.product, "relay_delay_ms": _r(cord.relay_delay_ms, 1)})
+            run = []
     starters = [item.hole_id for item in network.starter_items if item.hole_id in ids] or [
         hole_id for hole_id in network.starters if hole_id in ids
     ]
@@ -268,7 +273,7 @@ def _network(design: BlastDesign, holes: Sequence[Hole]) -> tuple[dict[str, Any]
         "system": system,
         "links": links,
         "groups": [{**group} for _key, group in ordered_groups],
-        "cords": [cord for cord in cords if len(cord["hole_ids"]) >= 2],
+        "cords": cords,
         "starters": starters,
         "downhole_ms": sorted(downholes)[0] if surface_labels else None,
         "label_mode": "surface" if surface_labels else "total",
@@ -282,13 +287,24 @@ def _network(design: BlastDesign, holes: Sequence[Hole]) -> tuple[dict[str, Any]
 
 # --------------------------------------------------------------- разрезы Г.2
 
+# Виды дек для рисунка: старые имена и имена шаблонов заряжания — к одному.
+DECK_DRAW_KINDS = {"stemming": "stemming", "air": "air", "air_deck": "air", "water": "water", "water_deck": "water",
+                   "inert_deck": "inert"}
+
+
+def _deck_kind(kind: str) -> str:
+    if is_explosive_deck_kind(kind):
+        return "explosive"
+    return DECK_DRAW_KINDS.get(str(kind), "other")
+
+
 def _deck_rows(design: BlastDesign, hole_id: str) -> tuple[list[dict[str, Any]], list[float]]:
     load = next((item for item in design.loads if item.hole_id == hole_id), None)
     if load is None:
         return [], []
     decks = [
         {"from_m": _r(min(d.from_m, d.to_m), 2), "to_m": _r(max(d.from_m, d.to_m), 2),
-         "kind": "explosive" if is_explosive_deck_kind(d.kind) else str(d.kind), "product": d.product or d.explosive_key}
+         "kind": _deck_kind(d.kind), "product": d.product or d.explosive_key}
         for d in load.decks
     ]
     primers = [item.position_m for item in load.primer_items] or list(load.primers)
@@ -554,7 +570,8 @@ def block_graphics(
     collars = np.array([(h.collar.x, h.collar.y) for h in holes]) if holes else np.zeros((0, 2))
     a, b, step = _grid_steps(design, collars)
     contour_source = "design" if plan["contour"] else "holes"
-    contour = plan["contour"] or _hole_contour(collars, step)
+    contours = [plan["contour"]] if plan["contour"] else _hole_contour(collars, step)
+    contour = contours[0] if contours else []
     network, times, network_issues = _network(design, holes)
     issues += network_issues
     hole_rows = []
@@ -596,6 +613,7 @@ def block_graphics(
         {
             "version": GRAPHICS_VERSION,
             "plan": {**plan, "contour": contour},
+            "contours": contours,
             "contour_source": contour_source,
             "holes": hole_rows,
             "sections": sections,

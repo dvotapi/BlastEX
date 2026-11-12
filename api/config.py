@@ -77,9 +77,13 @@ def dwg_export_enabled() -> bool:
 
 
 def mass_blast_v2_enabled() -> bool:
-    """Включён ли проект МВ по форме ВМ.09.03 (TASK-018). По умолчанию нет."""
+    """Включён ли проект МВ по форме ВМ.09.03 (TASK-018).
 
-    return os.getenv(MASS_BLAST_V2_ENABLED_ENV, "").strip().lower() in _TRUE_VALUES
+    С PR 6 по умолчанию включён: выключает только явное «нет»
+    (`0`, `false`, `no`, `off`, `нет`).
+    """
+
+    return os.getenv(MASS_BLAST_V2_ENABLED_ENV, "").strip().lower() not in _FALSE_VALUES
 
 
 def features() -> dict[str, bool]:

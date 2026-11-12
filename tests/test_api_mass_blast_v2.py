@@ -91,7 +91,7 @@ def _client(monkeypatch, repository, design, *, enabled: bool = True) -> TestCli
     if enabled:
         monkeypatch.setenv(config.MASS_BLAST_V2_ENABLED_ENV, "1")
     else:
-        monkeypatch.delenv(config.MASS_BLAST_V2_ENABLED_ENV, raising=False)
+        monkeypatch.setenv(config.MASS_BLAST_V2_ENABLED_ENV, "0")
     monkeypatch.setattr(mass_blast_service, "_blocks_from_payload", lambda organization_id, payload: [block_from_design(design, code="66", horizon="410")])
     monkeypatch.setattr(mass_blast_v2.design_persistence, "load_design", lambda organization_id, design_id: design)
     app = FastAPI()

@@ -195,6 +195,37 @@ class MassBlastProjectInputSchema(BaseModel):
     expected_version: int | None = Field(None, ge=1)
 
 
+class MassBlastNewProjectSchema(BaseModel):
+    """Окно «Создать проект МВ» (TASK-018, PR 6): остальное сервер заполняет сам."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    design_ids: list[str] = Field(..., min_length=1, max_length=100)
+    blast_date: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
+    blast_time: str = Field("", pattern=r"^$|^([01]\d|2[0-3]):[0-5]\d$")
+    site_code: str = Field("", max_length=80)
+
+    @field_validator("design_ids")
+    @classmethod
+    def _ids(cls, value: list[str]) -> list[str]:
+        if any(not item.strip() or len(item) > 120 for item in value):
+            raise ValueError("Идентификатор проекта блока — от 1 до 120 знаков")
+        return value
+
+
+class MassBlastRoleSchema(BaseModel):
+    code: str
+    label: str
+
+
+class MassBlastHintsSchema(BaseModel):
+    previous_project_no: str = ""
+    previous_project_date: str = ""
+    previous_project_name: str = ""
+    # Роли распорядка с подписями (`PERSONNEL_ROLES`): форма «Персонал» их не дублирует.
+    personnel_roles: list[MassBlastRoleSchema] = Field(default_factory=list)
+
+
 class MassBlastProjectSummarySchema(BaseModel):
     id: str
     name: str
@@ -244,6 +275,10 @@ class MassBlastValidationResponse(BaseModel):
     valid: bool
     issues: list[MassBlastValidationIssueSchema]
     context: dict[str, Any]
+    # Проект v2 (PR 6, §14): путь поля payload → {value, source} — что подставится в пустое поле.
+    defaults: dict[str, Any] = Field(default_factory=dict)
+    # «Запомнить для объекта» (В8): путь поля → значение в справочнике объекта (null — пусто).
+    rememberable: dict[str, Any] = Field(default_factory=dict)
 
 
 class RevisionCreateSchema(BaseModel):
@@ -503,3 +538,37 @@ class MassBlastLayerRevisionSchema(BaseModel):
     created_at: str
     created_by: str
     context: dict[str, Any]
+
+
+class MassBlastLayerAvailabilitySchema(BaseModel):
+    kind: LayerKind
+    label: str
+    can_open: bool
+    reason: str = ""
+    multiple: bool = False
+    count: int = 0
+
+
+class NotificationAddresseeSchema(BaseModel):
+    code: str
+    label: str
+    taken: bool = False
+
+
+class NotificationAddresseesSchema(BaseModel):
+    registry: bool
+    items: list[NotificationAddresseeSchema] = Field(default_factory=list)
+
+
+class MassBlastRememberSchema(BaseModel):
+    """«Запомнить для объекта» (В8): поля проекта (или слоя, если задан `layer_id`)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    paths: list[str] = Field(..., min_length=1, max_length=40)
+    layer_id: str | None = Field(None, max_length=36)
+
+
+class MassBlastRememberResponse(BaseModel):
+    revision_id: str
+    fields: list[str]

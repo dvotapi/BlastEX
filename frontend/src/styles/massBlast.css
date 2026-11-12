@@ -3,6 +3,7 @@
    разделов, справа форма, внизу строка проверки. Меньше 900 px — вкладки
    строкой над формой. */
 .mb-dialog-body { flex:1 1 auto; min-height:0; display:grid; grid-template-columns:200px minmax(0,1fr); }
+.mb-content { min-width:0; }
 .mb-tabs { display:flex; flex-direction:column; gap:2px; padding:12px 8px; border-right:1px solid #e2e8e5; background:#fbfcfb; overflow:auto; }
 .mb-tabs button { display:flex; justify-content:space-between; align-items:center; gap:6px; padding:7px 10px; border:0; border-radius:8px; background:transparent; color:#3b4b43; text-align:left; font:inherit; cursor:pointer; }
 .mb-tabs button:hover { background:#eef2f0; }
@@ -28,8 +29,11 @@
 .drill-issues li { grid-template-columns:minmax(0,1fr) auto; align-items:start; }
 @media (max-width:900px) {
   .mb-dialog-body { grid-template-columns:1fr; overflow:auto; }
-  .mb-tabs { flex-direction:row; flex-wrap:wrap; border-right:0; border-bottom:1px solid #e2e8e5; }
-  .mb-content { overflow:visible; }
+  .mb-tabs { flex-direction:row; border-right:0; border-bottom:1px solid #e2e8e5; }
+  .mb-content { overflow:visible; min-width:0; }
+  .mb-content table { display:block; max-width:100%; overflow-x:auto; }
+  .mb-tabs { overflow-x:auto; flex-wrap:nowrap; }
+  .mb-tabs button { flex:0 0 auto; }
   .drill-post { grid-template-columns:1fr; }
 }
 .mb-content fieldset > button, .mb-content fieldset > .drill-object > button { justify-self:start; }

@@ -120,7 +120,9 @@ export function NaryadForm({ layer, draft, set, disabled, errors, afterBlast }: 
             const own = reserve[line.key];
             const parsed = parseNumber(own ?? "");
             const extra = typeof parsed === "number" ? parsed : own?.trim() ? null : line.reserve_qty;
-            const toIssue = extra === null ? "—" : ruNum(line.project_qty + extra, 3);
+            // Килограммы — до 0,1 кг, штуки — целые (как в печатной форме).
+            const digits = line.unit === "кг" ? 1 : 3;
+            const toIssue = extra === null ? "—" : ruNum(line.project_qty + extra, digits);
             const noReturn = vvSite && line.kind === "explosive";
             return (
               <tr key={line.key}>
@@ -128,7 +130,7 @@ export function NaryadForm({ layer, draft, set, disabled, errors, afterBlast }: 
                   {line.name}{line.delay_ms !== null && line.delay_ms !== undefined ? ` (${ruNum(line.delay_ms, 0)} мс)` : ""}, {line.unit}
                   {line.outside_project ? " — вне проекта" : ""}
                 </th>
-                <td>{ruNum(line.project_qty, 3)}</td>
+                <td>{ruNum(line.project_qty, digits)}</td>
                 <td>
                   <input aria-label={`Запас: ${line.name}`} inputMode="decimal" value={own ?? ""} disabled={disabled || line.outside_project}
                     placeholder={line.reserve_qty ? `${ruNum(line.reserve_qty, 3)} (справочник)` : "0"}

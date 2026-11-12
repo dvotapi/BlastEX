@@ -156,3 +156,31 @@ def test_depth_edited_after_copy_moves_the_toe_along_the_axis(base):
     assert row["depth_fact_m"] == pytest.approx(round(hole.length_m - 0.5, 1))
     assert row["subdrill_fact_m"] == pytest.approx(round(hole.subdrill_m - 0.5, 1), abs=0.11)
     assert fact_subdrill_m(hole, item) == pytest.approx(hole.subdrill_m - 0.5, abs=1e-6)
+
+
+def test_record_mass_with_massless_decks_is_consumed(base):
+    design, table = base
+    design = _with_copies(design, drill=False)
+    for item in design.as_charged_holes:
+        for deck in item.decks:
+            deck.mass_kg = 0.0
+        item.charge_mass_kg = 100.0
+    fact, _issues = block_fact(design, table, MATERIALS)
+    explosive = next(line for line in fact["consumption"] if line["kind"] == "explosive")
+    assert explosive["quantity"] == pytest.approx(100.0 * len(design.as_charged_holes))
+
+
+def test_fired_detonator_replaces_the_planned_one(base):
+    from design.as_fired import as_fired_from_design_hole
+
+    design, table = base
+    design = _with_copies(design, drill=False)
+    hole = next(h for h in design.holes if h.enabled)
+    fired = as_fired_from_design_hole(design, hole)
+    fired.detonator.product = "Электронный ДЭ-1"
+    fired.detonator.kind = "electronic"
+    design.as_fired_holes = [fired]
+    fact, _issues = block_fact(design, table, MATERIALS)
+    kinds = {line["kind"]: line for line in fact["consumption"]}
+    assert kinds["detonator_electronic"]["quantity"] >= 1
+    assert kinds["nsi_downhole"]["quantity"] == 198 - kinds["detonator_electronic"]["quantity"]

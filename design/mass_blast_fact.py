@@ -29,6 +29,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from design.as_charged import normalize_as_charged
 from design.as_drilled import normalize_as_drilled
+from design.as_fired import normalize_as_fired
 from design.editing import local_spacing
 from design.lifecycle import execution_payload
 from design.mass_blast import content_sha256
@@ -161,6 +162,12 @@ def _fact_load(item: AsChargedHole, fallback_product: str) -> HoleLoad:
     if explosive and deck_mass > 0 and mass > 0 and abs(deck_mass - mass) > 1e-6:
         for deck in explosive:
             deck.mass_kg = float(deck.mass_kg or 0.0) * mass / deck_mass
+    elif explosive and deck_mass <= 0 and mass > 0:
+        # Деки без масс: записанная масса делится по длине дек (длин нет — поровну).
+        lengths = [abs(float(deck.to_m) - float(deck.from_m)) for deck in explosive]
+        total = sum(lengths)
+        for deck, length in zip(explosive, lengths):
+            deck.mass_kg = mass * (length / total if total > 0 else 1.0 / len(explosive))
     elif not explosive and mass > 0:
         product = item.explosive_product or fallback_product
         decks.append(Deck(kind="charge", from_m=0.0, to_m=0.0, explosive_key=product, mass_kg=mass, product=product))
@@ -171,6 +178,32 @@ def _fact_load(item: AsChargedHole, fallback_product: str) -> HoleLoad:
         primers=list(item.primers),
         primer_items=list(item.primer_items),
     )
+
+
+def _overlay_fired_detonators(design: BlastDesign, enabled: Mapping[str, Hole]) -> None:
+    """Скважинные инициаторы по факту взрывания (`as_fired`) — поверх проектной сети копии.
+
+    Записанный детонатор с маркой заменяет проектные назначения скважины
+    (детонаторы и скважинные соединители): расход НСИ и электронных — по
+    факту. Запись без марки (заготовка без проектного детонатора) сеть не трогает.
+    """
+
+    fired = {
+        item.design_hole_id: normalize_as_fired(deepcopy(item))
+        for item in design.as_fired_holes
+        if item.design_hole_id in enabled and str(item.detonator.product or "").strip()
+    }
+    if not fired:
+        return
+    network = design.network
+    network.detonators = [item for item in network.detonators if item.hole_id not in fired]
+    network.downhole_connectors = [item for item in network.downhole_connectors if item.hole_id not in fired]
+    for hole_id, item in fired.items():
+        detonator = item.detonator
+        detonator.hole_id = hole_id
+        detonator.deck_index = None
+        detonator.primer_index = None
+        network.detonators.append(detonator)
 
 
 def _fact_stemming(item: AsChargedHole) -> float:
@@ -273,6 +306,7 @@ def block_fact(
     fact_loads = [_fact_load(item, design.explosive_key) for item in charged.values()]
     consumption_design = deepcopy(design)
     consumption_design.loads = fact_loads
+    _overlay_fired_detonators(consumption_design, by_id)
     consumption = [
         line.to_dict()
         for line in explosives_consumption(consumption_design, materials, starter_product=starter_product)

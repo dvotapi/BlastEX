@@ -324,15 +324,59 @@ def _blocks_fact(
 NOTE_MISFIRE = "отказ"
 
 
-def execution_view(seed: Mapping[str, Any], payload: Mapping[str, Any]) -> tuple[dict[str, Any], list[dict[str, str]]]:
-    """Что печатает слой «Факт»: строки с отказами и примечаниями по факту, итоги отказов."""
+def _resolve_holes(
+    entries: Sequence[str], blocks: Sequence[Mapping[str, Any]], path: str, what: str
+) -> tuple[dict[tuple[int, str], str], list[dict[str, str]]]:
+    """Скважина ручного ввода → (блок, номер). Номера скважин — свои у каждого блока:
+    «блок:номер» — скважина блока; просто «номер» — только если он есть в одном блоке."""
 
-    misfired = [str(item).strip() for item in payload.get("misfired_holes") or [] if str(item).strip()]
-    notes = {str(key): str(value).strip() for key, value in (payload.get("hole_notes") or {}).items() if str(value or "").strip()}
-    known: set[str] = set()
+    holes = [
+        {str(row.get("hole_id")) for row in (block.get("parameter_table") or {}).get("rows") or []}
+        for block in blocks
+    ]
+    codes = [str(block.get("code") or "") for block in blocks]
+    resolved: dict[tuple[int, str], str] = {}
+    unknown: list[str] = []
+    ambiguous: list[str] = []
+    for entry in entries:
+        code, sep, hole = entry.partition(":")
+        if sep:
+            places = [index for index, value in enumerate(codes) if value == code.strip() and hole.strip() in holes[index]]
+            hole = hole.strip()
+        else:
+            hole = entry
+            places = [index for index, ids in enumerate(holes) if hole in ids]
+        if not places:
+            unknown.append(entry)
+        elif len(places) > 1:
+            ambiguous.append(entry)
+        else:
+            resolved[(places[0], hole)] = entry
+    issues = []
+    if unknown:
+        issues.append(_issue("error", f"fact_{what}_unknown_hole",
+                             f"Скважин нет в проекте: {', '.join(unknown)}.", path))
+    if ambiguous:
+        issues.append(_issue("error", "fact_hole_ambiguous",
+                             f"Номер есть в нескольких блоках — укажите «блок:номер»: {', '.join(ambiguous)}.", path))
+    return resolved, issues
+
+
+def execution_view(seed: Mapping[str, Any], payload: Mapping[str, Any]) -> tuple[dict[str, Any], list[dict[str, str]]]:
+    """Что печатает слой «Факт»: строки с отказами и примечаниями по факту, итоги отказов.
+
+    Отказы и примечания — по номеру скважины, а в проекте из нескольких
+    блоков с одинаковыми номерами — «блок:номер»."""
+
+    source_blocks = list(seed.get("blocks_fact") or [])
+    entries = list(dict.fromkeys(str(item).strip() for item in payload.get("misfired_holes") or [] if str(item).strip()))
+    raw_notes = {str(key).strip(): str(value).strip() for key, value in (payload.get("hole_notes") or {}).items()
+                 if str(value or "").strip()}
+    misfired, issues_misfire = _resolve_holes(entries, source_blocks, "payload.misfired_holes", "misfire")
+    noted, issues_notes = _resolve_holes(list(raw_notes), source_blocks, "payload.hole_notes", "note")
+    issues: list[dict[str, str]] = list(seed.get("fact_issues") or []) + issues_misfire + issues_notes
     blocks: list[dict[str, Any]] = []
-    issues: list[dict[str, str]] = list(seed.get("fact_issues") or [])
-    for block in seed.get("blocks_fact") or []:
+    for index, block in enumerate(source_blocks):
         table = dict(block.get("parameter_table") or {})
         rows = []
         misfired_kg = 0.0
@@ -340,19 +384,19 @@ def execution_view(seed: Mapping[str, Any], payload: Mapping[str, Any]) -> tuple
         for source in table.get("rows") or []:
             row = dict(source)
             hole_id = str(row.get("hole_id"))
-            known.add(hole_id)
             extra = []
-            if hole_id in misfired:
+            if (index, hole_id) in misfired:
                 extra.append(NOTE_MISFIRE)
                 count += 1
                 misfired_kg += float(row.get("charge_fact_exact_kg") or 0.0)
                 if not row.get("charged"):
                     issues.append(_issue(
                         "warning", "fact_misfire_not_charged",
-                        f"Скважина {hole_id} отмечена отказом, но факта её заряжания нет.", "payload.misfired_holes",
+                        f"Скважина {misfired[(index, hole_id)]} отмечена отказом, но факта её заряжания нет.",
+                        "payload.misfired_holes",
                     ))
-            if notes.get(hole_id):
-                extra.append(notes[hole_id])
+            if (index, hole_id) in noted:
+                extra.append(raw_notes[noted[(index, hole_id)]])
             if extra:
                 row["note"] = "; ".join(item for item in (str(row.get("note") or ""), *extra) if item)
             rows.append(row)
@@ -363,23 +407,11 @@ def execution_view(seed: Mapping[str, Any], payload: Mapping[str, Any]) -> tuple
         # геометрия Г.1 и расход остаются в `seed`, ревизия их не дублирует.
         blocks.append({"code": block.get("code", ""), "horizon": block.get("horizon", ""),
                        "parameter_table": {**table, "rows": rows, "totals": totals}})
-    unknown = [hole for hole in dict.fromkeys(misfired) if hole not in known]
-    if unknown:
-        issues.append(_issue(
-            "error", "fact_misfire_unknown_hole",
-            f"Отказ отмечен у скважин, которых нет в проекте: {', '.join(unknown)}.", "payload.misfired_holes",
-        ))
-    unknown_notes = [hole for hole in notes if hole not in known]
-    if unknown_notes:
-        issues.append(_issue(
-            "error", "fact_note_unknown_hole",
-            f"Примечание по факту у скважин, которых нет в проекте: {', '.join(unknown_notes)}.", "payload.hole_notes",
-        ))
     view = {
         "blocks": blocks,
         "blast_date": str(payload.get("blast_date") or ""),
         "blast_time": str(payload.get("blast_time") or ""),
-        "misfired_holes": list(dict.fromkeys(misfired)),
+        "misfired_holes": entries,
     }
     return view, issues
 
@@ -448,8 +480,11 @@ def talon_view(seed: Mapping[str, Any], payload: Mapping[str, Any]) -> dict[str,
         fired_date = str(payload.get("fired_date") or (seed.get("project") or {}).get("blast_date") or "")
         day, time_text = _shift_moment(fired_date, fired_time, TALON_AFTER_MIN)
         if time_text:
-            next_day = bool(fired_date) and day != fired_date[:10]
-            return {"admittance_not_before": time_text, "admittance_date": day if next_day else "",
+            # Дата допуска печатается, если она не та, что стоит в талоне («Дата:»
+            # — выдачи, иначе проектная дата взрыва): взрыв перенесли или допуск
+            # после полуночи.
+            shown = str(payload.get("issued_date") or (seed.get("project") or {}).get("blast_date") or "")[:10]
+            return {"admittance_not_before": time_text, "admittance_date": day if day and day != shown else "",
                     "admittance_source": "FACT"}
     return {"admittance_not_before": str(seed.get("admittance_not_before") or ""), "admittance_date": "",
             "admittance_source": "PROJECT"}

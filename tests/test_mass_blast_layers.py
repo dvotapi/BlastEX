@@ -507,3 +507,31 @@ def test_fact_line_found_by_material_code():
               "delay_ms": None, "unit": "шт", "unit_mass_kg": 1.0, "project_qty": 8.0, "issue_qty": 8.0}]
     after, _blocks, issues = naryad_after_blast(seed, {}, lines)
     assert len(after) == 1 and after[0]["consumed_qty"] == 7.0 and not issues
+
+
+def test_misfire_in_multi_block_project_needs_the_block():
+    from design.mass_blast_layers import execution_view
+
+    def block(code):
+        rows = [{"hole_id": "1", "charged": True, "charge_fact_exact_kg": 100.0, "note": ""},
+                {"hole_id": "2", "charged": True, "charge_fact_exact_kg": 90.0, "note": ""}]
+        return {"code": code, "parameter_table": {"rows": rows, "totals": {}}}
+
+    seed = {"blocks_fact": [block("66"), block("67")]}
+    view, issues = execution_view(seed, {"misfired_holes": ["1"]})
+    assert "fact_hole_ambiguous" in {issue["code"] for issue in issues}
+    view, issues = execution_view(seed, {"misfired_holes": ["67:1"], "hole_notes": {"66:2": "вода"}})
+    assert not [issue for issue in issues if issue["level"] == "error"]
+    totals = [b["parameter_table"]["totals"]["misfired_count"] for b in view["blocks"]]
+    assert totals == [0, 1]
+    assert view["blocks"][0]["parameter_table"]["rows"][1]["note"] == "вода"
+
+
+def test_talon_prints_the_admittance_date_when_the_blast_moved(context66_v2):
+    from design.mass_blast_layers import talon_view
+
+    seed = layer_seed("TALON", context66_v2)
+    moved = talon_view(seed, {"fired_date": "2026-10-15", "fired_time": "13:05"})
+    assert moved["admittance_not_before"] == "13:35" and moved["admittance_date"] == "2026-10-15"
+    issued_that_day = talon_view(seed, {"fired_date": "2026-10-15", "fired_time": "13:05", "issued_date": "2026-10-15"})
+    assert issued_that_day["admittance_date"] == ""

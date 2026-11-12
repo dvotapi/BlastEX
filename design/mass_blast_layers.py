@@ -549,7 +549,7 @@ def naryad_after_blast(
     seed: Mapping[str, Any],
     payload: Mapping[str, Any],
     lines: list[dict[str, Any]],
-    magex: Mapping[str, Mapping[str, float | None]] | None = None,
+    magex: Mapping[str, Mapping[str, Any]] | None = None,
     magex_blocks: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, str]]]:
     """Графы наряда после взрыва (решение В9): строки ВМ и разд. 1 по блокам.
@@ -672,10 +672,13 @@ def naryad_after_blast(
         else:
             back, back_source = None, ""
 
-        def kg(value: float | None) -> float | None:
+        def kg(value: float | None, name: str = "") -> float | None:
+            # Килограммы MagEX — как есть (масса единицы проекта может быть неизвестна).
+            if name and from_magex.get(f"{name}_kg") is not None:
+                return round(float(from_magex[f"{name}_kg"]), 3)
             return None if value is None or unit_mass is None else round(value * float(unit_mass), 3)
 
-        spent_kg = kg(spent)
+        spent_kg = kg(spent, "consumed" if source == "MAGEX" else "")
         if source == "FACT" and fact_line is not None and fact_line.get("mass_known", True) \
                 and fact_line.get("mass_kg") is not None and line.get("unit") != "кг":
             # Израсходованные килограммы — по массе факта (ПД с записанной массой), а не по проектной.
@@ -685,22 +688,27 @@ def naryad_after_blast(
             **line,
             **extra_source,
             "unit_mass_kg": unit_mass,
-            "issued_qty": given, "issued_kg": kg(given),
+            "issued_qty": given, "issued_kg": kg(given, "issued" if extra_source else ""),
             "consumed_qty": None if spent is None else round(spent, 3), "consumed_kg": spent_kg, "consumed_source": source,
-            "returned_qty": back, "returned_kg": kg(back), "returned_source": back_source,
+            "returned_qty": back, "returned_kg": kg(back, "returned" if back_source == "MAGEX" else ""),
+            "returned_source": back_source,
         })
 
     blocks: list[dict[str, Any]] = []
     # Блоки «Факта» — в порядке блоков той же ревизии проекта: сопоставление по
     # месту (коды блоков на разных горизонтах могут совпадать), с проверкой кода и горизонта.
     done_blocks = list(fact.get("blocks") or [])
+    from design.magex.naryad_payload import block_codes
+
+    external = block_codes(list(seed.get("blocks") or []))
     for index, block in enumerate(seed.get("blocks") or []):
         done = done_blocks[index] if index < len(done_blocks) else None
         if done is not None and (str(done.get("code")), str(done.get("horizon"))) != (
             str(block.get("code")), str(block.get("horizon"))
         ):
             done = None
-        from_magex = magex_blocks.get(str(block.get("code") or ""))
+        # Блоки MagEX — по коду выписки («код/горизонт» при одинаковых кодах).
+        from_magex = magex_blocks.get(external[index])
         if from_magex:
             # Разд. 1 после взрыва — из MagEX (графы, внесённые складом).
             blocks.append({"code": block.get("code", ""), **dict(from_magex), "source": "MAGEX"})

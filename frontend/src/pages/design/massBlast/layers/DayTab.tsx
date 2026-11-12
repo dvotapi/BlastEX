@@ -167,6 +167,7 @@ function LayerCard({
       UNCHANGED_UNREACHABLE: "Изменений нет; MagEX сейчас не ответил.",
       PENDING: "MagEX недоступен: версия в очереди повтора, печать — после приёма.",
       REJECTED: "MagEX не принял наряд-путёвку — см. причину выше.",
+      NOTHING_PENDING: "",
     };
     if (result.outcome === "REJECTED") setRejection(result.rejection ?? null);
     const reprint = result.reprinted ? " Выпущена ревизия для печати с данными исполнения." : "";

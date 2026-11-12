@@ -180,4 +180,21 @@ describe("наряд-путёвка в учёте MagEX", () => {
     expect(issued.disabled).toBe(true);
     expect((screen.getByLabelText("Израсходовано: ПД") as HTMLInputElement).value).toBe("20");
   });
+
+  it("версия в очереди — состояние перечитывается само", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const pending = { ver: 1, status: "PENDING" as const, response_code: null, response: {}, attempts: 1,
+        next_attempt_at: null, created_at: "", created_by: "", accepted_at: null, layer_revision_id: "lr1" };
+      const item = online({ versions: [pending], latest: pending }, { current_revision_id: "lr1", status: "issued" });
+      vi.mocked(api.massBlast.layers).mockResolvedValue([item]);
+      vi.mocked(api.massBlast.getLayer).mockReset().mockResolvedValue(item);
+      render(<DayTab project={approved} />);
+      await screen.findByText(/Ожидает MagEX/);
+      await vi.advanceTimersByTimeAsync(15000);
+      expect(api.massBlast.getLayer).toHaveBeenCalledWith("l1");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

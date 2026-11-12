@@ -424,10 +424,15 @@ def _rounded_issue(
         keys = [key for key in row["keys"] if (by_key.get(key) or {}).get("unit") == "кг"]
         if row["unit"] != "pcs" or not unit_mass or not keys:
             continue
-        total = round(float(row["qty"]) * float(unit_mass), 3)
-        planned = sum(float(by_key[key].get("issue_qty") or 0.0) for key in keys)
+        mass = float(unit_mass)
+        total = round(float(row["qty"]) * mass, 3)
+        # Плановое — по всем строкам позиции: кг как есть, штуки — в кг по массе патрона.
+        planned = sum(
+            float((by_key.get(key) or {}).get("issue_qty") or 0.0) * (1.0 if (by_key.get(key) or {}).get("unit") == "кг" else mass)
+            for key in row["keys"]
+        )
         if abs(total - planned) > 1e-6:
-            # Разница — на первую строку позиции (запас), остальные — как были.
+            # Излишек округления — на первую строку в кг (запас), остальные — как были.
             result[keys[0]] = round(float(by_key[keys[0]].get("issue_qty") or 0.0) + total - planned, 3)
     return result
 
@@ -488,7 +493,8 @@ def retry_now(repository: Any, organization_id: str, actor: str, layer_id: str, 
 
     pending = [item for item in repository.list_magex_versions(organization_id, layer_id) if item["status"] == "PENDING"]
     if not pending:
-        raise ValueError("Нет версии, ожидающей MagEX.")
+        # Очередь уже отправила версию (или её заменили) — показать текущее состояние.
+        return {"outcome": "NOTHING_PENDING", **layer_state(repository, organization_id, layer_id)}
     return _send(repository, organization_id, actor, layer_id, pending[-1], client_for(organization_id, transport), _now(), retry=True)
 
 

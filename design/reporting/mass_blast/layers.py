@@ -698,6 +698,13 @@ def acceptance_story(revision: Mapping[str, Any], width: float) -> list:
             q_label = "Удельный расход ВМ (к объёму по контуру), кг/м³"
         rows = [[p("", "body", markup=f'<font color="{RED_HEX}"><b>3.</b></font> Израсходовано ВВ, кг'),
                  p(kg_text(fact.get("explosive_kg")) or DASH, "bold_c")]]
+    elif fact.get("explosive_source") == "MAGEX":
+        # TASK-018 PR 7: слоя «Факт» нет, а расход ВВ по нарядам внесён в MagEX — сетка по проекту.
+        q = fact.get("q_kg_m3")
+        if fact.get("volume_basis") == "CONTOUR":
+            q_label = "Удельный расход ВМ (к объёму по контуру), кг/м³"
+        rows = [[p("", "body", markup=f'<font color="{RED_HEX}"><b>3.</b></font> Израсходовано ВВ, кг'),
+                 p(kg_text(fact.get("explosive_kg")) or DASH, "bold_c")]]
     params = Table([
         [p("", "body", markup=f'<font color="{RED_HEX}"><b>1.</b></font> Сетка скважин, м'), p(grid or DASH, "bold_c")],
         [p("", "body", markup=f'<font color="{RED_HEX}"><b>2.</b></font> {q_label}'),

@@ -156,7 +156,12 @@ class MemoryRepository:
         for version in self.versions:
             if version["layer_revision_id"] == revision_id:
                 version["layer_revision_id"] = None
-        latest = sorted(self.revisions.values(), key=lambda item: item["revision_no"])
+        statuses = {item["ver"]: item["status"] for item in self.versions}
+        latest = [
+            item for item in sorted(self.revisions.values(), key=lambda item: item["revision_no"])
+            if (item["context"].get("magex") or {}).get("mode") != "ONLINE"
+            or statuses.get((item["context"].get("magex") or {}).get("ver")) == "ACCEPTED"
+        ]
         if self.layer["current_revision_id"] == revision_id:
             self.layer["current_revision_id"] = latest[-1]["id"] if latest else None
             self.layer["status"] = "issued" if latest else "draft"

@@ -197,7 +197,7 @@ def _with_view(
         view["fact"], fact_issues = acceptance_view(seed, payload)
         issues += fact_issues
         magex_kg = state.get("magex_explosive_kg")
-        if magex_kg is not None and view["fact"].get("basis") == "FACT":
+        if magex_kg is not None:
             # Фактический расход ВВ — по MagEX, когда расход по нарядам внесён (решение В7 PR 7).
             if abs(float(view["fact"].get("explosive_kg") or 0.0) - magex_kg) > 1e-6:
                 issues.append({
@@ -207,9 +207,11 @@ def _with_view(
                     "path": "seed.fact",
                 })
             volume = float(payload.get("accepted_volume_m3") or seed.get("volume_contour_m3") or 0.0)
+            # Расход ВВ по складу — и без слоя «Факт»: сетка тогда по проекту (её MagEX не знает).
             view["fact"] = {
                 **view["fact"], "explosive_kg": magex_kg, "explosive_source": "MAGEX",
                 "q_kg_m3": round(magex_kg / volume, 2) if volume > 0 else None,
+                "volume_basis": "ACCEPTED" if payload.get("accepted_volume_m3") else "CONTOUR",
             }
     if layer["kind"] == "EXECUTION":
         execution, fact_issues = execution_view(seed, payload)

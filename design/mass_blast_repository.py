@@ -269,6 +269,13 @@ def _now() -> datetime:
     return datetime.now(timezone.utc).replace(microsecond=0)
 
 
+def _printable(context: dict[str, Any] | None, statuses: dict[int, str]) -> bool:
+    """Ревизия слоя печатается: она без MagEX или её версия выписки принята MagEX."""
+
+    magex = (context or {}).get("magex") or {}
+    return magex.get("mode") != "ONLINE" or statuses.get(magex.get("ver")) == "ACCEPTED"
+
+
 # Сколько «Разрешить» считается идущим (версия SENDING): дольше — процесс упал, версия заменима.
 MAGEX_SENDING_GUARD_S = 120
 
@@ -912,11 +919,22 @@ class PostgresMassBlastRepository:
             session.delete(revision)
             session.flush()
             if row.current_revision_id == revision_id:
-                previous = session.scalar(
-                    select(MassBlastLayerRevisionRow)
-                    .where(MassBlastLayerRevisionRow.layer_id == layer_id)
-                    .order_by(desc(MassBlastLayerRevisionRow.revision_no))
-                    .limit(1)
+                # Текущей — последняя ревизия, которую можно печатать: без MagEX или с принятой
+                # версией (ревизия заменённой или ожидающей версии — нет, замечание Codex).
+                statuses = {
+                    item.ver: item.status
+                    for item in session.scalars(select(MassBlastMagexVersionRow).where(MassBlastMagexVersionRow.layer_id == layer_id))
+                }
+                previous = next(
+                    (
+                        item for item in session.scalars(
+                            select(MassBlastLayerRevisionRow)
+                            .where(MassBlastLayerRevisionRow.layer_id == layer_id)
+                            .order_by(desc(MassBlastLayerRevisionRow.revision_no))
+                        )
+                        if _printable(item.context, statuses)
+                    ),
+                    None,
                 )
                 row.current_revision_id = previous.id if previous else None
                 row.status = "issued" if previous else "draft"

@@ -329,7 +329,7 @@ export type MagexState = {
 };
 
 export type MagexApproveResult = MagexState & {
-  outcome: "ACCEPTED" | "REJECTED" | "PENDING" | "UNCHANGED" | "UNCHANGED_UNREACHABLE";
+  outcome: "ACCEPTED" | "REJECTED" | "PENDING" | "UNCHANGED" | "UNCHANGED_UNREACHABLE" | "NOTHING_PENDING";
   rejection?: { code: string; message: string; details: Record<string, unknown> };
   /** Выписка та же, но выпущена новая ревизия для печати (графы после взрыва). */
   reprinted?: boolean;

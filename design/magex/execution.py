@@ -57,6 +57,7 @@ def values_by_line(
         values: dict[str, float | None] = {}
         for name in _FIELDS:
             qty, kg = _number(found.get(name)), _number(found.get(f"{name}_kg"))
+            values[f"{name}_kg"] = kg
             if unit == "кг":
                 values[name] = kg if kg is not None else (qty if accounting == "kg" else None)
             elif unit == "шт" and accounting == "kg":
@@ -66,7 +67,7 @@ def values_by_line(
                 values[name] = qty
         result[first] = values
         for other in keys[1:]:
-            result[other] = {name: 0.0 for name in _FIELDS}
+            result[other] = {**{name: 0.0 for name in _FIELDS}, **{f"{name}_kg": 0.0 for name in _FIELDS}}
         if len(keys) > 1:
             names = ", ".join(str((units.get(key) or {}).get("name") or key) for key in keys)
             issues.append({
@@ -78,7 +79,7 @@ def values_by_line(
 
 
 def block_results(execution: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
-    """Разд. 1 после взрыва по коду блока (`block_results` MagEX) — в полях строк наряда."""
+    """Разд. 1 после взрыва по коду блока выписки (`block_results` MagEX; код — `block_codes`)."""
 
     result: dict[str, dict[str, Any]] = {}
     for item in execution.get("block_results") or []:

@@ -455,3 +455,73 @@ def test_cartridge_rounding_is_printed_and_reported():
     assert line["issue_qty"] == 32675.0 and line["issue_kg"] == 32675.0
     assert line["reserve_qty"] == pytest.approx(32675.0 - 32659.326)
     assert context["view"]["totals"]["explosive_issue_kg"] == 32675.0
+
+
+def test_same_block_code_on_two_horizons_gets_distinct_codes():
+    from design.magex.naryad_payload import block_codes
+
+    seed = naryad_seed()
+    seed["blocks"] = [{**seed["blocks"][0], "horizon": "410"}, {**seed["blocks"][0], "horizon": "420"}]
+    assert block_codes(seed["blocks"]) == ["66/410", "66/420"]
+    content, issues = build_naryad_payload(LAYER_ID, seed, {"number": "1", "issue_date": "2026-10-14"}, _lines(), _ctx(),
+                                           ver=1, iat=0, approved_at=NOW)
+    assert [block["code"] for block in content["blocks"]] == ["66/410", "66/420"]
+    assert "magex_block_codes_repeat" not in {item["code"] for item in issues}
+
+
+def test_mixed_kg_and_pieces_rows_round_only_the_surplus():
+    from api.services.magex_naryad_service import _rounded_issue
+
+    lines = [{"key": "a", "unit": "кг", "issue_qty": 100.0}, {"key": "b", "unit": "шт", "issue_qty": 5.0}]
+    merged = [{"material_id": "m", "qty": Decimal(105), "keys": ["a", "b"], "unit": "pcs"}]
+    assert _rounded_issue(lines, merged, {"m": {"unit_mass_kg": "1.000"}}) == {}
+    lines[0]["issue_qty"] = 100.5
+    merged[0]["qty"] = Decimal(106)
+    assert _rounded_issue(lines, merged, {"m": {"unit_mass_kg": "1.000"}}) == {"a": 101.0}
+
+
+def test_rejected_replacement_restores_the_accepted_revision():
+    repository, fake = MemoryRepository(), FakeMagex()
+    _approve(repository, fake)
+    accepted_revision = repository.layer["current_revision_id"]
+    fake.down = True
+    repository.layer["payload"] = {**repository.layer["payload"], "reserve": {"primer:ПД Сферит-ДП 1000 г:": 5}}
+    _approve(repository, fake)  # v2 в очереди
+    fake.down = False
+    fake.stock = {**fake.stock, MATERIAL_IDS["MAT_PD_1000"]: Decimal(1)}
+    repository.layer["payload"] = {**repository.layer["payload"], "reserve": {"primer:ПД Сферит-ДП 1000 г:": 9}}
+    assert _approve(repository, fake)["outcome"] == "REJECTED"  # v3 отклонена, v2 заменена
+    assert repository.layer["current_revision_id"] == accepted_revision
+    documents.layer_document(repository, ORG, accepted_revision)
+
+
+def test_retry_with_nothing_queued_returns_state():
+    repository, fake = MemoryRepository(), FakeMagex()
+    _approve(repository, fake)
+    assert magex.retry_now(repository, ORG, "a", LAYER_ID, transport=fake)["outcome"] == "NOTHING_PENDING"
+
+
+def test_magex_kilograms_kept_for_pieces_with_unknown_mass():
+    from design.magex.execution import values_by_line
+    from design.mass_blast_layers import naryad_after_blast
+
+    execution = {"lines": [{"material_id": "m", "issued": "5.000", "issued_kg": "5.000", "consumed": "4.000",
+                            "consumed_kg": "4.000", "returned": "1.000", "returned_kg": "1.000"}]}
+    lines = [{"key": "nsi:x:", "kind": "nsi_surface", "name": "НСИ", "unit": "шт", "delay_ms": None, "project_qty": 5.0,
+              "issue_qty": 5.0, "unit_mass_kg": None, "material_code": "N"}]
+    values, _ = values_by_line(execution, [{"material_id": "m", "keys": ["nsi:x:"], "unit": "pcs"}], lines)
+    result, _, _ = naryad_after_blast({"blocks": []}, {}, lines, magex=values)
+    assert (result[0]["issued_kg"], result[0]["consumed_kg"], result[0]["returned_kg"]) == (5.0, 4.0, 1.0)
+
+
+def test_acceptance_without_fact_layer_uses_magex_total():
+    repository, fake = MemoryRepository(status="executed"), FakeMagex()
+    _approve(repository, fake)
+    evv = MATERIAL_IDS["MAT_EVV"]
+    fake.naryads[LAYER_ID].update(status="closed", consumed_kg={evv: "32600.000"})
+    magex.refresh_execution(repository, ORG, LAYER_ID, transport=fake)
+    act = {"id": "act", "project_id": "p1", "kind": "ACCEPTANCE_ACT", "stale": False,
+           "seed": {"volume_contour_m3": 26000.0, "blocks": []}, "payload": {}}
+    viewed = layers._with_view(act, None, {}, layers._magex_state(repository, ORG, act))
+    assert viewed["view"]["fact"]["explosive_kg"] == 32600.0 and viewed["view"]["fact"]["explosive_source"] == "MAGEX"
+    assert viewed["view"]["fact"]["q_kg_m3"] == round(32600 / 26000, 2)

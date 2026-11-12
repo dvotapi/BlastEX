@@ -2,7 +2,7 @@
 // исполнение, «Обновить», «Повторить сейчас», «Отменить в MagEX». Всё, что
 // показывается, собирает сервер (`view.magex`, ответы маршрутов `…/magex`):
 // окно не знает ни полей справочников, ни контракта MagEX.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../../../../api/endpoints";
 import type {
   MagexApproveResult,
@@ -169,6 +169,16 @@ export function MagexPanel({
     };
   }, [online, blasterCode, layer.id]);
 
+  // Версия ждёт MagEX — состояние перечитывается само: очередь может принять её в фоне.
+  const queued = state?.latest?.status === "PENDING";
+  const reload = useRef(onState);
+  reload.current = onState;
+  useEffect(() => {
+    if (!queued) return;
+    const timer = window.setInterval(() => void reload.current().catch(() => undefined), 15000);
+    return () => window.clearInterval(timer);
+  }, [queued]);
+
   if (!state) return null;
   if (state.mode === "OFFLINE") {
     return <small className="frag-warnings">Вне учёта MagEX: {state.reason} Наряд печатается с пометкой «вне учёта MagEX».</small>;
@@ -231,6 +241,7 @@ export function MagexPanel({
           <button type="button" className="secondary-button" disabled={busy}
             onClick={() => void act(async () => {
               const result = await api.massBlast.magexRetry(layer.id);
+              if (result.outcome === "NOTHING_PENDING") return "Очередь уже отправила версию — состояние обновлено.";
               return result.outcome === "ACCEPTED" ? "MagEX принял наряд-путёвку." : "MagEX пока недоступен — версия осталась в очереди.";
             }, "Не удалось повторить отправку.")}>Повторить сейчас</button>
         )}

@@ -26,6 +26,7 @@ __all__ = [
     "MAX_LINES",
     "MagexContext",
     "blaster_ref",
+    "block_codes",
     "build_naryad_payload",
     "magex_lines",
     "qty_text",
@@ -198,10 +199,26 @@ def _project_text(seed: Mapping[str, Any]) -> str:
     return text[:_PROJECT_TEXT].strip()
 
 
+def block_codes(blocks: Sequence[Mapping[str, Any]]) -> list[str]:
+    """Коды блоков для MagEX (по порядку блоков проекта): код блока, а если тот же код есть на
+    другом горизонте — «код/горизонт» (коды в выписке не повторяются). По ним же исполнение
+    MagEX (`block_results`) сопоставляется с блоками проекта."""
+
+    plain = [_text(block.get("code")) for block in blocks]
+    counts: dict[str, int] = {}
+    for code in plain:
+        counts[code] = counts.get(code, 0) + 1
+    result = []
+    for code, block in zip(plain, blocks):
+        horizon = _text(block.get("horizon"))
+        result.append(_text(f"{code}/{horizon}") if code and counts[code] > 1 and horizon else code)
+    return result
+
+
 def _blocks(seed: Mapping[str, Any], short_names: bool) -> list[dict[str, Any]]:
     blocks = []
-    for block in (seed.get("blocks") or [])[:MAX_BLOCKS]:
-        code = _text(block.get("code"))
+    source = list(seed.get("blocks") or [])
+    for block, code in zip(source, block_codes(source)):
         if not code:
             continue
         item: dict[str, Any] = {"code": code, "name": code if short_names else _text(f"Блок {code}")}
@@ -273,7 +290,13 @@ def build_naryad_payload(
             "error", "magex_admissions_unconfirmed",
             "Подтвердите, что допуски взрывника, водителя и спецавтомобиля проверены.", "payload.admissions_confirmed",
         ))
-    if len([block for block in seed.get("blocks") or [] if _text(block.get("code"))]) > MAX_BLOCKS:
+    codes = [code for code in block_codes(list(seed.get("blocks") or [])) if code]
+    if len(codes) != len(set(codes)):
+        issues.append(_issue(
+            "error", "magex_block_codes_repeat",
+            "Коды блоков повторяются на одном горизонте: MagEX различает блоки по коду.", "seed.blocks",
+        ))
+    if len(codes) > MAX_BLOCKS:
         issues.append(_issue(
             "error", "magex_too_many_blocks",
             f"Блоков больше {MAX_BLOCKS} — столько не принимает MagEX: разделите на несколько наряд-путёвок.", "seed.blocks",

@@ -43,11 +43,14 @@ function LayerCard({
   const blocking = layer.issues.some((issue) => issue.level === "error");
   const Form = LAYER_FORMS[layer.kind];
 
+  // Новая основа формы — только когда слой действительно изменился (сохранение,
+  // перенос, выпуск): перечитанный список слоёв с той же версией (открыли другой
+  // слой) несохранённые правки этой карточки не стирает.
   useEffect(() => {
-    // Слой, перечитанный снаружи (перенос, выпуск), — новая основа формы.
     setDraft(draftFromPayload(layer));
     setDirty(false);
-  }, [layer]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layer.id, layer.version, layer.status, layer.current_revision_id]);
 
   function set(key: string, value: unknown) {
     setDraft((current) => ({ ...current, [key]: value }));
@@ -96,7 +99,7 @@ function LayerCard({
     if (!saved) return;
     const revision = await api.massBlast.issueLayer(saved.id, { expected_version: saved.version });
     setRevisionNo(revision.revision_no);
-    onChange(await api.massBlast.layers(saved.project_id).then((items) => items.find((item) => item.id === saved.id) ?? saved));
+    onChange(await api.massBlast.getLayer(saved.id));
     setMessage({ text: `Выпущена ревизия слоя № ${revision.revision_no}.`, error: false });
   }, "Не удалось выпустить ревизию слоя.");
 

@@ -65,6 +65,18 @@ describe("слои дня взрыва", () => {
     expect(body.payload.reserve).toEqual({ "explosive:ВВ:": 50.5 });
   });
 
+  it("открытие другого слоя не стирает несохранённый запас наряда", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.massBlast.createLayer).mockResolvedValue(layer({ id: "r1", kind: "READINESS_ACT" }));
+    render(<DayTab project={approved} />);
+    await user.type(await screen.findByLabelText("Запас: ВВ"), "50");
+    // Список перечитывается с новыми объектами слоёв той же версии.
+    vi.mocked(api.massBlast.layers).mockResolvedValue([layer()]);
+    await user.click(screen.getByRole("button", { name: "Открыть «Акт готовности блока к заряжанию»" }));
+    await waitFor(() => expect(api.massBlast.layers).toHaveBeenCalledTimes(2));
+    expect((screen.getByLabelText("Запас: ВВ") as HTMLInputElement).value).toBe("50");
+  });
+
   it("графы после взрыва — только когда взрыв произведён", async () => {
     const { unmount } = render(<DayTab project={approved} />);
     await screen.findByLabelText("Запас: ВВ");

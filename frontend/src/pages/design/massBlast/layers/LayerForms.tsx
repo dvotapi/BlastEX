@@ -119,7 +119,9 @@ export function NaryadForm({ layer, draft, set, disabled, errors, afterBlast }: 
           {lines.map((line) => {
             const own = reserve[line.key];
             const parsed = parseNumber(own ?? "");
-            const extra = typeof parsed === "number" ? parsed : own?.trim() ? null : line.reserve_qty;
+            // Очищенный ручной запас: значение справочника станет известно после сохранения.
+            const cleared = own !== undefined && !own.trim() && line.reserve_source === "MANUAL_OVERRIDE";
+            const extra = typeof parsed === "number" ? parsed : own?.trim() || cleared ? null : line.reserve_qty;
             // Килограммы — до 0,1 кг, штуки — целые (как в печатной форме).
             const digits = line.unit === "кг" ? 1 : 3;
             const toIssue = extra === null ? "—" : ruNum(line.project_qty + extra, digits);
@@ -133,11 +135,11 @@ export function NaryadForm({ layer, draft, set, disabled, errors, afterBlast }: 
                 <td>{ruNum(line.project_qty, digits)}</td>
                 <td>
                   <input aria-label={`Запас: ${line.name}`} inputMode="decimal" value={own ?? ""} disabled={disabled || line.outside_project}
-                    placeholder={line.reserve_qty ? `${ruNum(line.reserve_qty, 3)} (справочник)` : "0"}
+                    placeholder={line.reserve_source === "MANUAL_OVERRIDE" ? "как в справочнике" : line.reserve_qty ? `${ruNum(line.reserve_qty, 3)} (справочник)` : "0"}
                     onChange={(event) => setIn(draft, set, "reserve", line.key, event.target.value)} />
                   {errors[`reserve:${line.key}`] && <small className="form-error">{errors[`reserve:${line.key}`]}</small>}
                 </td>
-                <td>{toIssue}</td>
+                <td title={extra === null ? "пересчитается после сохранения" : undefined}>{toIssue}</td>
                 {afterBlast && (
                   <>
                     <td>

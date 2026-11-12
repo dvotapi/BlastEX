@@ -27,6 +27,7 @@ describe("useFeatures", () => {
     vi.mocked(api.features).mockRejectedValue(new Error("сеть"));
     const { result } = renderHook(() => useFeatures());
     await waitFor(() => expect(api.features).toHaveBeenCalled());
-    expect(result.current).toEqual({ intelligence: false, drill_passport: false, mass_blast_v2: false });
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    expect(result.current).toEqual({ intelligence: false, drill_passport: false, mass_blast_v2: false, loaded: true });
   });
 });

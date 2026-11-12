@@ -292,7 +292,7 @@ export function ExplosivesTab({ form, edit, editable, errors, issues, context }:
                 {(block.consumption ?? []).map((line, lineIndex) => (
                   <tr key={`${line.name}:${lineIndex}`}>
                     <th scope="row">{line.name}{line.delay_ms !== null && line.delay_ms !== undefined ? ` (${ruNum(line.delay_ms, 0)} мс)` : ""}</th>
-                    <td>{ruNum(line.quantity, line.unit === "кг" ? 0 : 0)} {line.unit}</td>
+                    <td>{ruNum(line.quantity, 0)} {line.unit}</td>
                     <td>{line.mass_kg === null ? "—" : ruNum(line.mass_kg, 0)}</td>
                   </tr>
                 ))}

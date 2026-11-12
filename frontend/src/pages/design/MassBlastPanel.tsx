@@ -45,7 +45,7 @@ function convertInput(project: MassBlastProjectV2): MassBlastProjectInputV2 {
 }
 
 export function MassBlastPanel({ designId, designName }: { designId: string; designName: string }) {
-  const { mass_blast_v2: enabled } = useFeatures();
+  const { mass_blast_v2: enabled, loaded } = useFeatures();
   const [found, setFound] = useState<Found | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -80,6 +80,8 @@ export function MassBlastPanel({ designId, designName }: { designId: string; des
     };
   }, [designId, enabled, reload]);
 
+  // Пока состав модулей не прочитан — ничего: иначе на миг мелькнула бы прежняя панель v1.
+  if (!loaded) return null;
   if (!enabled) return <LegacyMassBlastPanel designId={designId} designName={designName} />;
 
   if (found?.legacy && found.project) {

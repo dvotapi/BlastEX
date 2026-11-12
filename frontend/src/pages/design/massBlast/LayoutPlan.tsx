@@ -3,7 +3,7 @@
 // Данные — проектная `graphics` контекста v2 (сервер); точки — из формы.
 // Выбрать вид точки → щелчок по плану ставит её; точку можно перетащить.
 // Север вверх: y плана растёт к северу, у SVG — вниз.
-import { useMemo, useRef, useState, type PointerEvent, type WheelEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import type { LayoutPointKind, ProjectGraphics } from "../../../types/massBlast";
 import { parseNumber, type PointForm } from "./form";
 
@@ -75,6 +75,31 @@ export function LayoutPlan({
     [graphics],
   );
   const [view, setView] = useState<Box | null>(initial);
+  // Новая геометрия (зоны пересчитаны после проверки) — план вписывается заново.
+  useEffect(() => setView(initial), [initial]);
+  const boxRef = useRef<Box | null>(null);
+  boxRef.current = view ?? initial;
+  // Масштаб колесом — своим слушателем с `passive: false`: у React `onWheel`
+  // пассивный, и вместе с планом прокручивалось бы окно.
+  const hasPlan = Boolean(initial);
+  useEffect(() => {
+    const element = svg.current;
+    if (!element) return;
+    const handler = (event: globalThis.WheelEvent) => {
+      const current = boxRef.current;
+      const matrix = element.getScreenCTM?.();
+      if (!current || !matrix) return;
+      event.preventDefault();
+      const point = element.createSVGPoint();
+      point.x = event.clientX;
+      point.y = event.clientY;
+      const at = point.matrixTransform(matrix.inverse());
+      const factor = event.deltaY > 0 ? 1.2 : 1 / 1.2;
+      setView({ x: at.x - (at.x - current.x) * factor, y: at.y - (at.y - current.y) * factor, w: current.w * factor, h: current.h * factor });
+    };
+    element.addEventListener("wheel", handler, { passive: false });
+    return () => element.removeEventListener("wheel", handler);
+  }, [hasPlan]);
   const drag = useRef<{ mode: "pan" | "point"; index?: number; client: Pt; box: Box; moved: boolean } | null>(null);
   const box = view ?? initial;
   if (!box) return <small className="drill-hint">Нет геометрии блока для плана: проверьте проект.</small>;
@@ -96,14 +121,6 @@ export function LayoutPlan({
     const rect = svg.current?.getBoundingClientRect();
     if (!rect || !rect.width || !rect.height) return 1;
     return Math.max(current.w / rect.width, current.h / rect.height);
-  }
-
-  function onWheel(event: WheelEvent<SVGSVGElement>) {
-    const at = world(event);
-    if (!at) return;
-    const factor = event.deltaY > 0 ? 1.2 : 1 / 1.2;
-    const [x, y] = [at[0], -at[1]];
-    setView({ x: x - (x - box!.x) * factor, y: y - (y - box!.y) * factor, w: box!.w * factor, h: box!.h * factor });
   }
 
   function onPointerDown(event: PointerEvent<SVGSVGElement>, index?: number) {
@@ -144,7 +161,6 @@ export function LayoutPlan({
         aria-label="Ситуационный план: щелчок ставит выбранную точку"
         viewBox={`${box.x} ${box.y} ${box.w} ${box.h}`}
         preserveAspectRatio="xMidYMid meet"
-        onWheel={onWheel}
         onPointerDown={(event) => onPointerDown(event)}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}

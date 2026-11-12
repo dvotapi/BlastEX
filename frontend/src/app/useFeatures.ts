@@ -8,9 +8,11 @@ export type Features = {
   drill_passport: boolean;
   /** Проект МВ по форме ВМ.09.03 (TASK-018): окно проекта и слои дня взрыва. */
   mass_blast_v2: boolean;
+  /** Ответ сервера получен (или не получен с ошибкой): до него разделы не рисуются. */
+  loaded: boolean;
 };
 
-const DISABLED: Features = { intelligence: false, drill_passport: false, mass_blast_v2: false };
+const DISABLED: Features = { intelligence: false, drill_passport: false, mass_blast_v2: false, loaded: false };
 
 /**
  * Состав включённых модулей установки.
@@ -31,11 +33,12 @@ export function useFeatures(): Features {
             intelligence: Boolean(value.intelligence),
             drill_passport: Boolean(value.drill_passport),
             mass_blast_v2: Boolean(value.mass_blast_v2),
+            loaded: true,
           });
         }
       })
       .catch(() => {
-        if (!cancelled) setFeatures(DISABLED);
+        if (!cancelled) setFeatures({ ...DISABLED, loaded: true });
       });
     return () => {
       cancelled = true;

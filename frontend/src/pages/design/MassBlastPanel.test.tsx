@@ -3,7 +3,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-const features = { intelligence: false, drill_passport: true, mass_blast_v2: true };
+const features = { intelligence: false, drill_passport: true, mass_blast_v2: true, loaded: true };
 vi.mock("../../app/useFeatures", () => ({ useFeatures: () => features }));
 vi.mock("./massBlast/LegacyPanel", () => ({ LegacyMassBlastPanel: () => <div>Прежняя панель</div> }));
 vi.mock("./massBlast/MassBlastDialog", () => ({ MassBlastDialog: () => <div>Окно проекта</div> }));
@@ -41,6 +41,13 @@ beforeEach(() => {
 const summary = { id: "p1", block_design_ids: ["d66"] } as never;
 
 describe("панель «Проект МВ»", () => {
+  it("пока модули не прочитаны — ни прежней панели, ни новой", () => {
+    features.loaded = false;
+    const { container } = render(<MassBlastPanel designId="d66" designName="Блок 66" />);
+    expect(container.textContent).toBe("");
+    features.loaded = true;
+  });
+
   it("модуль выключен — прежняя панель", () => {
     features.mass_blast_v2 = false;
     render(<MassBlastPanel designId="d66" designName="Блок 66" />);

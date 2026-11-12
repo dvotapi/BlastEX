@@ -122,7 +122,10 @@ export async function openPdf(url: () => Promise<string | null>): Promise<void> 
     const blob = await fetchBlob(target);
     const href = URL.createObjectURL(blob);
     if (tab) tab.location.href = href;
-    else window.open(href, "_blank");
+    else if (!window.open(href, "_blank")) {
+      URL.revokeObjectURL(href);
+      throw new Error("Браузер не дал открыть вкладку с PDF: разрешите всплывающие окна для BlastEX.");
+    }
     window.setTimeout(() => URL.revokeObjectURL(href), 60_000);
   } catch (reason) {
     tab?.close();

@@ -84,8 +84,6 @@ import {
   type SpatialSummary,
   type MovementPredictResponse,
   type BlastDesign,
-  type BlastPassport,
-  type DesignLifecycleStatus,
 } from "../../types/design";
 import { emptyHoleGeology, emptySurfaces } from "../../types/design";
 import {
@@ -101,7 +99,6 @@ import {
   type WorkflowStageId,
 } from "../../lib/lifecycle";
 import { RoleBadge } from "./RoleBadge";
-import { LifecyclePanel } from "./LifecyclePanel";
 import { WorkflowNav } from "./WorkflowNav";
 import { useFeatures } from "../../app/useFeatures";
 import { ChargePanel } from "./ChargePanel";
@@ -144,7 +141,8 @@ import {
   statusesForDocument,
   volumeSourceLabel,
 } from "./workflowStatus";
-import { PlansPanel } from "./PlansPanel";
+import { PlansMenu } from "./PlansMenu";
+import { FrozenBanner } from "./FrozenBanner";
 import { SectionView, sectionRowKey } from "./SectionView";
 import { SummaryPanel, volumeDetails } from "./SummaryPanel";
 import { useHoleRecompute } from "./useHoleRecompute";
@@ -171,7 +169,6 @@ import { RegistryPanel } from "./RegistryPanel";
 import { DriftPanel } from "./DriftPanel";
 import { SpatialPanel } from "./SpatialPanel";
 import { MovementPanel } from "./MovementPanel";
-import { PassportPanel } from "./PassportPanel";
 import { MassBlastPanel } from "./MassBlastPanel";
 import { DrillPassportPanel } from "./drillPassport/DrillPassportPanel";
 import { remapHoleId, remapHoleIds, renumberParams } from "./holeRenumber";
@@ -225,8 +222,6 @@ export function DesignPage({
   const [mapCursor, setMapCursor] = useState<Vec2 | null>(null);
   const [zoomRequest, setZoomRequest] = useState<{ kind: "fit" | "selection"; tick: number } | null>(null);
   const [toolRequest, setToolRequest] = useState<{ tool: "measure"; tick: number } | null>(null);
-  const [lifecycleConfirm, setLifecycleConfirm] = useState(false);
-  const [lifecycleNote, setLifecycleNote] = useState("");
   const designedLocked = !canEditDesigned(document.lifecycle_status);
   const executionLocked = !canEditExecution(document.lifecycle_status);
   const measuredLocked = !canEditMeasured(document.lifecycle_status);
@@ -425,8 +420,6 @@ export function DesignPage({
   const [spatialSelected, setSpatialSelected] = useState<SpatialModel | null>(null);
   const [spatialOverlay, setSpatialOverlay] = useState<SpatialOverlay | null>(null);
   const [movementResult, setMovementResult] = useState<MovementPredictResponse | null>(null);
-  const [passportResult, setPassportResult] = useState<BlastPassport | null>(null);
-  const [passportBusy, setPassportBusy] = useState(false);
   const [movementBusy, setMovementBusy] = useState(false);
   const [showMovementVectors, setShowMovementVectors] = useState(true);
 
@@ -2436,60 +2429,6 @@ export function DesignPage({
     }
   }
 
-  async function assemblePassport() {
-    if (!document.holes.length) {
-      setError("Сначала постройте сетку скважин.");
-      return;
-    }
-    setPassportBusy(true);
-    setError("");
-    try {
-      const result = await api.design.buildPassport({
-        design: designPayload(),
-        lump_size_mm: lumpSizeMm,
-        planned_cost: costResult
-          ? {
-              total_amount_rub: costResult.total_amount_rub,
-              cost_per_m3: costResult.cost_per_m3,
-              variable_total_rub: costResult.variable_total_rub,
-              labor_total_rub: costResult.labor_total_rub,
-              fixed_total_rub: costResult.fixed_total_rub,
-            }
-          : undefined,
-      });
-      setPassportResult(result);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Не удалось собрать паспорт.");
-      setPassportResult(null);
-    } finally {
-      setPassportBusy(false);
-    }
-  }
-
-  async function printPassport() {
-    setError("");
-    try {
-      if (document.holes.length) {
-        const htmlText = await api.design.renderPassportHtml({
-          design: designPayload(),
-          lump_size_mm: lumpSizeMm,
-          planned_cost: costResult
-            ? { total_amount_rub: costResult.total_amount_rub, cost_per_m3: costResult.cost_per_m3 }
-            : undefined,
-        });
-        const blob = new Blob([htmlText], { type: "text/html;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        window.open(url, "_blank");
-        return;
-      }
-      if (document.design_id) {
-        window.open(api.design.passportUrl(document.design_id), "_blank");
-      }
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Не удалось открыть паспорт.");
-    }
-  }
-
   function togglePlay() {
     if (!analysis) return;
     if (!playing && currentMs >= maxAnimationMs) setCurrentMs(0);
@@ -2499,43 +2438,6 @@ export function DesignPage({
   function scrub(ms: number) {
     setPlaying(false);
     setCurrentMs(ms);
-  }
-
-  async function transitionLifecycle(toStatus: DesignLifecycleStatus) {
-    if (!document.design_id) {
-      setError("Сначала сохраните паспорт.");
-      return;
-    }
-    if (unsavedChanges) {
-      setError("Есть несохранённые правки: статус меняется у сохранённой версии паспорта. Сначала сохраните паспорт.");
-      return;
-    }
-    if (!lifecycleConfirm) {
-      setError("Смена статуса требует явного подтверждения.");
-      return;
-    }
-    const base = state.saved;
-    setSaveBusy(true);
-    setError("");
-    try {
-      await api.design.transitionPlan(document.design_id, {
-        to_status: toStatus,
-        confirm: true,
-        note: lifecycleNote,
-      });
-      const design = await api.design.getPlan(document.design_id);
-      if (savedRef.current === base) {
-        dispatch({ type: "LOAD", design, base });
-        syncDesignParams(design);
-      }
-      setLifecycleConfirm(false);
-      setLifecycleNote("");
-      await refreshPlans();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Не удалось сменить статус паспорта.");
-    } finally {
-      setSaveBusy(false);
-    }
   }
 
   async function forkPlan() {
@@ -2556,8 +2458,6 @@ export function DesignPage({
         dispatch({ type: "LOAD", design: forked, base });
         syncDesignParams(forked);
       }
-      setLifecycleConfirm(false);
-      setLifecycleNote("");
       setWorkflowStage("survey");
       setMode("contour");
       await refreshPlans();
@@ -2684,15 +2584,6 @@ export function DesignPage({
     setOptResult(null);
   }
 
-  async function exportCsv() {
-    if (!document.design_id) return;
-    try {
-      await api.design.exportCsv(document.design_id, `${document.name || "passport"}.csv`);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Не удалось выгрузить CSV.");
-    }
-  }
-
   const hasImportedSurvey = Boolean(document.surfaces.top || document.surfaces.floor || document.surfaces.face);
   const crsUnconfirmed = isCrsUnconfirmed(document.coordinate_system, hasImportedSurvey);
   const stageStatuses = statusesForDocument(document, { crsUnconfirmed });
@@ -2787,6 +2678,7 @@ export function DesignPage({
   return (
     <div className="design-workstation">
       <header className="design-chrome">
+        <PlansMenu plans={plans} currentDesignId={document.design_id} unsaved={unsavedChanges} onOpen={openPlan} onDelete={deletePlan} onNew={newPlan} busy={saveBusy} />
         <input
           className="design-name-input"
           value={document.name}
@@ -2821,11 +2713,8 @@ export function DesignPage({
         </div>
       )}
       {designedLocked && (
-        <div className="lifecycle-banner compact" role="status">
-          {recordFrozen
-            ? "Паспорт закрыт. Создайте ревизию, чтобы править дальше."
-            : "Слой DESIGNED заморожен. Исполнение и замер — отдельно, сценарии остаются оверлеями."}
-        </div>
+        <FrozenBanner status={document.lifecycle_status} saved={Boolean(document.design_id)} unsaved={unsavedChanges}
+          busy={saveBusy} onFork={() => void forkPlan()} />
       )}
       <div className="design-map-stage">
         <div className="map-chrome-row">
@@ -2915,44 +2804,6 @@ export function DesignPage({
           {inspectorOpen && (
             <StageInspector title={stageTitle} onClose={() => setInspectorOpen(false)}>
         <div className="design-sidebar">
-          {workflowStage === "report" && <LifecyclePanel
-            designId={document.design_id}
-            status={document.lifecycle_status}
-            revision={document.revision}
-            parentDesignId={document.parent_design_id}
-            designedSha256={document.designed_sha256}
-            events={document.lifecycle_events}
-            busy={saveBusy}
-            unsaved={unsavedChanges}
-            confirm={lifecycleConfirm}
-            note={lifecycleNote}
-            onConfirmChange={setLifecycleConfirm}
-            onNoteChange={setLifecycleNote}
-            onTransition={transitionLifecycle}
-            onFork={forkPlan}
-          />}
-          {workflowStage === "report" && <PlansPanel
-            plans={plans}
-            currentDesignId={document.design_id}
-            currentName={document.name}
-            currentStatus={document.lifecycle_status}
-            onNameChange={(name) => {
-              if (metadataLocked) {
-                setError(freezeMessage(document.lifecycle_status));
-                return;
-              }
-              dispatch({ type: "SET_NAME", name });
-            }}
-            onSave={savePlan}
-            onOpen={openPlan}
-            onDelete={deletePlan}
-            onNew={newPlan}
-            onExportCsv={exportCsv}
-            onPrintPassport={printPassport}
-            busy={saveBusy}
-            nameLocked={metadataLocked}
-            saveLocked={recordFrozen}
-          />}
           {workflowStage === "survey" && (
             <fieldset className="workstation-lock" disabled={designedLocked}>
               <SurfacePanel
@@ -3395,12 +3246,6 @@ export function DesignPage({
           />
           </>}
           {workflowStage === "report" && <>
-          <PassportPanel
-            onAssemble={assemblePassport}
-            onPrint={printPassport}
-            busy={passportBusy}
-            result={passportResult}
-          />
           <MassBlastPanel designId={document.design_id} designName={document.name} />
           {drillPassportEnabled && <DrillPassportPanel designId={document.design_id} designSaved={!unsavedChanges} />}
           </>}

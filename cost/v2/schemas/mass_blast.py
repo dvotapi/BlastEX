@@ -121,6 +121,32 @@ class MassBlastSitePayload(ReferencePayload):
         description="Должность, фамилия и инициалы — в комиссии акта приёмки выполненных работ",
         max_length=300,
     )
+    # Наряд-путёвка (TASK-018 PR 6, В7): постоянные для объекта поля выписки.
+    blasting_permit: str = Field(
+        default="",
+        title="Разрешение на ведение взрывных работ",
+        description="№ и дата разрешения — в шапке наряда-путёвки",
+        max_length=300,
+    )
+    warehouse: str = Field(
+        default="", title="Склад выдачи ВМ", description="Склад, с которого выдаются ВМ по наряду-путёвке", max_length=200
+    )
+    vehicle: str = Field(
+        default="", title="Спецавтомобиль", description="Марка и гос. номер автомобиля для перевозки ВМ", max_length=200
+    )
+    driver: str = Field(default="", title="Водитель", description="Фамилия, инициалы водителя спецавтомобиля", max_length=200)
+    # Постоянные места и средства распорядка (TASK-018 PR 6, В8).
+    station: str = Field(
+        default="", title="Место взрывной станции", description="Пункт 11 распорядка", max_length=300
+    )
+    shelter: str = Field(default="", title="Место укрытия", description="Где укрываются люди при взрыве", max_length=300)
+    gather: str = Field(default="", title="Место сбора", description="Место сбора людей после вывода из опасной зоны", max_length=300)
+    exit_route: str = Field(
+        default="", title="Куда удаляются люди", description="Направление вывода людей из опасной зоны", max_length=300
+    )
+    siren: str = Field(default="", title="Средство подачи сигналов", description="Сирена, громкоговоритель (п. 163)", max_length=200)
+    transport: str = Field(default="", title="Транспорт ВМ", description="Чем доставляются ВМ на блок", max_length=200)
+    cleaning: str = Field(default="", title="Средства очистки скважин", description="Чем очищаются скважины перед заряжанием", max_length=200)
     profile_code: str | None = RefField(
         "mass_blast_profiles",
         title="Профиль документов",

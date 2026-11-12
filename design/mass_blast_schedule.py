@@ -97,6 +97,12 @@ INSPECTION_AFTER_MIN = 15
 ADMITTANCE_AFTER_MIN = 30
 
 
+def _with_detail(duty: str, detail: str) -> str:
+    """Обязанность с уточнением проекта («… — куда», «… — чем»); без уточнения — как прежде."""
+
+    return f"{duty} — {detail}" if detail else duty
+
+
 def shift_time(value: str, minutes: int) -> str:
     """«13:00» + минуты → «HH:MM» (через полночь — по кругу); пусто или не время — пусто."""
 
@@ -161,6 +167,9 @@ def build_schedule(
     def item(point: str, value: Any) -> dict[str, Any]:
         return {"point": point, "title": title(point), "value": value}
 
+    # Куда выводятся люди и чем подаются сигналы — к строкам ответственных (пп. 21, 27).
+    exit_route = str(schedule.get("exit_route") or "").strip()
+    siren = str(schedule.get("siren") or "").strip()
     lead = _person(people.get("blast_manager"))
     master = _person(people.get("mining_master"))
     places = "; ".join(
@@ -223,7 +232,7 @@ def build_schedule(
     responsibilities = [
         {"points": "18", "duty": "Ответственный руководитель массового взрыва", "who": lead},
         {"points": "8, 22", "duty": "Старший взрывник: заряжание и монтаж взрывной сети", "who": _person(people.get("senior_blaster"))},
-        {"points": "21", "duty": "Вывод людей из запретной и опасной зон", "who": "; ".join(filter(None, [lead, master]))},
+        {"points": "21", "duty": _with_detail("Вывод людей из запретной и опасной зон", exit_route), "who": "; ".join(filter(None, [lead, master]))},
         {"points": "23, 25", "duty": "Вывод внутрикарьерного транспорта, отвод оборудования", "who": master},
         {"points": "24", "duty": "Охрана запретной / опасной зоны", "who": " / ".join(filter(None, [lead, master]))},
         {
@@ -231,7 +240,7 @@ def build_schedule(
             "duty": "Отключение электроэнергии, удаление аппаратуры; проверка и подключение после взрыва",
             "who": _person(people.get("energy")),
         },
-        {"points": "27", "duty": "Подача звуковых сигналов", "who": "; ".join(filter(None, [lead, f"исполнитель — {master}" if master else ""]))},
+        {"points": "27", "duty": _with_detail("Подача звуковых сигналов", siren), "who": "; ".join(filter(None, [lead, f"исполнитель — {master}" if master else ""]))},
         {
             "points": "28",
             "duty": "Оповещение соседних предприятий, органов местного самоуправления и населения",

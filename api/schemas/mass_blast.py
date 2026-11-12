@@ -195,6 +195,37 @@ class MassBlastProjectInputSchema(BaseModel):
     expected_version: int | None = Field(None, ge=1)
 
 
+class MassBlastNewProjectSchema(BaseModel):
+    """Окно «Создать проект МВ» (TASK-018, PR 6): остальное сервер заполняет сам."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    design_ids: list[str] = Field(..., min_length=1, max_length=100)
+    blast_date: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
+    blast_time: str = Field("", pattern=r"^$|^([01]\d|2[0-3]):[0-5]\d$")
+    site_code: str = Field("", max_length=80)
+
+    @field_validator("design_ids")
+    @classmethod
+    def _ids(cls, value: list[str]) -> list[str]:
+        if any(not item.strip() or len(item) > 120 for item in value):
+            raise ValueError("Идентификатор проекта блока — от 1 до 120 знаков")
+        return value
+
+
+class MassBlastRoleSchema(BaseModel):
+    code: str
+    label: str
+
+
+class MassBlastHintsSchema(BaseModel):
+    previous_project_no: str = ""
+    previous_project_date: str = ""
+    previous_project_name: str = ""
+    # Роли распорядка с подписями (`PERSONNEL_ROLES`): форма «Персонал» их не дублирует.
+    personnel_roles: list[MassBlastRoleSchema] = Field(default_factory=list)
+
+
 class MassBlastProjectSummarySchema(BaseModel):
     id: str
     name: str
@@ -244,6 +275,10 @@ class MassBlastValidationResponse(BaseModel):
     valid: bool
     issues: list[MassBlastValidationIssueSchema]
     context: dict[str, Any]
+    # Проект v2 (PR 6, §14): путь поля payload → {value, source} — что подставится в пустое поле.
+    defaults: dict[str, Any] = Field(default_factory=dict)
+    # «Запомнить для объекта» (В8): путь поля → значение в справочнике объекта (null — пусто).
+    rememberable: dict[str, Any] = Field(default_factory=dict)
 
 
 class RevisionCreateSchema(BaseModel):
@@ -320,7 +355,17 @@ class MassBlastLifecycleSchema(BaseModel):
 
 # --- Слои дня взрыва (TASK-018, PR 2) ---------------------------------------
 
-LayerKind = Literal["NARYAD", "NOTIFICATION", "READINESS_ACT", "TALON", "ACCEPTANCE_ACT"]
+LayerKind = Literal["NARYAD", "NOTIFICATION", "READINESS_ACT", "TALON", "ACCEPTANCE_ACT", "EXECUTION"]
+
+_TIME_PATTERN = r"^$|^([01]\d|2[0-3]):[0-5]\d$"
+_DATE_PATTERN = r"^$|^\d{4}-\d{2}-\d{2}$"
+
+
+def _not_negative(name: str, value: dict[str, float]) -> dict[str, float]:
+    for key, amount in value.items():
+        if amount < 0:
+            raise ValueError(f"{name} «{key}» не может быть отрицательным")
+    return value
 
 
 class NaryadPayloadSchema(BaseModel):
@@ -338,14 +383,21 @@ class NaryadPayloadSchema(BaseModel):
     delivery: str = Field("", max_length=300)
     vv_site: bool = False
     reserve: dict[str, float] = Field(default_factory=dict, max_length=60)
+    # После взрыва (TASK-018, PR 5): выдано, израсходовано (главнее факта),
+    # возвращено (главнее «выдано − израсходовано») — по ключу строки ВМ.
+    issued: dict[str, float] = Field(default_factory=dict, max_length=60)
+    consumed: dict[str, float] = Field(default_factory=dict, max_length=60)
+    returned: dict[str, float] = Field(default_factory=dict, max_length=60)
 
     @field_validator("reserve")
     @classmethod
     def _reserve_not_negative(cls, value: dict[str, float]) -> dict[str, float]:
-        for key, amount in value.items():
-            if amount < 0:
-                raise ValueError(f"Запас «{key}» не может быть отрицательным")
-        return value
+        return _not_negative("Запас", value)
+
+    @field_validator("issued", "consumed", "returned")
+    @classmethod
+    def _after_blast_not_negative(cls, value: dict[str, float]) -> dict[str, float]:
+        return _not_negative("Количество", value)
 
 
 class NotificationPayloadSchema(BaseModel):
@@ -381,6 +433,9 @@ class TalonPayloadSchema(BaseModel):
     issued_time: str = Field("", max_length=5)
     issued_by: str = Field("", max_length=200)
     received_by: str = Field("", max_length=200)
+    # Фактические дата и время взрыва: «не ранее» = факт + 30 мин (п. 422, PR 5).
+    fired_date: str = Field("", pattern=_DATE_PATTERN)
+    fired_time: str = Field("", pattern=_TIME_PATTERN)
 
 
 class AcceptanceActPayloadSchema(BaseModel):
@@ -395,12 +450,38 @@ class AcceptanceActPayloadSchema(BaseModel):
     remarks: str = Field("", max_length=1000)
 
 
+class ExecutionPayloadSchema(BaseModel):
+    """Слой «Факт» (PR 5): время взрыва по факту, отказы, примечания по факту к скважинам."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    blast_date: str = Field("", pattern=_DATE_PATTERN)
+    blast_time: str = Field("", pattern=_TIME_PATTERN)
+    misfired_holes: list[str] = Field(default_factory=list, max_length=2000)
+    hole_notes: dict[str, str] = Field(default_factory=dict, max_length=2000)
+
+    @field_validator("misfired_holes")
+    @classmethod
+    def _short_ids(cls, value: list[str]) -> list[str]:
+        if any(len(item) > 40 for item in value):
+            raise ValueError("Номер скважины длиннее 40 знаков")
+        return value
+
+    @field_validator("hole_notes")
+    @classmethod
+    def _short_notes(cls, value: dict[str, str]) -> dict[str, str]:
+        if any(len(key) > 40 or len(note) > 200 for key, note in value.items()):
+            raise ValueError("Примечание по факту — до 200 знаков, номер скважины — до 40")
+        return value
+
+
 LAYER_PAYLOAD_SCHEMAS: dict[str, type[BaseModel]] = {
     "NARYAD": NaryadPayloadSchema,
     "NOTIFICATION": NotificationPayloadSchema,
     "READINESS_ACT": ReadinessActPayloadSchema,
     "TALON": TalonPayloadSchema,
     "ACCEPTANCE_ACT": AcceptanceActPayloadSchema,
+    "EXECUTION": ExecutionPayloadSchema,
 }
 
 
@@ -457,3 +538,37 @@ class MassBlastLayerRevisionSchema(BaseModel):
     created_at: str
     created_by: str
     context: dict[str, Any]
+
+
+class MassBlastLayerAvailabilitySchema(BaseModel):
+    kind: LayerKind
+    label: str
+    can_open: bool
+    reason: str = ""
+    multiple: bool = False
+    count: int = 0
+
+
+class NotificationAddresseeSchema(BaseModel):
+    code: str
+    label: str
+    taken: bool = False
+
+
+class NotificationAddresseesSchema(BaseModel):
+    registry: bool
+    items: list[NotificationAddresseeSchema] = Field(default_factory=list)
+
+
+class MassBlastRememberSchema(BaseModel):
+    """«Запомнить для объекта» (В8): поля проекта (или слоя, если задан `layer_id`)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    paths: list[str] = Field(..., min_length=1, max_length=40)
+    layer_id: str | None = Field(None, max_length=36)
+
+
+class MassBlastRememberResponse(BaseModel):
+    revision_id: str
+    fields: list[str]

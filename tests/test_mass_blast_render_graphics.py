@@ -252,3 +252,33 @@ def test_sheets_match_approved_png(pdf, index):
     diff = ImageChops.difference(golden, image).point(lambda value: 255 if value > 64 else 0)
     share = diff.histogram()[255] / (diff.width * diff.height)
     assert share <= RASTER_THRESHOLD, f"Г.{index + 1}: {share:.2%} пикселей отличаются"
+
+
+def test_long_signature_and_crowded_legend_keep_one_page_per_sheet(context):
+    from reportlab.graphics.shapes import String
+
+    data = copy.deepcopy(context)
+    data["requisites"]["made_by"] = {"position": "ведущий " * 25, "name": "Фамилия-Длинная " * 12}
+    network = data["blocks_v2"][0]["graphics"]["network"]
+    network["groups"] = [{"label": f"НСИ «Искра-П» длинное название марки № {n} — {n * 17} мс", "count": n} for n in range(12)]
+    pages = _pages(render_project_document(data, "graphics"))
+    assert len(pages) == 5
+    _field, legend = plans.g4_drawings(data["blocks_v2"][0]["graphics"], plans.block_view(data["blocks_v2"][0]["graphics"]))
+
+    def strings(shape):
+        for item in getattr(shape, "contents", []):
+            yield from strings(item)
+        if isinstance(shape, String):
+            yield shape
+
+    assert min(item.y for item in strings(legend)) >= 0          # ничего не легло на подпись
+
+
+def test_sheet_overflow_is_an_error(context):
+    from design.reporting.mass_blast import frame
+
+    part = graphics_part(context)
+    assert part is not None
+    part.page_titles = part.page_titles[:4]
+    with pytest.raises(RuntimeError, match="не поместился"):
+        frame.count_pages(part)

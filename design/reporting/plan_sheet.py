@@ -14,11 +14,13 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, Sequence
 
 import numpy as np
+import shapely
 from reportlab.graphics.shapes import Group, Polygon, Rect, String
 from reportlab.graphics.shapes import Line as LineShape
 from reportlab.lib.colors import HexColor, white
 from reportlab.lib.units import mm
 from scipy.spatial import cKDTree
+from shapely.geometry import LineString
 
 GRAPHITE = HexColor("#2E3237")
 MM_TO_PT = 72 / 25.4
@@ -64,14 +66,33 @@ def bar(scale: int, steps: Sequence[int] = BAR_STEPS_M, target_mm: float = BAR_T
     return step, length(step)
 
 
+def median_spacing(points: Sequence[XY]) -> float | None:
+    """Медиана расстояния до ближайшей соседней точки; меньше двух точек — None."""
+
+    if len(points) < 2:
+        return None
+    distances, _ = cKDTree(points).query(points, k=2)
+    return float(np.median(distances[:, 1]))
+
+
 def label_pt(points: list[XY], share: float, sizes: tuple[float, float]) -> float:
     """Кегль подписи — доля расстояния до ближайшей скважины на листе (мм → pt)."""
 
-    if len(points) < 2:
+    spacing = median_spacing(points)
+    if spacing is None:
         return sizes[1]
-    distances, _ = cKDTree(points).query(points, k=2)
-    size = share * float(np.median(distances[:, 1])) * MM_TO_PT
+    size = share * spacing * MM_TO_PT
     return min(sizes[1], max(sizes[0], size))
+
+
+def clip(points: Sequence[XY], width: float, height: float) -> list[Line]:
+    """Части ломаной внутри прямоугольника 0…width × 0…height (мм листа)."""
+
+    if len(points) < 2:
+        return []
+    clipped = shapely.clip_by_rect(LineString(points), 0.0, 0.0, width, height)
+    return [tuple((float(x), float(y)) for x, y in part.coords)
+            for part in getattr(clipped, "geoms", [clipped]) if not part.is_empty and part.geom_type == "LineString"]
 
 
 def scale_multiple_of_10(width_m: float, height_m: float, usable_w: float, usable_h: float, minimum: int) -> int:
@@ -260,9 +281,11 @@ __all__ = [
     "ROTATE_FROM_SCALE",
     "SCALE_SERIES",
     "bar",
+    "clip",
     "fit_view",
     "label_pt",
     "line",
+    "median_spacing",
     "north_arrow",
     "north_arrow_turned",
     "point",

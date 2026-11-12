@@ -42,10 +42,14 @@ DECK_STYLE = {
 }
 
 
+def _station(value: Any, default: float) -> float:
+    return default if value is None else float(value)
+
+
 def _extent(section: Mapping[str, Any]) -> tuple[float, float, float, float]:
     holes = section.get("holes") or ()
-    toe = float(section.get("toe_station_m") or 0.0)
-    crest = float(section.get("crest_station_m") or toe)
+    toe = _station(section.get("toe_station_m"), 0.0)
+    crest = _station(section.get("crest_station_m"), toe)
     stations = [float(h["station_m"]) for h in holes] + [float(h["toe_station_m"]) for h in holes]
     s0 = min([toe - LEFT_RUN_M, crest] + stations)
     s1 = max(stations + [crest]) + RIGHT_RUN_M
@@ -98,8 +102,8 @@ def profile_drawing(section: Mapping[str, Any], scale: int) -> Drawing:
         return ((AXIS_W_MM + 2 + (s - s0) * k) * mm, (base_y + (z - z0) * k) * mm)
 
     floor = float(section.get("floor_z") or 0.0)
-    toe = float(section.get("toe_station_m") or 0.0)
-    crest = float(section.get("crest_station_m") or toe)
+    toe = _station(section.get("toe_station_m"), 0.0)
+    crest = _station(section.get("crest_station_m"), toe)
     first = holes[0]
     last = holes[-1]
     end = max(float(h["station_m"]) for h in holes) + RIGHT_RUN_M

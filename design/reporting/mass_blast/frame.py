@@ -75,6 +75,9 @@ class Part:
     # Чертёж в масштабе (графика Г.1–Г.5): PDF просит просмотрщик печатать в
     # фактическом размере (`/PrintScaling /None`), а не «вписать в страницу».
     actual_size: bool = False
+    # Страница = лист с названием из `page_titles` (графика): иное число
+    # страниц — ошибка раскладки, а не перенос листа на следующую страницу.
+    one_page_per_title: bool = False
 
     @property
     def pagesize(self) -> tuple[float, float]:
@@ -184,6 +187,10 @@ def count_pages(part: Part) -> int:
     doc = _document(buffer, part.label)
     doc.addPageTemplates(_templates(0, part, lambda c, d: None, lambda c, d: None))
     doc.build(list(part.story()))
+    if part.one_page_per_title and doc.page != len(part.page_titles or ()):
+        raise RuntimeError(
+            f"«{part.label}»: {doc.page} стр. на {len(part.page_titles or ())} листов — лист не поместился на страницу."
+        )
     part._page_count = doc.page
     return doc.page
 

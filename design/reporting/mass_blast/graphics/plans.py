@@ -10,12 +10,10 @@ import math
 from dataclasses import replace
 from typing import Any, Mapping, Sequence
 
-import shapely
 from reportlab.graphics.shapes import Circle, Drawing, Group, Line, Polygon, PolyLine, String
 from reportlab.lib.colors import Color, HexColor, white
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
-from shapely.geometry import LineString
 
 from design.reporting import plan_sheet
 from design.reporting.mass_blast.common import num, text
@@ -86,22 +84,15 @@ def block_view(graphics: Mapping[str, Any]) -> PlanView:
     return view
 
 
-def _spacing_mm(view: PlanView, holes: Sequence[XY]) -> float:
-    if len(holes) < 2:
-        return 10.0
-    from scipy.spatial import cKDTree
-    import numpy as np
+def _spacing_mm(holes: Sequence[XY]) -> float:
+    """Шаг скважин на листе, мм (точки — уже в миллиметрах листа)."""
 
-    distances, _ = cKDTree(holes).query(holes, k=2)
-    return float(np.median(distances[:, 1])) * view.k
+    spacing = plan_sheet.median_spacing(holes)
+    return 10.0 if spacing is None else spacing
 
 
 def _clip(line: Sequence[XY]) -> list[tuple[XY, ...]]:
-    if len(line) < 2:
-        return []
-    clipped = shapely.clip_by_rect(LineString(line), 0.0, 0.0, FIELD_W_MM, FIELD_H_MM)
-    return [tuple((float(x), float(y)) for x, y in part.coords)
-            for part in getattr(clipped, "geoms", [clipped]) if not part.is_empty and part.geom_type == "LineString"]
+    return plan_sheet.clip(line, FIELD_W_MM, FIELD_H_MM)
 
 
 def _base(view: PlanView, graphics: Mapping[str, Any], *, situation: bool, crests: bool) -> Drawing:
@@ -183,7 +174,7 @@ def g1_drawings(graphics: Mapping[str, Any], view: PlanView) -> tuple[Drawing, D
     d = _base(view, graphics, situation=True, crests=True)
     holes = _holes(graphics)
     sheet = [view.xy(p) for _hole, p in holes]
-    spacing = _spacing_mm(view, sheet)
+    spacing = _spacing_mm(sheet)
     size = min(LABEL_PT[1], max(LABEL_PT[0], LABEL_SHARE * spacing * plan_sheet.MM_TO_PT))
     with_mass = spacing >= MASS_MIN_SPACING_MM
     for section in graphics.get("sections") or ():
@@ -334,7 +325,7 @@ def g4_drawings(graphics: Mapping[str, Any], view: PlanView) -> tuple[Drawing, D
     network = graphics.get("network") or {}
     holes = _holes(graphics)
     sheet = {text(hole.get("hole_id")): view.xy(p) for hole, p in holes}
-    spacing = _spacing_mm(view, list(sheet.values()))
+    spacing = _spacing_mm(list(sheet.values()))
     size = min(4.6, max(2.8, 0.18 * spacing * plan_sheet.MM_TO_PT))
     for cord in network.get("cords") or ():
         line = [sheet[h] for h in cord.get("hole_ids") or () if h in sheet]

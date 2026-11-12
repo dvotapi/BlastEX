@@ -219,3 +219,10 @@ def test_layout_points_in_v2_payload_only():
     data = context66(design, payload=payload66(layout_points=[near]))
     assert data["layout_points"][0]["ref"] == "1"
     assert any(issue["code"] == "guard_post_inside_zone" for issue in data["issues"])
+
+
+def test_duplicate_post_codes_keep_first_number():
+    posts = [{"code": "1", "location": "А"}, {"code": "1", "location": "Б"}]
+    graphics, issues = _g5(guard_posts=posts, layout_points=[{"kind": "guard_post", "ref": "1", "x": 400.0, "y": 15.0}])
+    assert [row["number"] for row in graphics["points"]] == [1]
+    assert not any(issue["code"] == "layout_point_missing" and "пост" in issue["message"] for issue in issues)

@@ -11,12 +11,10 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-import shapely
 from reportlab.graphics.shapes import Circle, Drawing, Group, Line, Polygon, PolyLine, Rect, String
 from reportlab.lib.colors import HexColor, white
 from reportlab.lib.units import mm
 from reportlab.platypus import Table, TableStyle
-from shapely.geometry import LineString
 
 from design.reporting import plan_sheet
 from design.reporting.brand import FONT, FONT_BOLD, GRAPHITE, GREY, LINE, RED
@@ -76,10 +74,7 @@ def situation_view(graphics: Mapping[str, Any]) -> PlanView:
 
 
 def _clip(line) -> list[tuple]:
-    if len(line) < 2:
-        return []
-    clipped = shapely.clip_by_rect(LineString(line), 0.0, 0.0, MAP_W_MM, MAP_H_MM)
-    return [tuple(part.coords) for part in getattr(clipped, "geoms", [clipped]) if not part.is_empty and part.geom_type == "LineString"]
+    return plan_sheet.clip(line, MAP_W_MM, MAP_H_MM)
 
 
 def _marker(kind: str, x: float, y: float, label: str) -> Group:

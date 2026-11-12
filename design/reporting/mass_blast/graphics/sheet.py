@@ -28,8 +28,10 @@ FIELD_H_MM = 146.0
 LEGEND_H_MM = 19.0
 FIELD_PAD_MM = 1.5       # крайние точки вида — контур блока, подписи скважин внутри него
 LEGEND_SIZE = 6.0
-NOTE_SIZE = 5.8
+LEGEND_SIZES = (6.0, 5.4, 4.8)
 LEGEND_ROW_MM = 3.7
+SIGNATURE_PT = 8.5
+SIGNATURE_TEXT_MM = 152.0   # средняя графа `signature_row` на поле 270 мм
 BLUE = HexColor("#1F6FB2")
 ORANGE = HexColor("#E07B00")
 PURPLE = HexColor("#6A3D9A")
@@ -130,20 +132,42 @@ def legend_band(
     note = scale_note or ACTUAL_SIZE_NOTE
     d.add(String(30 * mm + bar_mm * mm + 9 * mm, top, note, fontName=FONT, fontSize=LEGEND_SIZE, fillColor=GREY))
     room = width - arrow_room
+    # Строки условных обозначений и примечаний должны уместиться в полосу
+    # (иначе легли бы на подпись): кегль уменьшается, а не помещающиеся
+    # примечания склеиваются в последнюю строку с обрезкой.
+    for size in LEGEND_SIZES:
+        row_mm = LEGEND_ROW_MM * size / LEGEND_SIZE
+        placed, rows = _place_items(items, size, room)
+        notes_top = top - row_mm * mm * (rows + 1) + 0.2 * mm
+        capacity = max(0, int(notes_top // (size * 1.3)) + 1)
+        if len(notes) <= capacity or size == LEGEND_SIZES[-1]:
+            break
+    for kind, style, label, x, row in placed:
+        y = top - row_mm * mm * row - 0.6 * mm
+        d.add(_symbol(kind, x, y, style))
+        d.add(String(x + 9 * mm, y + 0.3 * mm, label, fontName=FONT, fontSize=size, fillColor=GRAPHITE))
+    lines = list(notes)
+    if len(lines) > capacity:
+        kept = lines[: max(capacity - 1, 0)]
+        rest = lines[len(kept):]
+        lines = kept + ([(" ".join(value for value, _color in rest), rest[0][1])] if capacity else [])
+    y = notes_top
+    for value, color in lines:
+        d.add(String(0, y, fit(value, size, room), fontName=FONT, fontSize=size, fillColor=color))
+        y -= size * 1.3
+    return d
+
+
+def _place_items(items, size: float, room: float) -> tuple[list[tuple], int]:
+    placed: list[tuple] = []
     x, row = 0.0, 1
     for kind, style, label in items:
-        item_w = 9 * mm + pdfmetrics.stringWidth(label, FONT, LEGEND_SIZE) + 4 * mm
+        item_w = 9 * mm + pdfmetrics.stringWidth(label, FONT, size) + 4 * mm
         if x and x + item_w > room:
             x, row = 0.0, row + 1
-        y = top - LEGEND_ROW_MM * mm * row - 0.6 * mm
-        d.add(_symbol(kind, x, y, style))
-        d.add(String(x + 9 * mm, y + 0.3 * mm, label, fontName=FONT, fontSize=LEGEND_SIZE, fillColor=GRAPHITE))
+        placed.append((kind, style, fit(label, size, room - 9 * mm), x, row))
         x += item_w
-    y = top - LEGEND_ROW_MM * mm * (row + 1) + 0.2 * mm
-    for value, color in notes:
-        d.add(String(0, y, fit(value, NOTE_SIZE, room), fontName=FONT, fontSize=NOTE_SIZE, fillColor=color))
-        y -= NOTE_SIZE * 1.3
-    return d
+    return placed, row
 
 
 def field_frame(d: Drawing) -> None:
@@ -157,8 +181,14 @@ def signature(context: Mapping[str, Any], *, surveyor: bool) -> Any:
     width = FIELD_W_MM * mm
     if surveyor:
         name = text(requisites.get("surveyor_name"))
-        return signature_row("Съёмку выполнил:", {"position": "маркшейдер" if name else "", "name": name}, width)
-    return signature_row("Составил:", requisites.get("made_by") or {}, width)
+        person = {"position": "маркшейдер" if name else "", "name": name}
+        label = "Съёмку выполнил:"
+    else:
+        person, label = requisites.get("made_by") or {}, "Составил:"
+    # Одной строкой: перенос подписи вытолкнул бы её на следующую страницу,
+    # и названия листов «Графики» разошлись бы с листами.
+    one_line = fit(person_line(person), SIGNATURE_PT, SIGNATURE_TEXT_MM * mm - 8)
+    return signature_row(label, {"position": "", "name": one_line}, width)
 
 
 __all__ += ["field_frame", "person_line", "FONT", "FONT_BOLD", "GRAPHITE", "GREY", "LINE", "RED", "TINT", "ZEBRA"]

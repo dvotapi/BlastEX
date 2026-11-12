@@ -127,6 +127,7 @@ def graphics_part(context: Mapping[str, Any]) -> Part | None:
         margins=MARGINS,
         page_titles=tuple(title for title, _build in sheets),
         actual_size=True,
+        one_page_per_title=True,
     )
 
 

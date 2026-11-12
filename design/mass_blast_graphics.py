@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import copy
 import math
-import re
 from collections import Counter
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -31,7 +30,8 @@ from design.drilling_passport import plan_geometry
 from design.geometry import local_basis
 from design.mass_blast_objects import OBJECT_SOURCE_SITUATION, layer_geometry, project_geometry
 from design.models import BlastDesign, Hole, is_explosive_deck_kind
-from design.timing import resolve_network
+from design.mass_blast_table import _natural
+from design.timing import _downhole_for, resolve_network
 from design.toe_line import crest_geometry, effective_face_angle_deg, grid_steps_m
 
 __all__ = [
@@ -87,10 +87,6 @@ def _r(value: float, digits: int = 3) -> float:
 def _xy(point: Iterable[float]) -> list[float]:
     x, y = list(point)[:2]
     return [_r(x), _r(y)]
-
-
-def _natural(value: str) -> list[Any]:
-    return [int(part) if part.isdigit() else part for part in re.split(r"(\d+)", value)]
 
 
 def _unit(vector: np.ndarray) -> np.ndarray:
@@ -167,13 +163,6 @@ def _hole_contour(collars: np.ndarray, step: float) -> list[list[float]]:
 
 # --------------------------------------------------------------- сеть
 
-def _downhole_ms(network, hole_id: str) -> float:
-    for item in network.downhole_connectors:
-        if item.hole_id == hole_id and item.deck_index is None and item.primer_index is None:
-            return float(item.delay_ms)
-    return float(network.downhole_delay_ms.get(hole_id, 0.0))
-
-
 def _surface_links(network, ids: set[str]) -> list[dict[str, Any]]:
     links = network.surface_connectors or []
     if not links:
@@ -222,7 +211,7 @@ def _network(design: BlastDesign, holes: Sequence[Hole]) -> tuple[dict[str, Any]
         if total is None:
             times[hole.id] = {"time_ms": None, "surface_ms": None}
             continue
-        down = 0.0 if electronic else _downhole_ms(network, hole.id)
+        down = 0.0 if electronic else float(_downhole_for(network, hole.id))
         downholes.add(round(down, 1))
         times[hole.id] = {"time_ms": _r(total, 1), "surface_ms": _r(total - down, 1)}
     # У скважины подписывается поверхностное время, если замедление в скважине
@@ -713,7 +702,10 @@ def project_graphics(
                 near_block, near_object = nearest_points(geometry, shapely.union_all(shapes))
                 link = [_xy(near_block.coords[0]), _xy(near_object.coords[0])]
         object_rows.append({"number": number, "key": key, "link": link})
-    posts = {str(post.get("code") or ""): (index, post) for index, post in enumerate(guard_posts, start=1)}
+    # Пост — по коду; при повторе кода номер — у первого поста с этим кодом.
+    posts: dict[str, tuple[int, Mapping[str, Any]]] = {}
+    for index, post in enumerate(guard_posts, start=1):
+        posts.setdefault(str(post.get("code") or ""), (index, post))
     point_rows: list[dict[str, Any]] = []
     placed_posts: set[str] = set()
     placed_kinds: set[str] = set()
@@ -776,7 +768,10 @@ def project_graphics(
                 "distance_m": None if distance is None else round(distance),
             }
         )
-    missing = [f"пост № {index}" for code, (index, _post) in posts.items() if code not in placed_posts]
+    missing = [
+        f"пост № {index}" for index, post in enumerate(guard_posts, start=1)
+        if str(post.get("code") or "") not in placed_posts
+    ]
     missing += [LAYOUT_POINT_KINDS[kind] for kind in ("blast_station", "shelter") if kind not in placed_kinds]
     if missing:
         issues.append(

@@ -97,14 +97,18 @@ function LayerCard({
     }
     const remembered = rememberFields.filter((name) => remember(name, String(payload[name] ?? ""))?.checked);
     const saved = await api.massBlast.saveLayer(layer.id, { payload, expected_version: layer.version });
-    if (remembered.length) {
-      await api.massBlast.remember(saved.project_id, { paths: remembered, layer_id: saved.id });
-      setRememberChoice({});
-      // Справочник изменился — поля «запомнить» и значения по умолчанию слоя тоже.
-      onChange(await api.massBlast.getLayer(saved.id));
-      return saved;
-    }
+    // Сохранённый слой (новая версия) принимается сразу: сбой справочника ниже его не отменяет.
     onChange(saved);
+    if (remembered.length) {
+      try {
+        await api.massBlast.remember(saved.project_id, { paths: remembered, layer_id: saved.id });
+        setRememberChoice({});
+        // Справочник изменился — поля «запомнить» и значения по умолчанию слоя тоже.
+        onChange(await api.massBlast.getLayer(saved.id));
+      } catch (reason) {
+        setMessage({ text: errorText(reason, "Слой сохранён, но в справочник объекта значения не записаны."), error: true });
+      }
+    }
     return saved;
   }
 
@@ -124,7 +128,8 @@ function LayerCard({
   }
 
   const onSave = () => run(async () => {
-    if (await save()) setMessage({ text: "Сохранено.", error: false });
+    // Сообщение о сбое справочника (слой при этом сохранён) не перекрывается.
+    if (await save()) setMessage((current) => current ?? { text: "Сохранено.", error: false });
   }, "Не удалось сохранить слой.");
 
   const onPreview = () => run(async () => {

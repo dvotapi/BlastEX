@@ -52,6 +52,7 @@ export function Field({
   own,
   onReset,
   remember,
+  disabled = false,
   children,
 }: {
   label: string;
@@ -64,6 +65,8 @@ export function Field({
   own?: string;
   onReset?: () => void;
   remember?: RememberControl | null;
+  /** Поле недоступно: «↺» и «Запомнить» тоже. */
+  disabled?: boolean;
   children: (id: string) => ReactNode;
 }) {
   const id = useId();
@@ -76,14 +79,14 @@ export function Field({
       {children(id)}
       {usesAuto && auto && <small className="drill-source">{SOURCE_LABELS[auto.source] ?? "автоматически"}</small>}
       {differs && auto && onReset && (
-        <button type="button" className="link-button mb-reset" onClick={onReset}
+        <button type="button" className="link-button mb-reset" onClick={onReset} disabled={disabled}
           title={`Вернуть «${autoValue}» (${SOURCE_LABELS[auto.source] ?? "автоматически"})`}>
           ↺ {SOURCE_LABELS[auto.source] ?? "автоматически"}: {autoValue.length > 40 ? `${autoValue.slice(0, 40)}…` : autoValue}
         </button>
       )}
       {remember && (
         <label className="drill-ack mb-remember">
-          <input type="checkbox" checked={remember.checked} onChange={(event) => remember.onChange(event.target.checked)} />
+          <input type="checkbox" checked={remember.checked} disabled={disabled} onChange={(event) => remember.onChange(event.target.checked)} />
           Запомнить для объекта
         </label>
       )}
@@ -139,7 +142,7 @@ export function TextInput({
   const blur = () => setCleared(false);
   return (
     <Field label={label} hint={hint} error={error} issues={issues} wide={wide || multiline} auto={auto} own={value}
-      onReset={() => onChange("")} remember={remember}>
+      onReset={() => onChange("")} remember={remember} disabled={disabled}>
       {(id) =>
         multiline ? (
           <textarea id={id} rows={2} value={shown} maxLength={maxLength} placeholder={placeholder} disabled={disabled}

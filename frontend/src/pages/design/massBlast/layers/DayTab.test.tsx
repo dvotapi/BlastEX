@@ -15,6 +15,8 @@ vi.mock("../../../../api/endpoints", () => ({
       issueLayer: vi.fn(),
       layerPreviewUrl: (id: string) => `/preview/${id}`,
       layerDocumentUrl: (id: string) => `/doc/${id}`,
+      remember: vi.fn(),
+      getLayer: vi.fn(),
     },
   },
 }));
@@ -104,6 +106,21 @@ describe("слои дня взрыва", () => {
     expect(((await screen.findByLabelText("Склад выдачи")) as HTMLInputElement).value).toBe("Склад № 1");
     expect((screen.getByLabelText("Дата выписки") as HTMLInputElement).value).toBe("2026-11-20");
     expect(screen.getByText("справочник объекта")).toBeTruthy();
+  });
+
+  it("сбой «Запомнить» не оставляет слой со старой версией", async () => {
+    const user = userEvent.setup();
+    const base = layer();
+    vi.mocked(api.massBlast.layers).mockResolvedValue([{ ...base, view: { ...base.view, rememberable: { warehouse: null } } }]);
+    vi.mocked(api.massBlast.remember).mockReset().mockRejectedValue(new Error("Справочник только что изменили"));
+    render(<DayTab project={approved} canRemember />);
+    await user.type(await screen.findByLabelText("Склад выдачи"), "Склад 2");
+    await user.click(screen.getByRole("button", { name: "Сохранить" }));
+    expect(await screen.findByText("Справочник только что изменили")).toBeTruthy();
+    // Слой принят с новой версией: следующее сохранение идёт с ней.
+    await user.type(screen.getByLabelText("Склад выдачи"), "А");
+    await user.click(screen.getByRole("button", { name: "Сохранить" }));
+    await waitFor(() => expect(vi.mocked(api.massBlast.saveLayer).mock.calls.at(-1)?.[1].expected_version).toBe(3));
   });
 
   it("графы после взрыва — только когда взрыв произведён", async () => {

@@ -20,6 +20,7 @@ from design import persistence as design_persistence
 from design.lifecycle import designed_sha256
 from design.mass_blast import content_sha256
 from design.mass_blast_fact import block_fact, execution_sha256
+from design.mass_blast_defaults import created_on, fill_layer_empty, layer_defaults
 from design.mass_blast_layer_diff import describe_changes
 from design.mass_blast_layers import (
     AFTER_BLAST_STATUSES,
@@ -246,7 +247,43 @@ def _with_view(
                 "path": "project_revision_id",
             }
         )
+    # Значения по умолчанию ручного ввода (PR 6, §14, В3 и В7): окно показывает их
+    # в полях, выпуск и предпросмотр подставляют в пустые поля.
+    site_code = str((context.get("project") or {}).get("site_code") or "")
+    from api.services.mass_blast_remember import rememberable
+
+    view["rememberable"] = rememberable(_site_record(snapshot, "mass_blast_sites", site_code), layer_kind=layer["kind"])
+    view["defaults"] = layer_defaults(
+        layer["kind"], seed, payload, site=_site_record(snapshot, "mass_blast_sites", site_code),
+        previous_naryad=state.get("previous_naryad"), view=view, created_on=created_on(layer.get("created_at")),
+    )
     return {**layer, "view": view, "issues": issues}
+
+
+def effective_payload(viewed: Mapping[str, Any]) -> dict[str, Any]:
+    """Ручной ввод слоя для выпуска и предпросмотра: пустые поля — значениями по умолчанию."""
+
+    return fill_layer_empty(viewed["payload"], (viewed.get("view") or {}).get("defaults") or {})
+
+
+def _previous_naryad(
+    repository: PostgresMassBlastRepository, organization_id: str, project: Mapping[str, Any]
+) -> dict[str, Any] | None:
+    """Ручной ввод последнего наряда прошлого проекта того же объекта (склад, разрешение, транспорт)."""
+
+    from api.services.mass_blast_prefill import previous_v2_project
+
+    try:
+        previous = previous_v2_project(
+            repository, organization_id, str(project.get("site_code") or ""), exclude=str(project.get("id") or "")
+        )
+        if previous is None:
+            return None
+        naryads = [layer for layer in repository.list_layers(organization_id, previous["id"]) if layer["kind"] == "NARYAD"]
+    except Exception:  # noqa: BLE001 — прошлый наряд даёт только умолчания
+        return None
+    naryads.sort(key=lambda layer: str(layer.get("updated_at") or ""), reverse=True)
+    return dict(naryads[0]["payload"]) if naryads else None
 
 
 def _load_design(organization_id: str, design_id: str):
@@ -314,6 +351,14 @@ def _fact_state(
     по ревизии проекта на один список слоёв."""
 
     state: dict[str, Any] = {}
+    if layer["kind"] == "NARYAD":
+        project = project or repository.get_project(organization_id, layer["project_id"])
+        if latest is not None and "previous_naryad" in latest:
+            state["previous_naryad"] = latest["previous_naryad"]  # type: ignore[assignment]
+        else:
+            state["previous_naryad"] = _previous_naryad(repository, organization_id, project)
+            if latest is not None:
+                latest["previous_naryad"] = state["previous_naryad"]  # type: ignore[assignment]
     if layer["kind"] == "EXECUTION":
         try:
             hashes = [execution_sha256(design) for design in _block_designs(organization_id, context)]
@@ -537,8 +582,9 @@ def issue_layer(
         "kind": layer["kind"],
         "project_revision_id": layer["project_revision_id"],
         "seed": layer["seed"],
-        "payload": layer["payload"],
-        "view": viewed["view"],
+        # Пустые поля — значениями по умолчанию: ревизия печатает то, что окно показывало.
+        "payload": effective_payload(viewed),
+        "view": {key: value for key, value in viewed["view"].items() if key not in ("defaults", "rememberable")},
     }
     return repository.create_layer_revision(
         organization_id, actor, layer_id, expected_version=expected_version, context=snapshot,

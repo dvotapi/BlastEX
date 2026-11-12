@@ -139,16 +139,12 @@ def test_new_project_is_prefilled_from_reference_and_previous_project(monkeypatc
     assert stored["site_code"] == "ZK" and stored["object_name"] == "Жуков Камень"
     assert stored["blast_date"] == "2026-11-20" and stored["blast_time"] == "13:00"
     assert stored["name"] == "Массовый взрыв — блок 66"
-    assert stored["requisites"]["customer_name"] == "АО «Заказчик»"
-    # Люди и постоянные тексты — из прошлого проекта объекта.
-    assert stored["requisites"]["made_by"]["name"] == "Иванов И. И."
-    assert stored["requisites"]["surveyor_name"] == "Сидоров С. С."
-    assert {key: value for key, value in stored["schedule"].items() if value} == {"station": "Будка у въезда", "siren": "СС-1"}
+    # Отдельные поля не копируются — их подставляют значения по умолчанию при проверке.
+    assert stored.get("requisites") is None and stored.get("schedule") is None
     assert stored["personnel"][0]["name"] == "Трегубов Т. Т."
     accounts = {item["role_code"]: item["account_email"] for item in stored["responsibilities"]}
     assert accounts == {"blast_manager": "manager@example.ru", "explosives_supervisor": ""}
     # № и дата проекта, посты, точки, объекты — не переносятся (В3, В4).
-    assert stored["requisites"]["project_no"] == "" and stored["requisites"]["project_date"] == ""
     assert stored["guard_posts"] == [] and stored.get("layout_points") == [] and stored.get("protected_objects") == []
 
 
@@ -275,3 +271,40 @@ def test_v2_validation_drops_v1_signal_and_notification_checks(monkeypatch):
     codes = {issue["code"] for issue in response.json()["issues"]}
     assert not codes & {"signal_profile", "notification"}
     assert response.json()["valid"] is True
+
+
+def test_validate_returns_defaults_and_documents_use_them(monkeypatch):
+    """Пустое поле проекта — значение по умолчанию и в окне (`defaults`), и в документе (контекст)."""
+
+    from tests import test_api_mass_blast_v2 as v2
+
+    design = design66()
+    design.designed_sha256 = designed_sha256(design)
+    block = block_from_design(design, code="66", horizon="410")
+    stored = v2._stored_v2(block)
+    stored["explosives"] = {**stored["explosives"], "charge_design": "", "initiation": ""}
+    stored["created_at"] = "2026-11-12T09:00:00+00:00"
+    data = v2._client(monkeypatch, v2._Repository(stored), design).post(f"{v2.BASE}/p1/validate").json()
+    defaults = data["defaults"]
+    assert defaults["explosives.initiation"] == {"value": "Неэлектрическая система инициирования (НСИ)", "source": "DESIGN"}
+    assert defaults["requisites.project_date"] == {"value": "2026-11-12", "source": "RULE"}
+    assert data["context"]["explosives"]["initiation"] == defaults["explosives.initiation"]["value"]
+    assert data["context"]["explosives"]["charge_design"] == defaults["explosives.charge_design"]["value"]
+    assert data["rememberable"]["schedule.station"] is None
+
+
+def test_remember_needs_a_reference_editor(monkeypatch, design):
+    client = _client(monkeypatch, _Repository([_approved()], [], _revision()), design)
+    client.app.dependency_overrides[require_internal_access] = lambda: {**SESSION, "role": "user"}
+    response = client.post(f"{BASE}/p1/remember", json={"paths": ["schedule.station"]})
+    assert response.status_code == 403
+
+
+def test_suggest_layout_without_situation_says_why(monkeypatch):
+    from tests import test_api_mass_blast_v2 as v2
+
+    design = design66()
+    design.designed_sha256 = designed_sha256(design)
+    stored = v2._stored_v2(block_from_design(design, code="66", horizon="410"))
+    data = v2._client(monkeypatch, v2._Repository(stored), design).post(f"{v2.BASE}/p1/suggest-layout").json()
+    assert data["posts"] == [] and "ситуации карьера" in data["reason"]

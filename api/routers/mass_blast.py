@@ -22,6 +22,8 @@ from api.schemas.mass_blast import (
     MassBlastLayerUpdateSchema,
     MassBlastLifecycleSchema,
     MassBlastNewProjectSchema,
+    MassBlastRememberResponse,
+    MassBlastRememberSchema,
     MassBlastProjectInputSchema,
     MassBlastProjectSchema,
     MassBlastProjectSummarySchema,
@@ -31,7 +33,7 @@ from api.schemas.mass_blast import (
     RevisionCreateSchema,
 )
 from api import config
-from api.security import require_human, require_internal_access
+from api.security import require_human, require_internal_access, require_reference_editor
 from api.services import mass_blast_documents_v2 as documents_v2
 from api.services import mass_blast_layers_service as layers_service
 from api.services.economics_service import get_economics_repository
@@ -53,6 +55,8 @@ from api.services.mass_blast_service import (
     update_project,
     validate_project,
 )
+from api.services.public_sync_service import get_public_reader, reference_issues
+from cost.v2.public_sync import PublicReader
 from cost.v2.repository import EconomicsRepository
 from design.mass_blast_repository import PostgresMassBlastRepository
 
@@ -619,5 +623,56 @@ def get_notification_addressees(
         return NotificationAddresseesSchema.model_validate(layers_service.notification_addressees(
             repository, economics_repository, organization_id, project_id,
         ))
+    except Exception as exc:
+        raise _layer_errors(exc) from exc
+
+
+@router.post(
+    "/{project_id}/remember", response_model=MassBlastRememberResponse, dependencies=[Depends(_require_layers)],
+)
+def post_remember(
+    project_id: str,
+    payload: MassBlastRememberSchema,
+    session: dict[str, object] = Depends(require_reference_editor),
+    repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
+    economics_repository: EconomicsRepository = Depends(get_economics_repository),
+    reader: PublicReader = Depends(get_public_reader),
+) -> MassBlastRememberResponse:
+    """«Запомнить для объекта» (В8): поля объекта из проекта или слоя — в справочник новой ревизией."""
+
+    from api.services.mass_blast_remember import remember_for_site
+
+    organization_id, actor = _identity(session)
+    try:
+        project = repository.get_project(organization_id, project_id)
+        layer = None
+        if payload.layer_id:
+            layer = repository.get_layer(organization_id, payload.layer_id)
+            if layer["project_id"] != project_id:
+                raise ValueError("Слой относится к другому проекту.")
+        return MassBlastRememberResponse.model_validate(remember_for_site(
+            economics_repository, organization_id, actor, project, payload.paths, layer=layer,
+            issues_of=lambda sections: reference_issues(reader, economics_repository, organization_id, sections),
+        ))
+    except Exception as exc:
+        raise _layer_errors(exc) from exc
+
+
+@router.post("/{project_id}/suggest-layout", dependencies=[Depends(_require_layers)])
+def post_suggest_layout(
+    project_id: str,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
+    economics_repository: EconomicsRepository = Depends(get_economics_repository),
+) -> dict[str, object]:
+    """«Предложить посты» (В6): посты на пересечениях дорог с границей зоны для людей,
+    станция и укрытие за зоной. Проект не меняется — окно ставит точки в форму."""
+
+    from design.mass_blast_posts import suggest_layout
+
+    organization_id, _ = _identity(session)
+    try:
+        result = validate_project(repository, organization_id, project_id, economics_repository=economics_repository)
+        return suggest_layout((result.get("context") or {}).get("graphics") or {})
     except Exception as exc:
         raise _layer_errors(exc) from exc

@@ -7,43 +7,27 @@
   объект последнего проекта МВ организации. Наименование объекта и заказчик —
   из справочника объекта; блок и горизонт — по проекту блока (как у паспорта
   на бурение).
-- Из прошлого проекта v2 того же объекта переходят люди (составил, проверил,
-  подписанты, согласования, маркшейдер, персонал, роли согласования с
-  учётками) и постоянные тексты распорядка (`SCHEDULE_FROM_PREVIOUS`).
-- Не переносятся: № и дата проекта, даты и время, блоки, охраняемые объекты,
-  посты и точки на плане, примечания к скважинам — место и день взрыва другие.
-- Реквизиты из записи «Проект МВ: реквизиты объекта» в проект не копируются:
-  контекст сам берёт их из справочника, когда поле проекта пустое.
+- Из прошлого проекта v2 того же объекта копируются только списки людей:
+  роли распорядка, роли согласования с учётками, «Согласовано:».
+- Отдельные поля (реквизиты, ВМ, тексты распорядка, № и дата проекта) не
+  копируются: их значения по умолчанию — справочник объекта, проект блока,
+  паспорт на бурение, прошлый проект, правила — считает
+  `design/mass_blast_defaults.py` при каждой проверке (§14 плана PR 6).
+- Не переносятся: даты и время, блоки, охраняемые объекты, посты и точки на
+  плане, примечания к скважинам — место и день взрыва другие.
 """
 from __future__ import annotations
 
 from typing import Any, Iterable, Mapping
 
 from api.services.cad_service import active_work_object_name, resolve_site_code
-from api.services.drilling_passport_prefill import _customer
 from api.services.drilling_passport_service import _block_label
 from cost.v2.repository import EconomicsRepository, EconomicsRepositoryError
 from design.drilling_passport import floor_horizon
 from design.models import BlastDesign
 
-__all__ = [
-    "REQUISITES_FROM_PREVIOUS",
-    "SCHEDULE_FROM_PREVIOUS",
-    "new_project_payload",
-    "previous_v2_project",
-]
+__all__ = ["new_project_payload", "previous_v2_project"]
 
-# Реквизиты, которые переходят из прошлого проекта того же объекта (люди и стороны).
-REQUISITES_FROM_PREVIOUS = (
-    "tp_basis", "made_by", "checked_by", "customer_name", "contractor_name",
-    "customer_approver", "contractor_approver", "agreements", "surveyor_name", "drilled_by",
-)
-# Постоянные тексты распорядка (В3): место станции, укрытия и сбора, сирена,
-# транспорт ВМ, средства очистки, порядок заряжания и монтажа, мероприятия.
-SCHEDULE_FROM_PREVIOUS = (
-    "charging_order", "network_order", "station", "shelter", "gather", "exit_route",
-    "siren", "measures", "transport", "cleaning",
-)
 # Сколько последних проектов организации просматривать в поисках прошлого проекта объекта.
 PREVIOUS_LOOKUP_LIMIT = 30
 
@@ -95,18 +79,11 @@ def _site_code(
 
 
 def _people(previous: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Списки людей прошлого проекта объекта: роли распорядка и согласования (В3)."""
+
     previous = previous or {}
-    requisites = {
-        key: value for key, value in (previous.get("requisites") or {}).items()
-        if key in REQUISITES_FROM_PREVIOUS and value not in (None, "", [], {})
-    }
-    schedule = {
-        key: value for key, value in (previous.get("schedule") or {}).items()
-        if key in SCHEDULE_FROM_PREVIOUS and value
-    }
     return {
-        "requisites": requisites,
-        "schedule": schedule,
+        "agreements": [dict(item) for item in (previous.get("requisites") or {}).get("agreements") or []],
         "personnel": [dict(item) for item in previous.get("personnel") or []],
         "responsibilities": [dict(item) for item in previous.get("responsibilities") or []],
     }
@@ -138,10 +115,6 @@ def new_project_payload(
     previous = previous_v2_project(repository, organization_id, code)
     people = _people(previous)
     object_name = object_name or str((previous or {}).get("object_name") or "") or code
-    customer = _customer(snapshot, dict(site_item.payload or {})) if site_item is not None else ""
-    requisites = dict(people["requisites"])
-    if customer and not requisites.get("customer_name"):
-        requisites["customer_name"] = customer
 
     blocks = []
     for design in designs:
@@ -166,7 +139,9 @@ def new_project_payload(
         "guard_posts": [],
         "notifications": [],
         "context_version": 2,
-        "requisites": requisites,
-        "schedule": people["schedule"],
+        # Реквизиты, тексты распорядка и ВМ — не копируются: их значения по умолчанию
+        # (справочник, проект блока, паспорт на бурение, прошлый проект) считает
+        # `design/mass_blast_defaults.py` при каждой проверке (§14 плана PR 6).
         "personnel": people["personnel"],
+        "requisites": {"agreements": people["agreements"]} if people["agreements"] else None,
     }

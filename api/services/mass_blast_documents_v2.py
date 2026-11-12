@@ -160,5 +160,8 @@ def layer_preview(
     errors = [issue["message"] for issue in layer.get("issues") or [] if issue.get("level") == "error"]
     if errors:
         raise PreviewError("Предпросмотр недоступен: " + "; ".join(errors))
-    revision = {"kind": layer["kind"], "seed": layer["seed"], "payload": layer["payload"], "view": layer.get("view") or {}}
+    revision = {
+        "kind": layer["kind"], "seed": layer["seed"], "payload": layers_service.effective_payload(layer),
+        "view": {key: value for key, value in (layer.get("view") or {}).items() if key not in ("defaults", "rememberable")},
+    }
     return render_layer_document(revision, draft=True)

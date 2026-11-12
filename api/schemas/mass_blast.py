@@ -275,6 +275,10 @@ class MassBlastValidationResponse(BaseModel):
     valid: bool
     issues: list[MassBlastValidationIssueSchema]
     context: dict[str, Any]
+    # Проект v2 (PR 6, §14): путь поля payload → {value, source} — что подставится в пустое поле.
+    defaults: dict[str, Any] = Field(default_factory=dict)
+    # «Запомнить для объекта» (В8): путь поля → значение в справочнике объекта (null — пусто).
+    rememberable: dict[str, Any] = Field(default_factory=dict)
 
 
 class RevisionCreateSchema(BaseModel):
@@ -554,3 +558,17 @@ class NotificationAddresseeSchema(BaseModel):
 class NotificationAddresseesSchema(BaseModel):
     registry: bool
     items: list[NotificationAddresseeSchema] = Field(default_factory=list)
+
+
+class MassBlastRememberSchema(BaseModel):
+    """«Запомнить для объекта» (В8): поля проекта (или слоя, если задан `layer_id`)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    paths: list[str] = Field(..., min_length=1, max_length=40)
+    layer_id: str | None = Field(None, max_length=36)
+
+
+class MassBlastRememberResponse(BaseModel):
+    revision_id: str
+    fields: list[str]

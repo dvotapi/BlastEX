@@ -43,7 +43,8 @@ def test_design_texts_and_rules(design):
     assert defaults["explosives.initiation"]["source"] == "DESIGN"
     assert value("explosives.initiation") == "Неэлектрическая система инициирования (НСИ)"
     assert value("explosives.charge_design").startswith("Сплошная колонка ВВ")
-    assert value("blocks[0].details.hydro_text") == hydro_text(design)
+    # Воды в проекте блока не вводили — «сухие» в документ не пишется.
+    assert "blocks[0].details.hydro_text" not in defaults and hydro_text(design) == ""
     assert value("requisites.project_no") == "66-26/МВ" and defaults["requisites.project_no"]["source"] == "RULE"
     assert value("requisites.project_date") == "2026-11-12"
     assert value("requisites.contractor_name") == "ООО «Комплексные решения»"
@@ -194,3 +195,41 @@ def test_suggest_posts_on_road_crossings():
     station = next(point for point in result["points"] if point["kind"] == "blast_station")
     assert max(abs(station["x"]), abs(station["y"])) > 500  # станция — за зоной
     assert suggest_layout({**graphics, "has_situation": False})["posts"] == []
+
+
+def test_hydro_text_counts_wet_holes():
+    from design.models import WaterInterval
+
+    design = design66()
+    design.holes[0].water_intervals = [WaterInterval(from_m=8.0, to_m=10.0, condition="wet")]
+    design.holes[1].water_intervals = [WaterInterval(from_m=0.0, to_m=10.0, condition="dry")]
+    assert hydro_text(design) == f"Обводнённых скважин 1 из {len([h for h in design.holes if h.enabled])}"
+
+
+def test_person_comes_whole_from_one_source(design):
+    """Должность из справочника и фамилия из прошлого проекта не склеиваются (ревью PR 6)."""
+
+    previous = {"requisites": {"contractor_approver": {"position": "Главный инженер", "name": "Иванов И. И.",
+                                                       "authority": "приказ № 5", "is_head": False}}}
+    defaults = project_defaults(_payload(), DefaultsInputs(
+        designs=[design], site={"contractor_approver_position": "Технический директор"}, previous=previous,
+    ))
+    person = {part: defaults[f"requisites.contractor_approver.{part}"] for part in ("position", "name", "authority", "is_head")}
+    assert {part: entry["value"] for part, entry in person.items()} == {
+        "position": "Главный инженер", "name": "Иванов И. И.", "authority": "приказ № 5", "is_head": False,
+    }
+    assert {entry["source"] for entry in person.values()} == {"PREVIOUS"}
+
+
+def test_reference_values_resolved_by_context_are_not_filled():
+    """q по ТП, ТП и подписанты из справочника контекст берёт сам — с источником (ревью PR 6)."""
+
+    defaults = {
+        "explosives.q_tp_kg_m3": {"value": 1.1, "source": "REFERENCE"},
+        "requisites.customer_approver.name": {"value": "Заказчиков", "source": "REFERENCE"},
+        "schedule.station": {"value": "Будка", "source": "REFERENCE"},
+        "requisites.contractor_approver.name": {"value": "Иванов", "source": "PREVIOUS"},
+    }
+    filled = fill_empty({"explosives": {}, "requisites": {}, "schedule": {}}, defaults)
+    assert filled["explosives"] == {} and "customer_approver" not in filled["requisites"]
+    assert filled["schedule"]["station"] == "Будка" and filled["requisites"]["contractor_approver"]["name"] == "Иванов"

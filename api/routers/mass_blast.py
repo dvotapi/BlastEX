@@ -57,7 +57,7 @@ from api.services.mass_blast_service import (
 )
 from api.services.public_sync_service import get_public_reader, reference_issues
 from cost.v2.public_sync import PublicReader
-from cost.v2.repository import EconomicsRepository
+from cost.v2.repository import EconomicsRepository, ReferenceRevisionConflict
 from design.mass_blast_repository import PostgresMassBlastRepository
 
 
@@ -654,6 +654,11 @@ def post_remember(
             economics_repository, organization_id, actor, project, payload.paths, layer=layer,
             issues_of=lambda sections: reference_issues(reader, economics_repository, organization_id, sections),
         ))
+    except ReferenceRevisionConflict as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Справочник только что изменили: проект сохранён, сохраните его ещё раз, чтобы запомнить значения.",
+        ) from exc
     except Exception as exc:
         raise _layer_errors(exc) from exc
 

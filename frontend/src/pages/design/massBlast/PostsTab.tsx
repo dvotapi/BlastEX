@@ -20,7 +20,8 @@ export function PostsTab({ form, edit, editable, errors, issues, context, projec
     setNote(null);
     try {
       const result = await api.massBlast.suggestLayout(projectId);
-      if (!result.posts.length && !result.points.length) {
+      // Нет пересечений дорог с границей зоны — постов нет: существующие не трогаем.
+      if (!result.posts.length) {
         setNote({ text: result.reason || "Предложить нечего.", error: false });
         return;
       }

@@ -42,9 +42,13 @@ def _snapshot(economics_repository: EconomicsRepository | None, organization_id:
 
 
 def previous_v2_project(
-    repository, organization_id: str, site_code: str, *, exclude: str = ""
+    repository, organization_id: str, site_code: str, *, exclude: str = "", before: str = ""
 ) -> dict[str, Any] | None:
-    """Последний изменённый проект v2 того же объекта (кроме `exclude`)."""
+    """Прошлый проект v2 того же объекта: созданный последним (до `before`, если задан), кроме `exclude`.
+
+    Не «последний изменённый»: иначе значения по умолчанию старого черновика
+    менялись бы от правок более поздних проектов, а проекты брали бы друг у друга.
+    """
 
     if not site_code:
         return None
@@ -52,11 +56,17 @@ def previous_v2_project(
         item for item in repository.list_projects(organization_id)
         if str(item.get("site_code") or "") == site_code and item.get("id") != exclude
     ]
+    best: dict[str, Any] | None = None
     for summary in candidates[:PREVIOUS_LOOKUP_LIMIT]:
         project = repository.get_project(organization_id, summary["id"])
-        if int(project.get("context_version") or 1) == 2:
-            return project
-    return None
+        if int(project.get("context_version") or 1) != 2:
+            continue
+        created = str(project.get("created_at") or "")
+        if before and created and created >= before:
+            continue
+        if best is None or created > str(best.get("created_at") or ""):
+            best = project
+    return best
 
 
 def _site_code(

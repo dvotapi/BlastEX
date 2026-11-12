@@ -86,14 +86,16 @@ function LayerCard({
     };
   }
 
+  const rememberFields = Object.keys(((layer.view ?? {}).rememberable ?? {}) as Record<string, unknown>);
+  const rememberPending = rememberFields.some((name) => remember(name, String(payload[name] ?? ""))?.checked);
+
   async function save(): Promise<MassBlastLayer | null> {
-    if (!dirty) return layer;
+    if (!dirty && !rememberPending) return layer;
     if (hasInputErrors) {
       setMessage({ text: "Исправьте числа в форме слоя.", error: true });
       return null;
     }
-    const fields = Object.keys(((layer.view ?? {}).rememberable ?? {}) as Record<string, unknown>);
-    const remembered = fields.filter((name) => remember(name, String(payload[name] ?? ""))?.checked);
+    const remembered = rememberFields.filter((name) => remember(name, String(payload[name] ?? ""))?.checked);
     const saved = await api.massBlast.saveLayer(layer.id, { payload, expected_version: layer.version });
     if (remembered.length) {
       await api.massBlast.remember(saved.project_id, { paths: remembered, layer_id: saved.id });
@@ -201,7 +203,7 @@ function LayerCard({
         </div>
       )}
       <div className="plans-actions">
-        <button type="button" className="secondary-button" disabled={busy || !dirty} onClick={() => void onSave()}>Сохранить</button>
+        <button type="button" className="secondary-button" disabled={busy || (!dirty && !rememberPending)} onClick={() => void onSave()}>Сохранить</button>
         <button type="button" className="secondary-button" disabled={busy || (!dirty && blocking)} onClick={() => void onPreview()}>Предпросмотр</button>
         <button type="button" className="calculate-button" disabled={busy || (!dirty && blocking)} onClick={() => void onIssue()}>Выпустить ревизию</button>
         {layer.current_revision_id && (

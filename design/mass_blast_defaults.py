@@ -75,24 +75,39 @@ SITE_FIELDS: dict[str, str] = {
 }
 
 # Поля прошлого проекта, которые не зависят от места и дня взрыва (решение В3, В4 и В5).
+# Люди — целиком, человеком (`_PEOPLE`); q по ТП и его обоснование — только справочник
+# объекта: у них в документе печатается источник (п. 411), чужой проект им не источник.
 _FROM_PREVIOUS = (
     "requisites.tp_basis",
-    "requisites.made_by.position", "requisites.made_by.name",
-    "requisites.checked_by.position", "requisites.checked_by.name",
     "requisites.customer_name", "requisites.contractor_name",
-    "requisites.customer_approver.position", "requisites.customer_approver.name",
-    "requisites.customer_approver.authority",
-    "requisites.contractor_approver.position", "requisites.contractor_approver.name",
-    "requisites.contractor_approver.authority",
     "requisites.surveyor_name", "requisites.drilled_by",
     "explosives.initiation", "explosives.scheme", "explosives.charge_design",
     "explosives.stemming_material", "explosives.starter_product",
-    "explosives.bit_mm", "explosives.reaming_k", "explosives.q_tp_kg_m3", "explosives.q_just",
+    "explosives.bit_mm", "explosives.reaming_k",
     "schedule.charging_shift_from", "schedule.charging_shift_to",
     "schedule.charging_order", "schedule.network_order",
     "schedule.station", "schedule.shelter", "schedule.gather", "schedule.exit_route",
     "schedule.siren", "schedule.measures", "schedule.transport", "schedule.cleaning",
 )
+
+# Люди проекта: значение по умолчанию — один человек из одного источника, а не
+# должность из одного места и фамилия из другого. Порядок: справочник объекта
+# (подписанты), прошлый проект объекта, паспорт на бурение блока (В4).
+_PEOPLE = {
+    "requisites.customer_approver": ("customer_approver", "agreed_by"),
+    "requisites.contractor_approver": ("contractor_approver", "approved_by"),
+    "requisites.made_by": ("", "compiled_by"),
+    "requisites.checked_by": ("", ""),
+}
+# Поля, которые контекст v2 и так берёт из справочника объекта, когда поле
+# проекта пустое (`mass_blast_context._signer`, `_q_tp`, `_requisites`): их
+# значение из справочника в проект не подставляется — у q по ТП источник
+# печатается в техрасчёте («по справочнику объекта», документ-источник).
+CONTEXT_RESOLVED = frozenset({
+    "requisites.tp_basis", "explosives.q_tp_kg_m3", "explosives.q_just",
+    *(f"{prefix}.{part}" for prefix in ("requisites.customer_approver", "requisites.contractor_approver")
+      for part in ("position", "name", "authority", "is_head")),
+})
 
 _SYSTEM_TEXT = {
     "nonel": "Неэлектрическая система инициирования (НСИ)",
@@ -170,11 +185,16 @@ def _set_path(data: dict[str, Any], path: str, value: Any) -> None:
 
 
 def fill_empty(payload: Mapping[str, Any], defaults: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
-    """Копия payload: пустые поля — значениями по умолчанию; заданное не меняется."""
+    """Копия payload: пустые поля — значениями по умолчанию; заданное не меняется.
+
+    Значения справочника по `CONTEXT_RESOLVED` не подставляются: контекст сам
+    берёт их из справочника и помнит источник."""
 
     result = copy.deepcopy(dict(payload))
     for path, entry in defaults.items():
         if ":" in path or _empty(entry.get("value")):
+            continue
+        if entry.get("source") == REFERENCE and path in CONTEXT_RESOLVED:
             continue
         if _empty(get_path(result, path)):
             _set_path(result, path, entry["value"])
@@ -228,7 +248,9 @@ def hydro_text(design: BlastDesign) -> str:
     """«Обводнённых скважин N из M» или «Скважины сухие» — по интервалам воды проекта."""
 
     holes = _enabled_holes(design)
-    if not holes:
+    # Нет ни интервалов воды, ни уровня подземных вод — обводнённость не проверяли:
+    # «сухие» в документ не пишем.
+    if not holes or (design.water_table_z_m is None and not any(getattr(hole, "water_intervals", None) for hole in holes)):
         return ""
     wet = sum(
         1 for hole in holes
@@ -314,9 +336,28 @@ def project_defaults(payload: Mapping[str, Any], inputs: DefaultsInputs) -> dict
     passports = [dict(item or {}) for item in inputs.drill_passports]
     blast_date = str(payload.get("blast_date") or "")
 
+    # 0. Люди — человеком из одного источника.
+    for prefix, (site_key, passport_key) in _PEOPLE.items():
+        candidates: list[tuple[Mapping[str, Any], str]] = []
+        if site_key:
+            candidates.append(({
+                "position": site.get(f"{site_key}_position"), "name": site.get(f"{site_key}_name"),
+                "authority": site.get(f"{site_key}_authority"), "is_head": site.get(f"{site_key}_is_head"),
+            }, REFERENCE))
+        candidates.append((get_path(previous, prefix) or {}, PREVIOUS))
+        if passport_key:
+            candidates += [(passport.get(passport_key) or {}, DRILL_PASSPORT) for passport in passports]
+        for person, source in candidates:
+            if isinstance(person, Mapping) and not _empty(person.get("name")):
+                for part in ("position", "name", "authority"):
+                    _put(result, f"{prefix}.{part}", person.get(part), source)
+                if site_key and isinstance(person.get("is_head"), bool):
+                    _put(result, f"{prefix}.is_head", person["is_head"], source)
+                break
+
     # 1. Справочник объекта.
     for path, key in SITE_FIELDS.items():
-        if ":" not in path:
+        if ":" not in path and not any(path.startswith(prefix + ".") for prefix in _PEOPLE):
             _put(result, path, site.get(key), REFERENCE)
     _put(result, "requisites.customer_name", inputs.customer_name, REFERENCE)
 
@@ -337,15 +378,6 @@ def project_defaults(payload: Mapping[str, Any], inputs: DefaultsInputs) -> dict
         _put(result, "explosives.bit_mm", bit, DRILL_PASSPORT)
         k = next((reaming_k(design, bits[i] or bit) for i, design in enumerate(designs) if reaming_k(design, bits[i] or bit)), None)
         _put(result, "explosives.reaming_k", k, DRILL_PASSPORT)
-    for passport in passports:
-        for source_key, target in (("compiled_by", "made_by"), ("approved_by", "contractor_approver"), ("agreed_by", "customer_approver")):
-            person = passport.get(source_key) or {}
-            if isinstance(person, Mapping) and str(person.get("name") or "").strip():
-                # Люди — из прошлого проекта главнее паспорта (В4): он идёт после.
-                if not _empty(get_path(previous, f"requisites.{target}.name")):
-                    continue
-                _put(result, f"requisites.{target}.position", person.get("position"), DRILL_PASSPORT)
-                _put(result, f"requisites.{target}.name", person.get("name"), DRILL_PASSPORT)
 
     # 4. Прошлый проект МВ объекта.
     for path in _FROM_PREVIOUS:

@@ -181,6 +181,33 @@ describe("окно проекта МВ", () => {
     await waitFor(() => expect(screen.queryByRole("button", { name: "Обновить снимок блоков" })).toBeNull());
   });
 
+  it("«Запомнить» сохраняет и без других правок формы", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.me).mockResolvedValue({ email: "lead@example.test", role: "reference_editor" } as never);
+    vi.mocked(api.massBlast.remember).mockReset().mockResolvedValue({ revision_id: "r2", fields: ["station"] });
+    render(<MassBlastDialog project={projectV2()} onClose={() => {}} onChange={() => {}} />);
+    await screen.findByRole("button", { name: "Распорядок" });
+    const saveButton = screen.getByRole("button", { name: "Сохранить" }) as HTMLButtonElement;
+    await waitFor(() => expect(saveButton.disabled).toBe(false));
+    await user.click(saveButton);
+    await waitFor(() => expect(api.massBlast.remember).toHaveBeenCalledWith("p1", { paths: ["schedule.station"] }));
+  });
+
+  it("«Предложить посты» без пересечений дорог не трогает посты", async () => {
+    const user = userEvent.setup();
+    const base = validation();
+    vi.mocked(api.massBlast.validateV2).mockResolvedValue({ ...base, context: { ...base.context, graphics: { ...base.context.graphics!, has_situation: true } } });
+    vi.mocked(api.massBlast.suggestLayout).mockReset().mockResolvedValue({
+      posts: [], points: [{ kind: "blast_station", ref: "", x: -800, y: 0, label: "" }],
+      reason: "Дороги ситуации не пересекают границу зоны для людей.",
+    });
+    render(<MassBlastDialog project={projectV2()} onClose={() => {}} onChange={() => {}} />);
+    await user.click(await screen.findByRole("button", { name: "Посты и план" }));
+    await user.click(await screen.findByRole("button", { name: "Предложить посты" }));
+    expect(await screen.findByText("Дороги ситуации не пересекают границу зоны для людей.")).toBeTruthy();
+    expect(screen.getByDisplayValue("дорога")).toBeTruthy();
+  });
+
   it("«Предложить посты» ставит посты и точки в форму", async () => {
     const user = userEvent.setup();
     const base = validation();

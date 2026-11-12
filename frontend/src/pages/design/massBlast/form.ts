@@ -405,5 +405,8 @@ export function valueAt(input: unknown, path: string): string {
 export function sameAsReference(own: string, reference: unknown): boolean {
   if (reference === null || reference === undefined || reference === "") return false;
   if (typeof reference === "number") return parseNumber(own) === reference;
-  return own.trim() === String(reference).trim();
+  // Дата: в форме ISO, в справочнике — ДД.ММ.ГГГГ.
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(own.trim());
+  const text = iso ? `${iso[3]}.${iso[2]}.${iso[1]}` : own.trim();
+  return text === String(reference).trim() || own.trim() === String(reference).trim();
 }

@@ -64,6 +64,12 @@ function ValueRows({ items, label }: { items: MassBlastValue[]; label: string })
 
 // --- Реквизиты -------------------------------------------------------------
 
+/** Пустой вариант «технический руководитель»: прошлый проект или справочник объекта. */
+function isHeadOption(auto: AutoValue | undefined, computed: boolean | null | undefined): string {
+  if (auto && typeof auto.value === "boolean") return `${auto.value ? "да" : "нет"} (${SOURCE_LABELS[auto.source] ?? "автоматически"})`;
+  return `как в справочнике${computed === false ? " (нет)" : computed ? " (да)" : ""}`;
+}
+
 function SignerFields({
   title,
   prefix,
@@ -98,7 +104,7 @@ function SignerFields({
         <Field label="Технический руководитель">
           {(id) => (
             <select id={id} value={value.is_head} disabled={disabled} onChange={(event) => onChange({ ...value, is_head: event.target.value as SignerForm["is_head"] })}>
-              <option value="">как в справочнике{computed?.is_head === false ? " (нет)" : computed?.is_head ? " (да)" : ""}</option>
+              <option value="">{isHeadOption(defaults[`${prefix}.is_head`], computed?.is_head)}</option>
               <option value="yes">да</option>
               <option value="no">нет — по доверенности или приказу</option>
             </select>

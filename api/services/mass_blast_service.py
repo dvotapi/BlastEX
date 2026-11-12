@@ -275,7 +275,8 @@ def _validate_v2(
     _, blocks = _context_from_stored(project)
     try:
         previous = previous_v2_project(
-            repository, organization_id, str(project.get("site_code") or ""), exclude=str(project.get("id") or "")
+            repository, organization_id, str(project.get("site_code") or ""), exclude=str(project.get("id") or ""),
+            before=str(project.get("created_at") or ""),
         )
     except Exception:  # noqa: BLE001 — прошлый проект даёт только умолчания
         previous = None

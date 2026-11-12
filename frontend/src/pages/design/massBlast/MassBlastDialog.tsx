@@ -175,16 +175,20 @@ export function MassBlastDialog({
     };
   }
 
+  /** Есть ли отмеченные «Запомнить для объекта» поля — сохранение нужно и без правок формы. */
+  function rememberPaths(): string[] {
+    const input = toInput(form, project);
+    return Object.keys(validation?.rememberable ?? {}).filter((path) => rememberControl(path, valueAt(input, path))?.checked);
+  }
+
   async function save(force = false): Promise<MassBlastProjectV2 | null> {
-    if (!dirty && !force) return project;
+    if (!dirty && !force && !rememberPaths().length) return project;
     if (Object.keys(errors).length) {
       setMessage({ text: "Исправьте поля, отмеченные в форме.", error: true });
       return null;
     }
     const input = toInput(form, project);
-    const remembered = Object.keys(validation?.rememberable ?? {}).filter(
-      (path) => rememberControl(path, valueAt(input, path))?.checked,
-    );
+    const remembered = rememberPaths();
     const saved = await api.massBlast.saveV2(project.id, input);
     if (!alive.current) return null;
     accept(saved);
@@ -303,6 +307,7 @@ export function MassBlastDialog({
     requestClose();
   }
 
+  const rememberPending = project.lifecycle_status === "draft" && rememberPaths().length > 0;
   const props = { form, edit, editable, errors, issues, context, defaults: validation?.defaults ?? {}, remember: rememberControl };
   const approvedLike = ["approved", "executed", "closed"].includes(project.lifecycle_status);
   return (
@@ -374,7 +379,7 @@ export function MassBlastDialog({
             </button>
           )}
           {project.lifecycle_status === "draft" && (
-            <button type="button" className="secondary-button" disabled={busy || !dirty} onClick={() => void onSave()}>Сохранить</button>
+            <button type="button" className="secondary-button" disabled={busy || (!dirty && !rememberPending)} onClick={() => void onSave()}>Сохранить</button>
           )}
           <button type="button" className="calculate-button" disabled={busy} onClick={() => void onCheck()}>Проверить</button>
         </span>

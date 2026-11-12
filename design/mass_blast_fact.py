@@ -33,7 +33,7 @@ from design.as_fired import normalize_as_fired
 from design.editing import local_spacing
 from design.lifecycle import execution_payload
 from design.mass_blast import content_sha256
-from design.mass_blast_calc import explosives_consumption
+from design.mass_blast_calc import _deck_of, explosives_consumption
 from design.mass_blast_table import _row_steps, round_to_step
 from design.models import (
     AsChargedHole,
@@ -47,7 +47,7 @@ from design.models import (
     is_explosive_deck_kind,
     stemming_length_m,
 )
-from design.safety.holes import _top_stemming
+from design.safety.holes import _top_stemming, primer_items
 from design.toe_line import floor_burdens
 
 __all__ = [
@@ -215,11 +215,23 @@ def _overlay_fired_detonators(design: BlastDesign, enabled: Mapping[str, Hole]) 
         detonator = fired.detonator
         hole_id = fired.design_hole_id
         scope = (detonator.deck_index, detonator.primer_index)
+        load = next((load for load in design.loads if load.hole_id == hole_id), None)
+        primers = primer_items(load) if load is not None else []
+        # Дека ПД — по фактическим декам: запись на деку заменяет и назначения ПД в ней
+        # (назначение ПД главнее назначения деки при подборе марки).
+        primer_deck = {index: _deck_of(load, primer.position_m) for index, primer in enumerate(primers)} if load else {}
 
         def same(assignment: Any) -> bool:
             if assignment.hole_id != hole_id:
                 return False
-            return scope == (None, None) or (assignment.deck_index, assignment.primer_index) == scope
+            if scope == (None, None):
+                return True
+            deck, primer = scope
+            if primer is not None:
+                return assignment.primer_index == primer
+            return assignment.deck_index == deck or (
+                assignment.primer_index is not None and primer_deck.get(assignment.primer_index) == deck
+            )
 
         network.detonators = [assignment for assignment in network.detonators if not same(assignment)]
         network.downhole_connectors = [assignment for assignment in network.downhole_connectors if not same(assignment)]

@@ -239,3 +239,28 @@ def test_primer_scoped_fired_detonator_replaces_only_its_primer(base):
     products = {d.product for d in design.network.detonators if d.hole_id == hole.id}
     connectors = [(c.product, c.primer_index) for c in design.network.downhole_connectors if c.hole_id == hole.id]
     assert "B" in products and "A" not in products and ("A2", 0) in connectors
+
+
+def test_deck_scoped_fired_detonator_overrides_primer_assignments_in_that_deck(base):
+    from design.mass_blast_fact import _overlay_fired_detonators
+    from design.mass_blast_calc import explosives_consumption
+    from design.models import Detonator, DownholeConnector
+
+    design, _table = base
+    design = copy.deepcopy(design)
+    load = next(load for load in design.loads if load.primer_items or load.primers)
+    hole = next(h for h in design.holes if h.id == load.hole_id)
+    deck = next(i for i, d in enumerate(load.decks) if d.kind in ("charge", "bulk_explosive", "packaged_explosive"))
+    design.network.downhole_connectors = [c for c in design.network.downhole_connectors if c.hole_id != hole.id] + [
+        DownholeConnector(id="p0", hole_id=hole.id, kind="downhole_nsi", primer_index=0, product="NSI-PLAN", delay_ms=700),
+    ]
+    from design.as_fired import as_fired_from_design_hole
+
+    fired = as_fired_from_design_hole(design, hole)
+    fired.detonator = Detonator(id="e", hole_id=hole.id, product="ELECTRO", kind="electronic", deck_index=deck)
+    design.as_fired_holes = [fired]
+    design.loads = [load]
+    _overlay_fired_detonators(design, {hole.id: hole})
+    names = {line.name for line in explosives_consumption(design, MATERIALS)}
+    assert not any("NSI-PLAN" in name for name in names)
+    assert any("ELECTRO" in name for name in names)

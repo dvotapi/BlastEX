@@ -271,7 +271,80 @@ export type NaryadLine = {
   issued_qty?: number | null;
   consumed_qty?: number | null;
   returned_qty?: number | null;
+  /** Откуда графы после взрыва: MAGEX — исполнение MagEX (TASK-018 PR 7), ручной ввод закрыт. */
+  issued_source?: string;
+  consumed_source?: string;
+  returned_source?: string;
   outside_project?: boolean;
+};
+
+// --- Наряд-путёвка ↔ MagEX (TASK-018, PR 7) ---------------------------------
+
+export type MagexOption = { value: string; label: string };
+
+export type MagexVersion = {
+  ver: number;
+  status: "SENDING" | "PENDING" | "ACCEPTED" | "REJECTED" | "SUPERSEDED";
+  response_code: number | null;
+  response: { code?: string; message?: string; details?: Record<string, unknown> };
+  attempts: number;
+  next_attempt_at: string | null;
+  created_at: string;
+  created_by: string;
+  accepted_at: string | null;
+  layer_revision_id: string | null;
+};
+
+export type MagexExecutionLine = {
+  material_id: string;
+  ordered: string; issued: string; returned: string; consumed: string; lost: string; on_hand: string;
+  ordered_kg: string | null; issued_kg: string | null; returned_kg: string | null; consumed_kg: string | null;
+  lost_kg: string | null; on_hand_kg: string | null;
+};
+
+export type MagexExecution = {
+  status: string;
+  status_label: string;
+  version: number;
+  lines: MagexExecutionLine[];
+  issued_batches: Array<{ material_id: string; batch_no: string; manufacturer: string; issued: string; issued_kg: string | null }>;
+  cancellation: { at: string; reason: string } | null;
+  fetched_at: string;
+};
+
+/** Состояние наряда в MagEX: режим, версии выписки, последнее исполнение. Собирает сервер. */
+export type MagexState = {
+  mode: "ONLINE" | "OFFLINE" | null;
+  reason?: string;
+  versions?: MagexVersion[];
+  latest?: MagexVersion | null;
+  accepted_ver?: number | null;
+  /** Позиция MagEX → наименования строк наряда. */
+  material_names?: Record<string, string>;
+  execution?: MagexExecution;
+  issued?: boolean;
+  locked_fields?: string[];
+  refresh_error?: string;
+  blaster?: { code: string; name: string; index: string; source: string } | null;
+};
+
+export type MagexApproveResult = MagexState & {
+  outcome: "ACCEPTED" | "REJECTED" | "PENDING" | "UNCHANGED" | "UNCHANGED_UNREACHABLE";
+  rejection?: { code: string; message: string; details: Record<string, unknown> };
+};
+
+export type MagexAvailability = {
+  items: Record<string, { available: number; short: boolean; shared: boolean }>;
+  shortages?: Array<{ material: string; required: number; available: number; unit: string }>;
+  calculated_at?: string | null;
+  error: string;
+};
+
+export type MagexBlasterStatus = {
+  blaster: { code: string; name: string; index: string; ref: string } | null;
+  reported: boolean | null;
+  pending?: Array<{ id: string; number: string; issued_on: string; blast_on: string | null; site_name: string; status: string }>;
+  error?: string;
 };
 
 export type MassBlastLayer = {

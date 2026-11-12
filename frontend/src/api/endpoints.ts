@@ -162,6 +162,11 @@ import type {
   LayerKind,
   LayerRefreshResponse,
   LayerRevision,
+  MagexApproveResult,
+  MagexAvailability,
+  MagexBlasterStatus,
+  MagexOption,
+  MagexState,
   MassBlastHints,
   MassBlastLayer,
   MassBlastProjectInputV2,
@@ -1092,6 +1097,21 @@ export const api = {
     layerPreviewUrl: (layerId: string) => `${MB}/layers/${encodeURIComponent(layerId)}/preview.pdf`,
     layerDocumentUrl: (layerRevisionId: string) =>
       `${MB}/layers/revisions/${encodeURIComponent(layerRevisionId)}/document.pdf`,
+    // Наряд-путёвка ↔ MagEX (TASK-018, PR 7): за флагом `magex_integration`.
+    magexState: (layerId: string, refresh = false) =>
+      get<MagexState>(`${MB}/layers/${encodeURIComponent(layerId)}/magex${refresh ? "?refresh=true" : ""}`),
+    magexAvailability: (layerId: string) =>
+      get<MagexAvailability>(`${MB}/layers/${encodeURIComponent(layerId)}/magex/availability`),
+    magexBlasterStatus: (layerId: string) =>
+      get<MagexBlasterStatus>(`${MB}/layers/${encodeURIComponent(layerId)}/magex/blaster-status`),
+    magexApprove: (layerId: string, payload: { expected_version: number }) =>
+      post<MagexApproveResult>(`${MB}/layers/${encodeURIComponent(layerId)}/magex/approve`, payload),
+    magexRetry: (layerId: string) => post<MagexApproveResult>(`${MB}/layers/${encodeURIComponent(layerId)}/magex/retry`, {}),
+    magexCancel: (layerId: string, payload: { reason: string }) =>
+      post<MagexState>(`${MB}/layers/${encodeURIComponent(layerId)}/magex/cancel`, payload),
+    magexWarehouses: () => get<MagexOption[]>(`${MB}/magex/warehouses`),
+    magexBlasters: () => get<MagexOption[]>(`${MB}/magex/blasters`),
+    magexMaterials: () => get<MagexOption[]>(`${MB}/magex/materials`),
   },
 
   // --- паспорт на бурение (TASK-015) ---

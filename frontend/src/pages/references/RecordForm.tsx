@@ -19,6 +19,7 @@ import {
 import { BoolField } from "./fields/BoolField";
 import { DateField } from "./fields/DateField";
 import { EnumSegment } from "./fields/EnumSegment";
+import { ExternalSelect } from "./fields/ExternalSelect";
 import { ListField } from "./fields/ListField";
 import { NumberField } from "./fields/NumberField";
 import { RefSelect, type RefOption } from "./fields/RefSelect";
@@ -189,6 +190,17 @@ export function RecordForm({
             value={String(values[field.name] ?? "")}
             options={refOptions(field.ref)}
             sectionLabel={sectionLabels[field.ref]}
+            onChange={(next) => setValue(field.name, next)}
+            disabled={disabled}
+            error={error}
+          />
+        );
+      case "external":
+        return (
+          <ExternalSelect
+            key={field.name}
+            field={field}
+            value={String(values[field.name] ?? "")}
             onChange={(next) => setValue(field.name, next)}
             disabled={disabled}
             error={error}

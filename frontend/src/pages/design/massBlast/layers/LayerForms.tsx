@@ -1,9 +1,12 @@
 // Формы ручного ввода слоёв дня взрыва (TASK-018, PR 6, §6). Поля — схемы
 // payload слоёв из api/schemas/mass_blast.py; перенесённое из проекта и
 // посчитанное сервером (`seed`, `view`) показывается только для чтения.
-import type { MassBlastLayer, NaryadLine } from "../../../../types/massBlast";
+import { useEffect, useState } from "react";
+import { api } from "../../../../api/endpoints";
+import type { MagexAvailability, MagexOption, MassBlastLayer, NaryadLine } from "../../../../types/massBlast";
 import { numberText, parseNumber } from "../form";
 import { Field, ruNum, TextInput, type AutoValue, type RememberControl } from "../ui";
+import { magexState } from "./MagexPanel";
 
 /** Ручной ввод слоя в окне: числа — текстом, как их вводит пользователь. */
 export type LayerDraft = Record<string, unknown>;
@@ -97,7 +100,76 @@ function setIn(draft: LayerDraft, set: FormProps["set"], dict: string, key: stri
   set(dict, { ...((draft[dict] ?? {}) as Record<string, string>), [key]: value });
 }
 
+/** Выбор из списка сервера (склады MagEX, взрывники); пустое — значение по умолчанию. */
+function Choice({ layer, draft, set, disabled, name, label, options, empty, hint }: Pick<FormProps, "layer" | "draft" | "set" | "disabled"> & {
+  name: string; label: string; options: MagexOption[]; empty: string; hint?: string;
+}) {
+  const auto = layerDefaults(layer)[name];
+  const own = str(draft[name]);
+  const known = own && !options.some((option) => option.value === own);
+  return (
+    <Field label={label} hint={hint} auto={auto} own={own} disabled={disabled}>
+      {(id) => (
+        <select id={id} value={own} disabled={disabled} onChange={(event) => set(name, event.target.value)}>
+          <option value="">{empty}</option>
+          {known && <option value={own}>сохранённое значение</option>}
+          {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+      )}
+    </Field>
+  );
+}
+
+/** Поля выписки MagEX (TASK-018 PR 7, §3–§4): склад, взрывник, разрешение, автомобиль, допуски. */
+function MagexFields({ layer, draft, set, disabled, remember, locked }: TextProps & { locked: (name: string) => boolean }) {
+  const [warehouses, setWarehouses] = useState<MagexOption[]>([]);
+  const [blasters, setBlasters] = useState<MagexOption[]>([]);
+  useEffect(() => {
+    let alive = true;
+    api.massBlast.magexWarehouses().then((items) => alive && setWarehouses(items)).catch(() => undefined);
+    api.massBlast.magexBlasters().then((items) => alive && setBlasters(items)).catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const common = { draft, set, disabled, layer, remember };
+  const defaultWarehouse = warehouses.find((item) => item.value === str(layerDefaults(layer).magex_warehouse_id?.value));
+  return (
+    <div className="drill-grid">
+      <Choice {...common} disabled={disabled || locked("magex_warehouse_id")} name="magex_warehouse_id" label="Склад MagEX"
+        options={warehouses} empty={defaultWarehouse ? `склад объекта: ${defaultWarehouse.label}` : "склад объекта"}
+        hint="с него MagEX резервирует и выдаёт ВМ" />
+      <Choice {...common} disabled={disabled || locked("blaster_code")} name="blaster_code" label="Взрывник (справочник «Взрывники»)"
+        options={blasters} empty="по персоналу проекта" />
+      <Text {...common} name="permit_number" label="Разрешение на ВР: №" max={200} />
+      <Text {...common} name="permit_date" label="Разрешение на ВР: дата" type="date" />
+      <Text {...common} name="vehicle_model" label="Спецавтомобиль: марка" max={200} />
+      <Text {...common} name="vehicle_plate" label="Спецавтомобиль: гос. номер" max={200} />
+      <Field label="Допуски взрывника, водителя и спецавтомобиля проверены" hint="подтверждает начальник участка: источника допусков в SafetyMAIN пока нет">
+        {(id) => (
+          <input id={id} type="checkbox" checked={Boolean(draft.admissions_confirmed)} disabled={disabled || locked("admissions_confirmed")}
+            onChange={(event) => set("admissions_confirmed", event.target.checked)} />
+        )}
+      </Field>
+    </div>
+  );
+}
+
 export function NaryadForm({ layer, draft, set, disabled, errors, afterBlast, remember }: FormProps) {
+  const magex = magexState(layer);
+  const lockedFields = new Set(magex?.locked_fields ?? []);
+  const locked = (name: string) => lockedFields.has(name);
+  const online = magex?.mode === "ONLINE";
+  const [availability, setAvailability] = useState<MagexAvailability | null>(null);
+  // «Доступно на складе» — по сохранённому наряду: при открытии и после каждого сохранения.
+  useEffect(() => {
+    if (!online) return;
+    let alive = true;
+    api.massBlast.magexAvailability(layer.id).then((value) => alive && setAvailability(value)).catch(() => alive && setAvailability(null));
+    return () => {
+      alive = false;
+    };
+  }, [online, layer.id, layer.version]);
   const common = { draft, set, disabled, layer, remember };
   const lines = ((layer.view.lines ?? []) as NaryadLine[]);
   const reserve = (draft.reserve ?? {}) as Record<string, string>;
@@ -108,11 +180,11 @@ export function NaryadForm({ layer, draft, set, disabled, errors, afterBlast, re
   return (
     <>
       <div className="drill-grid">
-        <Text {...common} name="number" label="№ наряда-путёвки" max={40} />
-        <Text {...common} name="issue_date" label="Дата выписки" type="date" />
+        <Text {...common} disabled={disabled || locked("number")} name="number" label="№ наряда-путёвки" max={40} />
+        <Text {...common} disabled={disabled || locked("issue_date")} name="issue_date" label="Дата выписки" type="date" />
         <Text {...common} name="warehouse" label="Склад выдачи" max={200} />
         <Text {...common} name="permit" label="Разрешение на ведение взрывных работ" max={300} />
-        <Text {...common} name="blaster_index" label="Индивидуальный индекс взрывника" max={40} />
+        {!magex && <Text {...common} name="blaster_index" label="Индивидуальный индекс взрывника" max={40} />}
         <Text {...common} name="vehicle" label="Спецавтомобиль" max={200} />
         <Text {...common} name="driver" label="Водитель" max={200} />
         <Text {...common} name="delivery" label="Лица, привлекаемые к доставке" max={300} />
@@ -120,10 +192,12 @@ export function NaryadForm({ layer, draft, set, disabled, errors, afterBlast, re
           {(id) => <input id={id} type="checkbox" checked={vvSite} disabled={disabled} onChange={(event) => set("vv_site", event.target.checked)} />}
         </Field>
       </div>
+      {magex && <MagexFields {...common} locked={locked} />}
       <table className="drill-check mb-naryad" aria-label="ВМ наряда-путёвки">
         <thead>
           <tr>
             <th>ВМ</th><th>По проекту</th><th>Запас</th><th>К выдаче</th>
+            {online && <th>Доступно на складе</th>}
             {afterBlast && <><th>Выдано</th><th>Израсходовано</th><th>Возвращено</th></>}
           </tr>
         </thead>
@@ -146,27 +220,32 @@ export function NaryadForm({ layer, draft, set, disabled, errors, afterBlast, re
                 </th>
                 <td>{ruNum(line.project_qty, digits)}</td>
                 <td>
-                  <input aria-label={`Запас: ${line.name}`} inputMode="decimal" value={own ?? ""} disabled={disabled || line.outside_project}
+                  <input aria-label={`Запас: ${line.name}`} inputMode="decimal" value={own ?? ""} disabled={disabled || line.outside_project || locked("reserve")}
                     placeholder={line.reserve_source === "MANUAL_OVERRIDE" ? "как в справочнике" : line.reserve_qty ? `${ruNum(line.reserve_qty, 3)} (справочник)` : "0"}
                     onChange={(event) => setIn(draft, set, "reserve", line.key, event.target.value)} />
                   {errors[`reserve:${line.key}`] && <small className="form-error">{errors[`reserve:${line.key}`]}</small>}
                 </td>
                 <td title={extra === null ? "пересчитается после сохранения" : undefined}>{toIssue}</td>
+                {online && <AvailableCell availability={availability} line={line} toIssue={extra === null ? null : line.project_qty + extra} digits={digits} />}
                 {afterBlast && (
                   <>
                     <td>
-                      <input aria-label={`Выдано: ${line.name}`} inputMode="decimal" value={issued[line.key] ?? ""} disabled={disabled}
+                      <input aria-label={`Выдано: ${line.name}`} inputMode="decimal" value={issued[line.key] ?? ""}
+                        disabled={disabled || line.issued_source === "MAGEX"}
+                        placeholder={line.issued_source === "MAGEX" && line.issued_qty !== null && line.issued_qty !== undefined ? `${ruNum(line.issued_qty, 3)} (MagEX)` : ""}
                         onChange={(event) => setIn(draft, set, "issued", line.key, event.target.value)} />
                     </td>
                     <td>
-                      <input aria-label={`Израсходовано: ${line.name}`} inputMode="decimal" value={consumed[line.key] ?? ""} disabled={disabled}
-                        placeholder={line.consumed_qty === null || line.consumed_qty === undefined ? "" : `${ruNum(line.consumed_qty, 3)} (факт)`}
+                      <input aria-label={`Израсходовано: ${line.name}`} inputMode="decimal" value={consumed[line.key] ?? ""}
+                        disabled={disabled || line.consumed_source === "MAGEX"}
+                        placeholder={line.consumed_qty === null || line.consumed_qty === undefined ? "" : `${ruNum(line.consumed_qty, 3)} (${line.consumed_source === "MAGEX" ? "MagEX" : "факт"})`}
                         onChange={(event) => setIn(draft, set, "consumed", line.key, event.target.value)} />
                     </td>
                     <td>
                       {noReturn ? "—" : (
-                        <input aria-label={`Возвращено: ${line.name}`} inputMode="decimal" value={returned[line.key] ?? ""} disabled={disabled}
-                          placeholder={line.returned_qty === null || line.returned_qty === undefined ? "" : `${ruNum(line.returned_qty, 3)} (выдано − израсходовано)`}
+                        <input aria-label={`Возвращено: ${line.name}`} inputMode="decimal" value={returned[line.key] ?? ""}
+                          disabled={disabled || line.returned_source === "MAGEX"}
+                          placeholder={line.returned_qty === null || line.returned_qty === undefined ? "" : `${ruNum(line.returned_qty, 3)} (${line.returned_source === "MAGEX" ? "MagEX" : "выдано − израсходовано"})`}
                           onChange={(event) => setIn(draft, set, "returned", line.key, event.target.value)} />
                       )}
                     </td>
@@ -177,11 +256,32 @@ export function NaryadForm({ layer, draft, set, disabled, errors, afterBlast, re
           })}
         </tbody>
       </table>
+      {online && availability && (
+        <small className={availability.error ? "frag-warnings" : "drill-hint"}>
+          {availability.error
+            ? `«Доступно на складе»: ${availability.error}`
+            : `Доступно на складе — годный остаток минус резервы других нарядов${availability.calculated_at ? ` на ${new Date(availability.calculated_at).toLocaleString("ru-RU")}` : ""}; по сохранённому наряду.`}
+        </small>
+      )}
       <small className="drill-hint">
         Запас добавляет менеджер на случай, если понадобится; «к выдаче» = по проекту + запас. Расчёты проекта
         (опасные зоны, Q_э, сейсмика) запас не меняет. Больше ВМ после выдачи — новая наряд-путёвка, а не правка этой.
       </small>
     </>
+  );
+}
+
+/** Графа «Доступно на складе»: в единице строки; нехватка — по выписанному сейчас в форме. */
+function AvailableCell({ availability, line, toIssue, digits }: {
+  availability: MagexAvailability | null; line: NaryadLine; toIssue: number | null; digits: number;
+}) {
+  const item = availability?.items?.[line.key];
+  if (!item) return <td>—</td>;
+  const short = toIssue === null ? item.short : toIssue > item.available + 1e-9;
+  return (
+    <td className={short ? "form-error" : undefined} title={item.shared ? "одна позиция MagEX на несколько строк наряда" : undefined}>
+      {ruNum(item.available, digits)}{short ? " — не хватает" : ""}{item.shared ? " *" : ""}
+    </td>
   );
 }
 

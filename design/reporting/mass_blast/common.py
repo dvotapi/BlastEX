@@ -75,6 +75,8 @@ S: dict[str, ParagraphStyle] = {
     "item_b": _style("mb_item_b", 8, bold=True, leading=9.6),
     "item_br": _style("mb_item_br", 8, bold=True, align=TA_RIGHT, leading=9.6),
     "item_grey": _style("mb_item_grey", 8, color=GREY, leading=9.6),
+    "cons_label": _style("mb_cons_label", 7, color=GREY, leading=8.4),
+    "cons_value": _style("mb_cons_value", 7, bold=True, leading=8.4),
     "cap": _style("mb_cap", 9, bold=True),
     "h2": _style("mb_h2", 10, bold=True, space_after=2),
     "section": _style("mb_section", 8.5, bold=True),
@@ -133,7 +135,7 @@ def rich(value: Any) -> str:
     """Экранированный текст с подстрочными индексами: пользовательский текст
     не становится разметкой ReportLab."""
 
-    markup = _SUBSCRIPT.sub(r"\1<sub>\2</sub>", escape(text(value)))
+    markup = _SUBSCRIPT.sub(r'\1<sub rise="20%" size="75%">\2</sub>', escape(text(value)))
     return _with_fallback(markup.replace("\n", "<br/>"))
 
 

@@ -126,15 +126,16 @@ def _construction(section: Mapping[str, Any], width: float) -> list:
     columns = [values(item) for item in constructions]
     drawing_w = 36 * mm if not several else min(30 * mm, (width * 0.5) / len(constructions) - 2 * mm)
     drawings_w = len(constructions) * (drawing_w + 2 * mm) + 6 * mm
-    table_w = width - drawings_w
-    value_w = (table_w - 50 * mm - 8 * mm) / len(constructions)
+    gap = 4 * mm   # просвет между рисунком (его подписями справа) и таблицей значений
+    table_w = width - drawings_w - gap
+    value_w = (table_w - 44 * mm - 8 * mm) / len(constructions)
     rows: list[list] = []
     if several:
-        rows.append([p("", "grey")] + [p(f"Конструкция {n} — {constructions[n - 1].get('hole_count') or DASH} скв.", "td_b")
+        rows.append([p("", "cons_label")] + [p(f"Конструкция {n} — {constructions[n - 1].get('hole_count') or DASH} скв.", "cons_value")
                                        for n in range(1, len(constructions) + 1)] + [""])
     for index, (label, unit) in enumerate(labels):
-        rows.append([p(label, "grey")] + [p(column[index], "bold" if index else "td_b") for column in columns] + [p(unit, "grey")])
-    table = Table(rows, colWidths=[50 * mm] + [value_w] * len(constructions) + [8 * mm])
+        rows.append([p(label, "cons_label")] + [p(column[index], "cons_value") for column in columns] + [p(unit, "cons_label")])
+    table = Table(rows, colWidths=[44 * mm] + [value_w] * len(constructions) + [8 * mm])
     table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 0.4), ("BOTTOMPADDING", (0, 0), (-1, -1), 0.4),
@@ -146,9 +147,9 @@ def _construction(section: Mapping[str, Any], width: float) -> list:
         colWidths=[drawing_w + 2 * mm] * len(constructions),
     )
     pictures.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 2 * mm)]))
-    block = Table([[pictures, table]], colWidths=[drawings_w, table_w])
+    block = Table([[pictures, table]], colWidths=[drawings_w, table_w + gap])
     block.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (0, 0), 6 * mm), ("LEFTPADDING", (1, 0), (1, 0), 0),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (0, 0), 6 * mm), ("LEFTPADDING", (1, 0), (1, 0), gap),
     ]))
     return [block]
 

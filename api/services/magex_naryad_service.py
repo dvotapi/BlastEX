@@ -65,6 +65,9 @@ LOCKED_PAYLOAD_KEYS = (
     "magex_warehouse_id", "blaster_code", "blaster_index", "issue_date", "reserve", "number", "admissions_confirmed",
 )
 RETRY_STEPS_S = (30, 60, 120, 300, 600, 1800, 3600)
+# Версия ещё «живая»: ответ отправки её меняет. Заменённую ответ не воскрешает (замечание Codex);
+# принятие MagEX — факт, его записывают и у заменённой (`ACCEPTED` ниже — без условия).
+_LIVE = ("PENDING", "SENDING")
 # После ротации ключа MagEX до 330 с может не знать новый kid (контракт, разд. 5).
 ROTATION_GRACE_S = 330
 LEASE_S = 120
@@ -399,15 +402,16 @@ def approve(
         "print": {"blaster_name": signed["blaster"]["name"], "blaster_index": signed["blaster"]["index"]},
     }
     try:
+        # Ревизия и постановка версии в очередь (со сроком аренды) — одной транзакцией: упадёт
+        # процесс до ответа MagEX — отправит очередь; сорвётся выпуск — версии в очереди нет.
         revision = layers_service.issue_layer(
             repository, economics_repository, organization_id, actor, layer_id, expected_version, magex=magex_snapshot,
+            magex_activation=(version["id"], now + timedelta(seconds=LEASE_S)),
         )
     except Exception:
-        repository.update_magex_version(version["id"], status="SUPERSEDED")
+        repository.update_magex_version(version["id"], status="SUPERSEDED", only_from=("SENDING",))
         raise
-    # В очередь — только вместе с ревизией и со сроком аренды: упадёт процесс до ответа MagEX —
-    # отправит очередь; версия без ревизии (сбой выпуска) остаётся SENDING и в очередь не попадает.
-    version = repository.activate_magex_version(version["id"], revision["id"], now + timedelta(seconds=LEASE_S))
+    version = next(item for item in repository.list_magex_versions(organization_id, layer_id) if item["id"] == version["id"])
     warnings = [item for item in issues if item["level"] == "warning"]
     return {**_send(repository, organization_id, actor, layer_id, version, client, now), "warnings": warnings}
 
@@ -447,7 +451,7 @@ def _send(
     except MagexUnavailable as exc:
         repository.update_magex_version(
             version["id"], status="PENDING", attempts=attempts, response_code=exc.status or None,
-            response=_rejection(exc), next_attempt_at=now + timedelta(seconds=_retry_delay(attempts)),
+            response=_rejection(exc), next_attempt_at=now + timedelta(seconds=_retry_delay(attempts)), only_from=_LIVE,
         )
         return {"outcome": "PENDING", **layer_state(repository, organization_id, layer_id)}
     except (MagexRejected, MagexAuthError) as exc:
@@ -456,14 +460,14 @@ def _send(
             # Только что опубликованный ключ MagEX мог ещё не увидеть: повтор не раньше 330 с.
             repository.update_magex_version(
                 version["id"], status="PENDING", attempts=attempts, response_code=exc.status, response=_rejection(exc),
-                next_attempt_at=created + timedelta(seconds=ROTATION_GRACE_S + 30),
+                next_attempt_at=created + timedelta(seconds=ROTATION_GRACE_S + 30), only_from=_LIVE,
             )
             return {"outcome": "PENDING", **layer_state(repository, organization_id, layer_id)}
-        repository.update_magex_version(
+        updated = repository.update_magex_version(
             version["id"], status="REJECTED", attempts=attempts, response_code=exc.status, response=_rejection(exc),
-            next_attempt_at=None,
+            next_attempt_at=None, only_from=_LIVE,
         )
-        if version.get("layer_revision_id"):
+        if updated["status"] == "REJECTED" and version.get("layer_revision_id"):
             # Отказ ничего не оставляет: ревизии с непринятой строкой нет.
             repository.discard_layer_revision(organization_id, actor, layer_id, version["layer_revision_id"])
         return {"outcome": "REJECTED", "rejection": _rejection(exc), **layer_state(repository, organization_id, layer_id)}

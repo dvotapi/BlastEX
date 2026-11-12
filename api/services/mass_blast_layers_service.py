@@ -705,6 +705,7 @@ def issue_layer(
     *,
     magex: Mapping[str, Any] | None = None,
     skip_if_same: bool = False,
+    magex_activation: tuple[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Неизменяемая ревизия слоя: перенесённое, введённое и вычисленное (строки наряда).
 
@@ -757,9 +758,10 @@ def issue_layer(
         current = repository.get_layer_revision(organization_id, layer["current_revision_id"])
         if current.get("content_sha256") == content_sha256(snapshot):
             return current
+    extra = {"magex_activation": magex_activation} if magex_activation is not None else {}
     return repository.create_layer_revision(
         organization_id, actor, layer_id, expected_version=expected_version, context=snapshot,
-        content_sha256=content_sha256(snapshot),
+        content_sha256=content_sha256(snapshot), **extra,
     )
 
 

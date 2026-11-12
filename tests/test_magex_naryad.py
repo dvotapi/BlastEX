@@ -525,3 +525,27 @@ def test_acceptance_without_fact_layer_uses_magex_total():
     viewed = layers._with_view(act, None, {}, layers._magex_state(repository, ORG, act))
     assert viewed["view"]["fact"]["explosive_kg"] == 32600.0 and viewed["view"]["fact"]["explosive_source"] == "MAGEX"
     assert viewed["view"]["fact"]["q_kg_m3"] == round(32600 / 26000, 2)
+
+
+def test_failed_issue_leaves_no_queued_version_and_previous_stays_queued():
+    repository, fake = MemoryRepository(), FakeMagex()
+    magex.catalog(ORG, magex.client_for(ORG, fake))
+    fake.down = True
+    _approve(repository, fake)  # v1 в очереди
+    repository.layer["payload"] = {**repository.layer["payload"], "reserve": {"primer:ПД Сферит-ДП 1000 г:": 5}}
+    repository.fail_next_revision = True
+    with pytest.raises(RuntimeError):
+        _approve(repository, fake)
+    assert [(item["ver"], item["status"]) for item in repository.versions] == [(1, "PENDING"), (2, "SUPERSEDED")]
+
+
+def test_send_result_does_not_resurrect_a_superseded_version():
+    repository, fake = MemoryRepository(), FakeMagex()
+    magex.catalog(ORG, magex.client_for(ORG, fake))
+    fake.down = True
+    _approve(repository, fake)
+    version = repository.versions[0]
+    repository.update_magex_version(version["id"], status="SUPERSEDED")
+    # Отправка, начатая до замены, кончилась сбоем сети — версия остаётся заменённой.
+    magex._send(repository, ORG, "a", LAYER_ID, version, magex.client_for(ORG, fake), NOW)
+    assert repository.versions[0]["status"] == "SUPERSEDED"

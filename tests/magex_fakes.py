@@ -105,6 +105,7 @@ class MemoryRepository:
         self.revisions: dict[str, dict] = {}
         self.versions: list[dict] = []
         self.execution: dict | None = None
+        self.fail_next_revision = False
 
     # --- проект и слой
     def get_project(self, organization_id, project_id):
@@ -132,14 +133,20 @@ class MemoryRepository:
         self.layer["version"] += 1
         return self.get_layer(organization_id, layer_id)
 
-    def create_layer_revision(self, organization_id, actor, layer_id, *, expected_version, context, content_sha256):
+    def create_layer_revision(self, organization_id, actor, layer_id, *, expected_version, context, content_sha256,
+                              magex_activation=None):
         if self.layer["version"] != expected_version:
             raise MassBlastConflictError("версия")
+        if self.fail_next_revision:
+            self.fail_next_revision = False
+            raise RuntimeError("процесс упал на выпуске")
         number = max((item["revision_no"] for item in self.revisions.values()), default=0) + 1
         revision = {"id": str(uuid.uuid4()), "layer_id": layer_id, "revision_no": number, "project_revision_id": "rev-1",
                     "content_sha256": content_sha256, "context": copy.deepcopy(context), "kind": "NARYAD", "project_id": "p1"}
         self.revisions[revision["id"]] = revision
         self.layer.update(status="issued", current_revision_id=revision["id"], version=self.layer["version"] + 1)
+        if magex_activation is not None:
+            self.activate_magex_version(magex_activation[0], revision["id"], magex_activation[1])
         return copy.deepcopy(revision)
 
     def get_layer_revision(self, organization_id, revision_id):
@@ -191,8 +198,10 @@ class MemoryRepository:
         return self.update_magex_version(version_id, layer_revision_id=layer_revision_id, status="PENDING",
                                          next_attempt_at=next_attempt_at)
 
-    def update_magex_version(self, version_id, **changes):
+    def update_magex_version(self, version_id, *, only_from=None, **changes):
         version = next(item for item in self.versions if item["id"] == version_id)
+        if only_from is not None and version["status"] not in only_from:
+            return copy.deepcopy(version)
         for key, value in changes.items():
             version[key] = value.isoformat() if isinstance(value, datetime) else value
         return copy.deepcopy(version)

@@ -87,3 +87,24 @@ def test_execution_and_keys_in_use(repository) -> None:
     repository.save_magex_execution(ORG, layer["id"], {"status": "closed", "lines": []})
     assert repository.magex_keys_in_use(ORG) == []
     assert repository.magex_execution("other", layer["id"]) is None
+
+
+def test_revision_and_queue_activation_are_one_transaction(repository) -> None:
+    project, revision = _approved(repository)
+    layer = _create(repository, project, revision)
+    version = repository.create_magex_version(ORG, AUTHOR, layer["id"], _build(), expected_version=1)
+    due = datetime(2026, 10, 14, 5, tzinfo=timezone.utc)
+    issued = repository.create_layer_revision(
+        ORG, AUTHOR, layer["id"], expected_version=1, context={"a": 1}, content_sha256="d" * 64,
+        magex_activation=(version["id"], due),
+    )
+    stored = repository.list_magex_versions(ORG, layer["id"])[0]
+    assert stored["status"] == "PENDING" and stored["layer_revision_id"] == issued["id"]
+    # Конфликт версии слоя — ни ревизии, ни очереди.
+    second = repository.create_magex_version(ORG, AUTHOR, layer["id"], _build())
+    with pytest.raises(MassBlastConflictError):
+        repository.create_layer_revision(ORG, AUTHOR, layer["id"], expected_version=1, context={"a": 2},
+                                         content_sha256="e" * 64, magex_activation=(second["id"], due))
+    statuses = [(item["ver"], item["status"]) for item in repository.list_magex_versions(ORG, layer["id"])]
+    assert statuses == [(1, "PENDING"), (2, "SENDING")]
+    assert repository.update_magex_version(second["id"], status="PENDING", only_from=("PENDING",))["status"] == "SENDING"

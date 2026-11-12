@@ -257,3 +257,21 @@ def test_fact_summary_change_has_no_service_ids():
     row = describe_change({"path": "fact.execution_revision_id", "before": "a" * 8 + "-0000-0000-0000-" + "b" * 12, "after": fact["execution_revision_id"]})
     assert (row["label"], row["before_text"], row["after_text"]) == ("Сводка выпущенного слоя «Факт» — ревизия", "прежняя", "новая")
     assert "dc570e01" not in describe_change({"path": "something", "before": None, "after": fact["execution_revision_id"]})["after_text"]
+
+
+def test_v2_validation_drops_v1_signal_and_notification_checks(monkeypatch):
+    """Профиль сигналов и получатель уведомления — проверки v1: в форме ВМ.09.03 сигналы
+    из профиля документов, уведомления — слои дня взрыва (PR 6)."""
+
+    from tests import test_api_mass_blast_v2 as v2
+
+    design = design66()
+    design.designed_sha256 = designed_sha256(design)
+    block = block_from_design(design, code="66", horizon="410")
+    stored = v2._stored_v2(block)
+    stored["signal_plan"] = {}
+    stored["notifications"] = []
+    response = v2._client(monkeypatch, v2._Repository(stored), design).post(f"{v2.BASE}/p1/validate")
+    codes = {issue["code"] for issue in response.json()["issues"]}
+    assert not codes & {"signal_profile", "notification"}
+    assert response.json()["valid"] is True

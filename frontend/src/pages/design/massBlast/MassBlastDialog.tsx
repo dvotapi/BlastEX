@@ -37,7 +37,7 @@ export function tabForIssue(issue: MassBlastIssue): TabCode {
   const rules: Array<[RegExp, TabCode]> = [
     [/^requisites|^notifications/, "requisites"],
     [/^explosives|^blocks\[\d+\]\.(consumption|technical_calculation)/, "explosives"],
-    [/^safety_plan|^safety_overrides|^blocks\[\d+\]\.safety/, "safety"],
+    [/^safety_plan|^safety_overrides|^zones|^blocks\[\d+\]\.safety/, "safety"],
     [/^blocks/, "blocks"],
     [/^protected_objects/, "objects"],
     [/^schedule/, "schedule"],

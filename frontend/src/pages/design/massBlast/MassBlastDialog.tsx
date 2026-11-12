@@ -168,6 +168,17 @@ export function MassBlastDialog({
     return saved;
   }
 
+  /** Сохранение для предпросмотра: окно занято, пока запрос идёт, — иначе правки,
+   * сделанные в это время, ответ сервера заменил бы сохранённым снимком. */
+  async function saveLocked(): Promise<MassBlastProjectV2 | null> {
+    setBusy(true);
+    try {
+      return await save();
+    } finally {
+      if (alive.current) setBusy(false);
+    }
+  }
+
   async function run(action: () => Promise<void>, fallback: string) {
     setBusy(true);
     setMessage(null);
@@ -298,7 +309,7 @@ export function MassBlastDialog({
           {tab === "posts" && <PostsTab {...props} />}
           {tab === "documents" && (
             <ProjectDocuments project={project} issues={issues} checked={validation !== null} dirty={dirty} busy={busy}
-              userEmail={userEmail} hasGraphics={hasGraphics} ensureSaved={save}
+              userEmail={userEmail} hasGraphics={hasGraphics} ensureSaved={saveLocked}
               onRelease={() => void onRelease()} onApprove={(role) => void onApprove(role)} onTransition={onTransition}
               onOpenIssue={(issue) => setTab(tabForIssue(issue))} />
           )}

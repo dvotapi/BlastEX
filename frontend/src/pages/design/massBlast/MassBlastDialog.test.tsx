@@ -131,6 +131,21 @@ describe("окно проекта МВ", () => {
     confirm.mockRestore();
   });
 
+  it("предпросмотр с несохранёнными правками блокирует форму, пока идёт сохранение", async () => {
+    const user = userEvent.setup();
+    let resolve: (value: unknown) => void = () => {};
+    vi.mocked(api.massBlast.saveV2).mockImplementation(() => new Promise((done) => { resolve = done; }) as never);
+    vi.spyOn(window, "open").mockReturnValue(null);
+    render(<MassBlastDialog project={projectV2()} onClose={() => {}} onChange={() => {}} />);
+    await user.type(await screen.findByLabelText("№ проекта"), "66-МВ");
+    await user.click(screen.getByRole("button", { name: /Проверка и документы/ }));
+    await user.click(screen.getByRole("button", { name: "Титул" }));
+    await user.click(screen.getByRole("button", { name: "Реквизиты" }));
+    expect((screen.getByLabelText("№ проекта") as HTMLInputElement).disabled).toBe(true);
+    resolve(projectV2({ version: 4 }));
+    await waitFor(() => expect((screen.getByLabelText("№ проекта") as HTMLInputElement).disabled).toBe(false));
+  });
+
   it("ручные коэффициенты подписаны по схеме справочника, с источником значения", async () => {
     const user = userEvent.setup();
     render(<MassBlastDialog project={projectV2()} onClose={() => {}} onChange={() => {}} />);

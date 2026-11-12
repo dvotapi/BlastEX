@@ -174,6 +174,8 @@ def test_hints_give_the_previous_number(monkeypatch, design):
     response = _client(monkeypatch, _Repository([_previous(), current]), design).get(f"{BASE}/cur/hints")
     assert response.status_code == 200
     assert response.json()["previous_project_no"] == "65-МВ"
+    roles = {item["code"]: item["label"] for item in response.json()["personnel_roles"]}
+    assert len(roles) == 10 and roles["blaster"] == "Взрывник по наряд-путёвке"
 
 
 def _approved(status="approved") -> dict:
@@ -226,3 +228,19 @@ def test_notification_addressees_are_labelled_by_the_server(monkeypatch, design)
     ]
     empty = _client(monkeypatch, _Repository([_approved()], [], _revision()), design).get(f"{BASE}/p1/notification-addressees")
     assert empty.json() == {"registry": False, "items": []}
+
+
+def test_layer_changes_are_described_in_words():
+    from design.mass_blast_layer_diff import describe_change
+
+    row = describe_change({"path": "blocks_fact[0].12.depth_fact_m", "before": 10.7, "after": 10.95})
+    assert (row["label"], row["before_text"], row["after_text"]) == ("Блок 1, скв. 12 — глубина Ф, м", "10,7", "10,95")
+    row = describe_change({"path": "zones.people", "before": 750.0, "after": 900.0})
+    assert row["label"] == "Опасная зона для людей, м" and row["after_text"] == "900"
+    row = describe_change({"path": "people.blaster.name", "before": "", "after": "Трегубов Т. Т."})
+    assert row["label"] == "Взрывник по наряд-путёвке — Ф. И. О." and row["before_text"] == "—"
+    row = describe_change({"path": "materials", "before": [], "after": [{"name": "ПД", "project_qty": 198.0, "unit": "шт"}]})
+    assert row["label"] == "ВМ по проекту" and row["after_text"] == "ПД — 198 шт"
+    row = describe_change({"path": "drilled_by", "before": "CUSTOMER", "after": "CONTRACTOR"})
+    assert (row["before_text"], row["after_text"]) == ("заказчик", "Общество")
+    assert describe_change({"path": "something.odd", "before": 1, "after": 2})["label"] == "Прочие данные проекта"

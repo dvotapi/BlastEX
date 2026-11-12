@@ -213,10 +213,17 @@ class MassBlastNewProjectSchema(BaseModel):
         return value
 
 
+class MassBlastRoleSchema(BaseModel):
+    code: str
+    label: str
+
+
 class MassBlastHintsSchema(BaseModel):
     previous_project_no: str = ""
     previous_project_date: str = ""
     previous_project_name: str = ""
+    # Роли распорядка с подписями (`PERSONNEL_ROLES`): форма «Персонал» их не дублирует.
+    personnel_roles: list[MassBlastRoleSchema] = Field(default_factory=list)
 
 
 class MassBlastProjectSummarySchema(BaseModel):

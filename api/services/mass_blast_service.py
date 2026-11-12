@@ -223,10 +223,12 @@ def create_new_project_v2(
     return create_project(repository, economics_repository, organization_id, actor, payload)
 
 
-def project_hints(repository: PostgresMassBlastRepository, organization_id: str, project_id: str) -> dict[str, str]:
-    """Подсказки окна проекта: № и дата прошлого проекта того же объекта (В4 — номер не придумываем)."""
+def project_hints(repository: PostgresMassBlastRepository, organization_id: str, project_id: str) -> dict[str, Any]:
+    """Подсказки окна проекта: № и дата прошлого проекта того же объекта (В4 — номер
+    не придумываем) и роли распорядка с подписями."""
 
     from api.services.mass_blast_prefill import previous_v2_project
+    from design.mass_blast_schedule import PERSONNEL_ROLES
 
     project = repository.get_project(organization_id, project_id)
     previous = previous_v2_project(repository, organization_id, str(project.get("site_code") or ""), exclude=project_id)
@@ -235,6 +237,7 @@ def project_hints(repository: PostgresMassBlastRepository, organization_id: str,
         "previous_project_no": str(requisites.get("project_no") or ""),
         "previous_project_date": str(requisites.get("project_date") or ""),
         "previous_project_name": str((previous or {}).get("name") or ""),
+        "personnel_roles": [{"code": code, "label": label} for code, label in PERSONNEL_ROLES.items()],
     }
 
 

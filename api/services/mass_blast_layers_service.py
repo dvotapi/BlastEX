@@ -20,6 +20,7 @@ from design import persistence as design_persistence
 from design.lifecycle import designed_sha256
 from design.mass_blast import content_sha256
 from design.mass_blast_fact import block_fact, execution_sha256
+from design.mass_blast_layer_diff import describe_changes
 from design.mass_blast_layers import (
     AFTER_BLAST_STATUSES,
     LAYER_KINDS,
@@ -494,6 +495,8 @@ def refresh_layer(
     changes = diff(layer["seed"], new_seed)
     if revision["id"] != layer["project_revision_id"]:
         changes.insert(0, {"path": "project_revision_id", "before": layer["project_revision_id"], "after": revision["id"]})
+    # Подписи и тексты значений — для окна проекта (PR 6): без служебных путей и JSON.
+    changes = describe_changes(changes)
     if not confirm or not changes:
         return {
             "applied": False, "changes": changes,

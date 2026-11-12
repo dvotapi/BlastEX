@@ -181,7 +181,8 @@ def test_layer_lifecycle_stale_refresh_keeps_reserve(context66_v2):
 
     preview = service.refresh_layer(repository, economics, ORG, "user", layer["id"], layer["version"], confirm=False)
     assert preview["applied"] is False
-    assert {"path": "project.blast_time", "before": "13:00", "after": "14:00"} in preview["changes"]
+    assert {"path": "project.blast_time", "before": "13:00", "after": "14:00", "label": "Время взрыва",
+            "before_text": "13:00", "after_text": "14:00"} in preview["changes"]
     assert preview["layer"]["stale"] is True
 
     applied = service.refresh_layer(repository, economics, ORG, "user", layer["id"], layer["version"], confirm=True)

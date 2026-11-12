@@ -99,3 +99,13 @@ def test_revision_without_magex_prints_as_before(revision):
     assert render_layer_document(revision) == render_layer_document(copy.deepcopy(revision))
     text = pdfium.PdfDocument(render_layer_document(revision))[0].get_textpage().get_text_range()
     assert "MagEX" not in text and layer_part(revision).actual_size is False
+
+
+def test_signed_blaster_permit_and_vehicle_are_printed(revision):
+    online = _online(revision)
+    online["magex"]["print"] = {"blaster_name": "Трегубов Александр Иванович", "blaster_index": "ЮФ60АВ"}
+    online["payload"] = {**online["payload"], "permit_number": "РВ-66", "permit_date": "2026-01-15",
+                         "vehicle_model": "КамАЗ 43118", "vehicle_plate": "А123ВС96"}
+    text = pdfium.PdfDocument(render_layer_document(online))[0].get_textpage().get_text_range()
+    for expected in ("Трегубов Александр Иванович", "ЮФ60АВ", "№ РВ-66 от 15.01.2026", "КамАЗ 43118 А123ВС96"):
+        assert expected in text

@@ -373,6 +373,8 @@ def approve(
         "wh": signed["wh"],
         "num": signed["num"],
         "lines": [{"material_id": row["material_id"], "qty": qty_text(row["qty"]), "keys": row["keys"], "unit": row["unit"]} for row in merged],
+        # Что печатается в форме 4 из подписанной выписки (взрывник — из справочника «Взрывники»).
+        "print": {"blaster_name": signed["blaster"]["name"], "blaster_index": signed["blaster"]["index"]},
     }
     try:
         revision = layers_service.issue_layer(

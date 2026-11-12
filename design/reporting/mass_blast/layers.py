@@ -282,8 +282,23 @@ def _bar(title: str, width: float) -> Table:
     return table
 
 
+def _permit(payload: Mapping[str, Any]) -> str:
+    """Разрешение на ВР: строкой, как раньше, иначе № и дата (поля MagEX, TASK-018 PR 7)."""
+
+    number, issued = text(payload.get("permit_number")), text(payload.get("permit_date"))
+    composed = " ".join(part for part in (f"№ {number}" if number else "", f"от {date(issued)}" if issued else "") if part)
+    return text(payload.get("permit")) or composed
+
+
+def _vehicle(payload: Mapping[str, Any]) -> str:
+    composed = " ".join(part for part in (text(payload.get("vehicle_model")), text(payload.get("vehicle_plate"))) if part)
+    return text(payload.get("vehicle")) or composed
+
+
 def _info_grid(revision: Mapping[str, Any], width: float) -> Table:
     seed, payload = _seed(revision), _payload(revision)
+    # Взрывник наряда, принятого MagEX, — как в подписанной выписке (справочник «Взрывники»).
+    signed = (revision.get("magex") or {}).get("print") or {}
     project = seed.get("project") or {}
     people = seed.get("people") or {}
     totals = (revision.get("view") or {}).get("totals") or {}
@@ -295,11 +310,12 @@ def _info_grid(revision: Mapping[str, Any], width: float) -> Table:
          "Дата массового взрыва", date(project.get("blast_date"))),
         ("Проект МВ / паспорт БВР", f"Проект массового взрыва № {number}" if number else "", "Всего скважин, шт",
          num(totals.get("blocks_holes"), 0), "Масса зарядов (проект), кг", num(totals.get("blocks_charge_kg"), 0)),
-        ("Взрывник (Ф. И. О.)", person_line(people.get("blaster")), "Индивид. индекс взрывника", text(payload.get("blaster_index")),
+        ("Взрывник (Ф. И. О.)", text(signed.get("blaster_name")) or person_line(people.get("blaster")),
+         "Индивид. индекс взрывника", text(signed.get("blaster_index")) or text(payload.get("blaster_index")),
          "Зав. складом / раздатчик", person_line(people.get("storekeeper"))),
-        ("Склад выдачи ВМ", text(payload.get("warehouse")), "Спецавтомобиль", text(payload.get("vehicle")),
+        ("Склад выдачи ВМ", text(payload.get("warehouse")), "Спецавтомобиль", _vehicle(payload),
          "Водитель", text(payload.get("driver"))),
-        ("Разрешение на ведение ВР", text(payload.get("permit")), "", "", "", ""),
+        ("Разрешение на ведение ВР", _permit(payload), "", "", "", ""),
     ]
     data = [[cell(a, "td"), cell(b, "td_b"), cell(c, "td"), cell(d, "td_b"), cell(e, "td"), cell(f, "td_b")] for a, b, c, d, e, f in rows]
     w = width / 3

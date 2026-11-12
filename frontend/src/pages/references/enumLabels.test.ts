@@ -28,3 +28,10 @@ describe("подписи групп пород для воздушной вол�
     expect(enumLabel("V_MINUS")).toBe("V группа и ниже");
   });
 });
+
+describe("подписи уведомления о массовом взрыве", () => {
+  it("способ и основание подписаны по-русски", () => {
+    expect(enumLabel("PHONEGRAM")).toBe("Телефонограмма");
+    expect(enumLabel("CUSTOMER_RULES")).toBe("Регламент заказчика");
+  });
+});

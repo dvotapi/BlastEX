@@ -43,7 +43,8 @@ jobs:
             requirements-api.txt
 
       - name: Install Python dependencies
-        run: pip install -r requirements-api.txt pytest
+        # pypdfium2 — только тестам: текст и растр PDF документов проекта МВ (TASK-018 PR 3).
+        run: pip install -r requirements-api.txt pytest pypdfium2
 
       - name: Run Python tests
         run: python -m pytest -q

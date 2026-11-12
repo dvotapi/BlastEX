@@ -122,6 +122,24 @@ REFERENCE_SECTION_DEFINITIONS: dict[str, dict[str, Any]] = {
         "columns": ["name", "site_code", "k_ground", "k_structure", "people_min_m"],
         "feature": "mass_blast_v2",
     },
+    "mass_blast_sites": {
+        "group": "blast_design",
+        "label": "Проект МВ: реквизиты объекта",
+        "columns": ["name", "site_code", "q_tp_kg_m3", "contractor_approver_name"],
+        "feature": "mass_blast_v2",
+    },
+    "mass_blast_profiles": {
+        "group": "blast_design",
+        "label": "Профиль документов проекта МВ",
+        "columns": ["name", "charge_round_kg"],
+        "feature": "mass_blast_v2",
+    },
+    "blast_notifications": {
+        "group": "blast_design",
+        "label": "Уведомления о массовом взрыве",
+        "columns": ["name", "site_code", "recipient_position", "channel", "lead_days"],
+        "feature": "mass_blast_v2",
+    },
     "drilling_conditions": {
         "group": "drilling", "label": "Условия бурения",
         "view": "matrix",
@@ -374,6 +392,7 @@ def validate_reference_sections(
     issues.extend(_schema_issues(sections))
     issues.extend(_reference_issues(sections))
     issues.extend(_one_per_site_issues(sections, "blast_safety"))
+    issues.extend(_one_per_site_issues(sections, "mass_blast_sites"))
     # Локальный импорт: модуль проверок сам берёт `ValidationIssue` отсюда.
     from cost.v2.payroll_checks import payroll_issues
 

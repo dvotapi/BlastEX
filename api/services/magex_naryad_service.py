@@ -371,10 +371,6 @@ def approve(
         return jws_module.sign_naryad(versioned, key), key.kid, _semantic_sha(versioned)
 
     version = repository.create_magex_version(organization_id, actor, layer_id, build)
-    # Сразу в очередь со сроком аренды: если процесс упадёт до ответа MagEX, версию отправит очередь.
-    version = repository.update_magex_version(
-        version["id"], status="PENDING", next_attempt_at=now + timedelta(seconds=LEASE_S),
-    )
     signed = decode_content(version["jws"])
     merged, _ = magex_lines(lines, ctx.materials, ctx.catalog)
     magex_snapshot = {
@@ -395,7 +391,11 @@ def approve(
     except Exception:
         repository.update_magex_version(version["id"], status="SUPERSEDED")
         raise
-    version = repository.update_magex_version(version["id"], layer_revision_id=revision["id"])
+    # В очередь — только вместе с ревизией и со сроком аренды: упадёт процесс до ответа MagEX —
+    # отправит очередь; версия без ревизии (сбой выпуска) остаётся SENDING и в очередь не попадает.
+    version = repository.update_magex_version(
+        version["id"], layer_revision_id=revision["id"], status="PENDING", next_attempt_at=now + timedelta(seconds=LEASE_S),
+    )
     return _send(repository, organization_id, actor, layer_id, version, client, now)
 
 
@@ -466,6 +466,10 @@ def process_due(repository: Any, *, transport: Transport | None = None, now: dat
     sent = 0
     for version in repository.claim_due_magex_versions(now, LEASE_S):
         organization_id = str(version["organization_id"])
+        if not version.get("layer_revision_id"):
+            # Строка без ревизии слоя напечатана не будет — не отправлять, заменить.
+            repository.update_magex_version(version["id"], status="SUPERSEDED", next_attempt_at=None)
+            continue
         try:
             client = client_for(organization_id, transport)
         except ValueError:

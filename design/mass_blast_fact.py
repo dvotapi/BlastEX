@@ -44,6 +44,7 @@ from design.models import (
     HoleLoad,
     Point3,
     is_explosive_deck_kind,
+    stemming_length_m,
 )
 from design.safety.holes import _top_stemming
 from design.toe_line import floor_burdens
@@ -157,6 +158,14 @@ def _fact_load(item: AsChargedHole, fallback_product: str) -> HoleLoad:
 
     decks = [Deck.from_dict(deck.to_dict()) for deck in item.decks]
     explosive = [deck for deck in decks if is_explosive_deck_kind(deck.kind)]
+    # Марку правят в записи, а деки остаются скопированными из проекта: у заряда
+    # одной марки запись главнее дек (иначе расход ушёл бы на проектную марку).
+    recorded = str(item.explosive_product or "").strip()
+    products = {str(deck.product or deck.explosive_key or "") for deck in explosive}
+    if recorded and len(products) == 1 and recorded not in products:
+        for deck in explosive:
+            deck.product = recorded
+            deck.explosive_key = recorded
     deck_mass = sum(float(deck.mass_kg or 0.0) for deck in explosive)
     mass = float(item.charge_mass_kg or 0.0)
     if explosive and deck_mass > 0 and mass > 0 and abs(deck_mass - mass) > 1e-6:
@@ -207,9 +216,18 @@ def _overlay_fired_detonators(design: BlastDesign, enabled: Mapping[str, Hole]) 
 
 
 def _fact_stemming(item: AsChargedHole) -> float:
+    """Забойка Ф: над верхним зарядом по декам, как Р.
+
+    Длину забойки правят в записи, а деки остаются скопированными: запись,
+    которая не совпадает с забойкой дек, — замер, она главнее.
+    """
+
+    recorded = float(item.stemming_length_m or 0.0)
+    if recorded > 0 and abs(recorded - stemming_length_m(list(item.decks))) > 0.01:
+        return recorded
     if any(is_explosive_deck_kind(deck.kind) for deck in item.decks):
         return _top_stemming(list(item.decks))
-    return float(item.stemming_length_m or 0.0)
+    return recorded
 
 
 def _list(ids: Sequence[str], limit: int = 8) -> str:

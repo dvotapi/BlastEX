@@ -194,3 +194,16 @@ def test_fact_mass_total_is_the_exact_sum(base):
     fact, _issues = block_fact(design, table, MATERIALS)
     assert fact["rows"][0]["charge_fact_kg"] == 100
     assert fact["totals"]["charge_fact_kg"] == pytest.approx(100.49 * len(design.as_charged_holes))
+
+
+def test_edited_product_and_stemming_of_a_copied_charge(base):
+    design, table = base
+    design = _with_copies(design, drill=False)
+    item = design.as_charged_holes[0]
+    item.explosive_product = "ACTUAL_NEW_PRODUCT"
+    item.stemming_length_m = 4.2
+    fact, _issues = block_fact(design, table, MATERIALS)
+    row = next(row for row in fact["rows"] if row["hole_id"] == item.design_hole_id)
+    assert row["stemming_fact_m"] == 4.2
+    names = {line["name"]: line["quantity"] for line in fact["consumption"] if line["kind"] == "explosive"}
+    assert names["ACTUAL_NEW_PRODUCT"] == pytest.approx(item.charge_mass_kg)

@@ -586,3 +586,19 @@ def test_uncharged_misfire_does_not_reduce_fired_and_blocks_match_by_place():
     single = {"blocks_fact": [block("400", 0.0)]}
     view, _issues = execution_view(single, {"misfired_holes": ["1"]})
     assert view["blocks"][0]["parameter_table"]["totals"]["misfired_count"] == 0
+
+
+def test_acceptance_grid_is_resolved_per_block():
+    from design.mass_blast_layers import acceptance_view
+
+    seed = {
+        "volume_contour_m3": 1000.0,
+        "blocks": [{"code": "66", "horizon": "410", "spacing_mean_m": 5.0, "burden_mean_m": 6.0},
+                   {"code": "67", "horizon": "410", "spacing_mean_m": 5.0, "burden_mean_m": 6.0}],
+        "fact": {"blocks": [
+            {"code": "66", "horizon": "410", "holes": 1, "charged": 1, "spacing_fact_mean_m": 4.0, "burden_fact_mean_m": 4.5},
+            {"code": "67", "horizon": "410", "holes": 1, "charged": 1, "spacing_fact_mean_m": None, "burden_fact_mean_m": None},
+        ], "consumption": []},
+    }
+    view, _issues = acceptance_view(seed, {})
+    assert [(g["code"], g["basis"], g["spacing_m"]) for g in view["grids"]] == [("66", "FACT", 4.0), ("67", "PROJECT", 5.0)]

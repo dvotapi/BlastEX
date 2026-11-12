@@ -621,14 +621,16 @@ def acceptance_story(revision: Mapping[str, Any], width: float) -> list:
     rows = []
     if fact.get("basis") == "FACT":
         # PR 5: параметры по факту — из последней выпущенной ревизии слоя «Факт».
-        fact_grid = "; ".join(
-            f"{short(g.get('spacing_m'), 1)} × {short(g.get('burden_m'), 1)}"
-            for g in fact.get("grids") or [] if g.get("spacing_m") is not None and g.get("burden_m") is not None
-        )
-        if fact_grid:
-            grid = fact_grid
-        elif grid:
-            grid += " (по проекту)"
+        grids = list(fact.get("grids") or [])
+        many = len(grids) > 1
+        parts = []
+        for g in grids:
+            value = (f"{short(g.get('spacing_m'), 1)} × {short(g.get('burden_m'), 1)}"
+                     if g.get("spacing_m") is not None and g.get("burden_m") is not None else DASH)
+            if g.get("basis") == "PROJECT":
+                value += " (по проекту)"
+            parts.append(f"блок {text(g.get('code'))}: {value}" if many else value)
+        grid = "; ".join(parts) or grid
         q = fact.get("q_kg_m3")
         if fact.get("volume_basis") == "CONTOUR":
             q_label = "Удельный расход ВМ (к объёму по контуру), кг/м³"

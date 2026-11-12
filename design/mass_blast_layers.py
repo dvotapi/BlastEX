@@ -510,10 +510,19 @@ def acceptance_view(seed: Mapping[str, Any], payload: Mapping[str, Any]) -> tupl
     explosive = sum(float(line.get("quantity") or 0.0) for line in fact.get("consumption") or [] if line.get("kind") == "explosive")
     accepted = payload.get("accepted_volume_m3")
     volume = float(accepted) if accepted else float(seed.get("volume_contour_m3") or 0.0)
-    grids = [
-        {"code": block.get("code", ""), "spacing_m": block.get("spacing_fact_mean_m"), "burden_m": block.get("burden_fact_mean_m")}
-        for block in fact.get("blocks") or []
-    ]
+    # Сетка — по каждому блоку: по факту, где факт бурения полный, иначе проектная
+    # с пометкой (блоки «Факта» — в порядке блоков ревизии, сверка кода и горизонта).
+    done_blocks = list(fact.get("blocks") or [])
+    grids = []
+    for index, block in enumerate(seed.get("blocks") or []):
+        done = done_blocks[index] if index < len(done_blocks) else {}
+        same = (str(done.get("code")), str(done.get("horizon"))) == (str(block.get("code")), str(block.get("horizon")))
+        if same and done.get("spacing_fact_mean_m") is not None and done.get("burden_fact_mean_m") is not None:
+            grids.append({"code": block.get("code", ""), "spacing_m": done["spacing_fact_mean_m"],
+                          "burden_m": done["burden_fact_mean_m"], "basis": "FACT"})
+        else:
+            grids.append({"code": block.get("code", ""), "spacing_m": block.get("spacing_mean_m"),
+                          "burden_m": block.get("burden_mean_m"), "basis": "PROJECT"})
     issues = []
     short = [block["code"] for block in fact.get("blocks") or [] if int(block.get("charged") or 0) < int(block.get("holes") or 0)]
     if short:

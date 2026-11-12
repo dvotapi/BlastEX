@@ -466,3 +466,15 @@ def test_naryad_keeps_fractional_kilogram_quantity(context):
     explosive.update(issue_qty=60.4, issue_kg=60.4, unit_mass_kg=1.0)
     text = _text(_pages(render_layer_document(revision))[0])
     assert text.count("60,4") >= 2
+
+
+def test_consumption_marks_unknown_primer_mass(context):
+    data = copy.deepcopy(context)
+    section = next(s for s in data["blocks_v2"][0]["technical_calculation"] if s["number"] == "10–12")
+    primer = next(item for item in section["consumption"] if item["kind"] == "primer")
+    primer.update(mass_kg=0.0, warning="primer_mass_unknown")
+    text = _text(_pages(render_project_document(data, "technical-calculation"))[0])
+    assert "не известна" in text
+    primer.update(mass_kg=90.0)
+    text = _text(_pages(render_project_document(data, "technical-calculation"))[0])
+    assert "не менее 90,0" in text

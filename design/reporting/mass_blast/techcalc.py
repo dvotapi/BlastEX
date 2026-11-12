@@ -154,6 +154,16 @@ def _construction(section: Mapping[str, Any], width: float) -> list:
     return [block]
 
 
+def _mass_text(line: Mapping[str, Any]) -> str:
+    """Масса строки расхода; у ПД без массы в справочнике (`primer_mass_unknown`,
+    расход пишет 0 или только известную часть) — не число, а пометка."""
+
+    mass = line.get("mass_kg")
+    if line.get("warning") == "primer_mass_unknown":
+        return f"не менее {num(mass, 1)}" if mass else "не известна"
+    return num(mass, 1) if mass is not None else DASH
+
+
 def _consumption(section: Mapping[str, Any], width: float) -> Table:
     rows = [[cell(h, "th") for h in ("п.", "Наименование", "Количество", "Ед.", "Масса, кг")]]
     lines = list(section.get("consumption") or [])
@@ -167,7 +177,7 @@ def _consumption(section: Mapping[str, Any], width: float) -> Table:
             cell(f"{text(line.get('name'))}, {short(line.get('delay_ms'), 1)} мс" if line.get("delay_ms") is not None
                  else line.get("name")),
             cell(num(quantity, digits) if quantity is not None else DASH, "td_bc"),
-            cell(line.get("unit"), "td_c"), cell(num(mass, 1) if mass is not None else DASH, "td_r"),
+            cell(line.get("unit"), "td_c"), cell(_mass_text(line), "td_r"),
         ])
     widths = [10 * mm, width - 10 * mm - 28 * mm - 14 * mm - 26 * mm, 28 * mm, 14 * mm, 26 * mm]
     table = Table(rows, colWidths=widths, repeatRows=1)

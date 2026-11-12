@@ -85,6 +85,12 @@ export function Rejection({ rejection, names }: { rejection: MagexApproveResult[
           </tbody>
         </table>
       )}
+      {rejection.code === "BLASTER_INDEX_CONFLICT" && (
+        <small className="form-error">
+          В справочнике взрывников MagEX этот индекс принадлежит другому сотруднику: укажите у взрывника в справочнике
+          «Взрывники» того же «Сотрудника SafetyMAIN», что и в MagEX.
+        </small>
+      )}
       {rejection.code === "NARYAD_NUMBER_TAKEN" && (
         <small className="form-error">Номер наряда-путёвки уже занят на этом складе в эту дату: укажите другой №.</small>
       )}

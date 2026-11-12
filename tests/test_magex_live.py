@@ -29,7 +29,12 @@ pytestmark = pytest.mark.skipif(not (LIVE_URL and LIVE_WAREHOUSE), reason="MAGEX
 LIVE_MATERIALS = {"primer": "Сферит-ДП 60П, патрон 1000 г", "nsi_downhole": "ИСКРА-С-700-12"}
 
 
-def _economics(catalog: list[dict]) -> object:
+# Взрывник сида MagEX (Трегубов А. И.): его индекс в справочнике MagEX уже связан с сотрудником.
+SEED_INDEX = "ЮФ60АВ"
+SEED_EMPLOYEE = "69fe2d68-d2cf-57df-8322-0b875f959b70"  # vm.blasters.employee_ref сида
+
+
+def _economics(catalog: list[dict], blaster: dict | None = None) -> object:
     from types import SimpleNamespace
 
     from tests.magex_fakes import snapshot
@@ -41,7 +46,13 @@ def _economics(catalog: list[dict]) -> object:
         for kind, name in LIVE_MATERIALS.items()
     )
 
+    blasters = (SimpleNamespace(code="BL-01", name="Трегубов Александр Иванович", is_active=True, payload=blaster or {
+        "blaster_index": f"T{uuid.uuid4().hex[:6].upper()}", "book_number": "", "employee_ref": None,
+    }),)
+
     def items(section):
+        if section == "blasters":
+            return blasters
         return materials if section == "materials" else base.active_items(section)
 
     data = SimpleNamespace(revision_id="ref-1", active_items=items, item=base.item)
@@ -70,7 +81,7 @@ def live(monkeypatch):
     monkeypatch.setattr(magex, "TRANSPORT", None)
     magex._catalog_cache.clear()
     catalog = magex.catalog(ORG, fresh=True)
-    yield _economics(catalog)
+    yield catalog
     magex._catalog_cache.clear()
 
 
@@ -80,6 +91,7 @@ def _approve(repository, economics):
 
 
 def test_put_200_reserve_repeat_unchanged_and_cancel(live):
+    live = _economics(live)
     repository = _repository(2)
     result = _approve(repository, live)
     assert result["outcome"] == "ACCEPTED", result
@@ -96,7 +108,19 @@ def test_put_200_reserve_repeat_unchanged_and_cancel(live):
     assert state["execution"]["status"] == "cancelled"
 
 
+def test_blaster_index_taken_needs_the_same_employee(live):
+    """Индекс взрывника в справочнике MagEX связан с сотрудником: другой `ref` — отказ, тот же — приём."""
+
+    repository = _repository(1)
+    result = _approve(repository, _economics(live, {"blaster_index": SEED_INDEX, "book_number": "", "employee_ref": None}))
+    assert result["outcome"] == "REJECTED" and result["rejection"]["code"] == "BLASTER_INDEX_CONFLICT"
+    same = _economics(live, {"blaster_index": SEED_INDEX, "book_number": "", "employee_ref": SEED_EMPLOYEE})
+    assert _approve(repository, same)["outcome"] == "ACCEPTED"
+    magex.cancel(repository, ORG, "live@example.ru", repository.layer["id"], "Живой тест BlastEX PR 7")
+
+
 def test_insufficient_available_is_shown(live):
+    live = _economics(live)
     repository = _repository(10_000_000)
     result = _approve(repository, live)
     assert result["outcome"] == "REJECTED"

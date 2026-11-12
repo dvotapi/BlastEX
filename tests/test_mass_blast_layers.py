@@ -550,3 +550,39 @@ def test_outside_project_primer_keeps_its_fact_mass():
     assert line["outside_project"] and line["unit_mass_kg"] == 0.9
     assert line["consumed_kg"] == 1.8 and line["issued_kg"] == 2.7 and line["returned_kg"] == pytest.approx(0.9)
     assert "fact_material_not_in_project" in {issue["code"] for issue in issues}
+
+
+def test_project_primer_line_takes_fact_mass():
+    from design.mass_blast_layers import naryad_after_blast
+
+    fact = {"blocks": [], "consumption": [
+        {"key": "primer:ПД:", "kind": "primer", "name": "ПД", "unit": "шт", "delay_ms": None, "material_code": "",
+         "quantity": 2.0, "mass_kg": 1.8, "mass_known": True},
+    ]}
+    lines = [{"key": "primer:ПД:", "kind": "primer", "name": "ПД", "unit": "шт", "delay_ms": None, "material_code": "",
+              "project_qty": 2.0, "issue_qty": 3.0, "unit_mass_kg": None}]
+    after, _blocks, _issues = naryad_after_blast({"blocks": [], "fact": fact}, {"issued": {"primer:ПД:": 3}}, lines)
+    assert after[0]["consumed_kg"] == 1.8 and after[0]["issued_kg"] == pytest.approx(2.7)
+
+
+def test_uncharged_misfire_does_not_reduce_fired_and_blocks_match_by_place():
+    from design.mass_blast_layers import execution_summary, execution_view, naryad_after_blast
+
+    def block(horizon, kg):
+        rows = [{"hole_id": "1", "charged": horizon == "410", "charge_fact_exact_kg": kg, "note": ""}]
+        totals = {"hole_count": 1, "charged_count": 1 if horizon == "410" else 0, "charge_fact_partial_kg": kg if horizon == "410" else 0}
+        return {"code": "66", "horizon": horizon, "parameter_table": {"rows": rows, "totals": totals}}
+
+    seed = {"blocks_fact": [block("410", 100.0), block("400", 200.0)]}
+    view, issues = execution_view(seed, {"misfired_holes": ["66:1"]})
+    assert "fact_hole_ambiguous" in {issue["code"] for issue in issues}
+    summary = execution_summary({"seed": seed, "view": execution_view(seed, {})[0]}, "lr")
+    naryad_seed = {"blocks": [{"code": "66", "horizon": "410", "charge_kg": 100.0}, {"code": "66", "horizon": "400", "charge_kg": 150.0}],
+                   "fact": summary}
+    _after, blocks, _issues = naryad_after_blast(naryad_seed, {}, [])
+    assert [b["charged_kg"] for b in blocks] == [100.0, 0.0]
+    assert all(b["fired_holes"] >= 0 for b in blocks)
+
+    single = {"blocks_fact": [block("400", 0.0)]}
+    view, _issues = execution_view(single, {"misfired_holes": ["1"]})
+    assert view["blocks"][0]["parameter_table"]["totals"]["misfired_count"] == 0

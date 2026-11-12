@@ -387,9 +387,11 @@ def execution_view(seed: Mapping[str, Any], payload: Mapping[str, Any]) -> tuple
             extra = []
             if (index, hole_id) in misfired:
                 extra.append(NOTE_MISFIRE)
-                count += 1
-                misfired_kg += float(row.get("charge_fact_exact_kg") or 0.0)
-                if not row.get("charged"):
+                # «Взорвано» = заряжено − отказы: отказ без записи заряжания в счёт не идёт.
+                if row.get("charged"):
+                    count += 1
+                    misfired_kg += float(row.get("charge_fact_exact_kg") or 0.0)
+                else:
                     issues.append(_issue(
                         "warning", "fact_misfire_not_charged",
                         f"Скважина {misfired[(index, hole_id)]} отмечена отказом, но факта её заряжания нет.",
@@ -590,8 +592,11 @@ def naryad_after_blast(
         ))
     for line in [*lines, *extra]:
         key = line["key"]
-        unit_mass = line.get("unit_mass_kg")
         fact_line = facts.get(key)
+        # Масса единицы — проекта; у проекта неизвестна — по массе факта той же марки.
+        unit_mass = line.get("unit_mass_kg")
+        if unit_mass is None and fact_line is not None:
+            unit_mass = fact_unit_mass(fact_line)
         if key in consumed:
             spent, source = float(consumed[key]), "MANUAL_OVERRIDE"
         elif fact_line is not None:
@@ -634,17 +639,29 @@ def naryad_after_blast(
         def kg(value: float | None) -> float | None:
             return None if value is None or unit_mass is None else round(value * float(unit_mass), 3)
 
+        spent_kg = kg(spent)
+        if source == "FACT" and fact_line is not None and fact_line.get("mass_known", True) \
+                and fact_line.get("mass_kg") is not None and line.get("unit") != "кг":
+            # Израсходованные килограммы — по массе факта (ПД с записанной массой), а не по проектной.
+            spent_kg = round(float(fact_line["mass_kg"]), 3)
         result.append({
             **line,
+            "unit_mass_kg": unit_mass,
             "issued_qty": given, "issued_kg": kg(given),
-            "consumed_qty": None if spent is None else round(spent, 3), "consumed_kg": kg(spent), "consumed_source": source,
+            "consumed_qty": None if spent is None else round(spent, 3), "consumed_kg": spent_kg, "consumed_source": source,
             "returned_qty": back, "returned_kg": kg(back), "returned_source": back_source,
         })
 
     blocks: list[dict[str, Any]] = []
-    by_code = {str(block.get("code")): block for block in fact.get("blocks") or []}
-    for block in seed.get("blocks") or []:
-        done = by_code.get(str(block.get("code")))
+    # Блоки «Факта» — в порядке блоков той же ревизии проекта: сопоставление по
+    # месту (коды блоков на разных горизонтах могут совпадать), с проверкой кода и горизонта.
+    done_blocks = list(fact.get("blocks") or [])
+    for index, block in enumerate(seed.get("blocks") or []):
+        done = done_blocks[index] if index < len(done_blocks) else None
+        if done is not None and (str(done.get("code")), str(done.get("horizon"))) != (
+            str(block.get("code")), str(block.get("horizon"))
+        ):
+            done = None
         if done is None:
             blocks.append({"code": block.get("code", "")})
             continue

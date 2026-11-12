@@ -370,7 +370,8 @@ def _totals(rows: Sequence[Mapping[str, Any]], project: dict[str, Any]) -> dict[
         "subdrill_fact_mean_m": mean("subdrill_fact_m", 1),
         "spacing_fact_mean_m": mean("spacing_fact_m", 2),
         "burden_fact_mean_m": mean("burden_fact_m", 2),
-        "charge_fact_kg": round(sum(known("charge_fact_kg")), 3) if all_charged else None,
+        # Итог Ф — точная сумма записанных масс (В3), а не сумма округлённых до 1 кг.
+        "charge_fact_kg": round(sum(known("charge_fact_exact_kg")), 3) if all_charged else None,
         "charge_fact_partial_kg": round(sum(known("charge_fact_exact_kg")), 3),
         "stemming_fact_min_m": min(stemming) if all_charged and stemming else None,
     }

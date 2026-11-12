@@ -184,3 +184,13 @@ def test_fired_detonator_replaces_the_planned_one(base):
     kinds = {line["kind"]: line for line in fact["consumption"]}
     assert kinds["detonator_electronic"]["quantity"] >= 1
     assert kinds["nsi_downhole"]["quantity"] == 198 - kinds["detonator_electronic"]["quantity"]
+
+
+def test_fact_mass_total_is_the_exact_sum(base):
+    design, table = base
+    design = _with_copies(design, drill=False)
+    for item in design.as_charged_holes:
+        item.charge_mass_kg = 100.49
+    fact, _issues = block_fact(design, table, MATERIALS)
+    assert fact["rows"][0]["charge_fact_kg"] == 100
+    assert fact["totals"]["charge_fact_kg"] == pytest.approx(100.49 * len(design.as_charged_holes))

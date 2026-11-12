@@ -388,3 +388,47 @@ def test_new_version_is_queued_before_sending():
     assert seen == ["PENDING"]
     assert magex.process_due(repository, transport=fake, now=NOW + timedelta(seconds=magex.LEASE_S + 1)) == 1
     assert repository.versions[0]["status"] == "ACCEPTED"
+
+
+def test_after_blast_reprint_keeps_the_accepted_string():
+    """После взрыва — ревизия для печати с графами исполнения и той же строкой (замечание Codex)."""
+
+    repository, fake = MemoryRepository(status="executed"), FakeMagex()
+    _approve(repository, fake)
+    first = repository.layer["current_revision_id"]
+    pd = MATERIAL_IDS["MAT_PD_1000"]
+    fake.naryads[LAYER_ID].update(status="closed", issued={pd: "198.000"}, consumed={pd: "196.000"})
+    magex.refresh_execution(repository, ORG, LAYER_ID, transport=fake)
+    result = _approve(repository, fake)
+    assert result["outcome"] == "UNCHANGED" and result["reprinted"] is True
+    second = repository.layer["current_revision_id"]
+    assert second != first and [item["ver"] for item in repository.versions] == [1]
+    context = repository.revisions[second]["context"]
+    assert context["magex"]["jws"] == repository.versions[0]["jws"]
+    primer = next(line for line in context["view"]["lines"] if line["kind"] == "primer")
+    assert primer["consumed_qty"] == 196.0
+    documents.layer_document(repository, ORG, second)
+    # Ничего нового — та же ревизия.
+    assert _approve(repository, fake)["reprinted"] is False
+
+
+def test_acceptance_uses_magex_only_when_every_naryad_has_consumption():
+    repository, fake = MemoryRepository(status="executed"), FakeMagex()
+    act = {"kind": "ACCEPTANCE_ACT", "project_id": "p1", "id": "act"}
+    assert layers._magex_state(repository, ORG, act) == {}
+    _approve(repository, fake)
+    magex.refresh_execution(repository, ORG, LAYER_ID, transport=fake)
+    # Расход не внесён — итог по MagEX не подменяет «Факт».
+    assert layers._magex_state(repository, ORG, act) == {}
+    evv = MATERIAL_IDS["MAT_EVV"]
+    fake.naryads[LAYER_ID].update(status="closed", consumed_kg={evv: "32600.000"})
+    magex.refresh_execution(repository, ORG, LAYER_ID, transport=fake)
+    assert layers._magex_state(repository, ORG, act) == {"magex_explosive_kg": 32600.0}
+
+
+def test_more_than_50_blocks_is_an_error():
+    seed = naryad_seed()
+    seed["blocks"] = [{**seed["blocks"][0], "code": f"B{index}"} for index in range(51)]
+    _, issues = build_naryad_payload(LAYER_ID, seed, {"number": "1", "issue_date": "2026-10-14"}, _lines(), _ctx(),
+                                     ver=1, iat=0, approved_at=NOW)
+    assert "magex_too_many_blocks" in {item["code"] for item in issues if item["level"] == "error"}

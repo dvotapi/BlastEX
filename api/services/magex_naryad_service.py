@@ -354,8 +354,20 @@ def approve(
         # версия, иначе ожидающая ушла бы позже и перезаписала её.
         in_flight = any(item["ver"] > accepted["ver"] and item["status"] in ("PENDING", "SENDING") for item in versions)
         if _semantic_sha(previous) == _semantic_sha(content) and not in_flight:
-            # Без изменений — повтор принятой строки, а не новая версия (§5.5).
-            return _resend(repository, organization_id, layer_id, accepted, client)
+            # Без изменений — повтор принятой строки, а не новая версия (§5.5). Изменилось то, что
+            # не подписывается (исполнение после взрыва, подписи), — новая ревизия для печати с той же
+            # строкой: архивная копия наряда печатает графы «после взрыва» (§2.2 задачи).
+            accepted_snapshot = (repository.get_layer_revision(organization_id, accepted["layer_revision_id"]).get("context") or {}).get("magex")
+            result = _resend(repository, organization_id, layer_id, accepted, client)
+            if accepted_snapshot:
+                current = viewed.get("current_revision_id")
+                revision = layers_service.issue_layer(
+                    repository, economics_repository, organization_id, actor, layer_id, expected_version,
+                    magex=accepted_snapshot, skip_if_same=True,
+                )
+                result = {**result, **layer_state(repository, organization_id, layer_id), "outcome": result["outcome"],
+                          "reprinted": revision["id"] != current}
+            return result
         try:
             # Выдачу на складе BlastEX узнаёт только из исполнения: перед проверкой запретов — свежее.
             repository.save_magex_execution(organization_id, layer_id, client.get_naryad(layer_id))
@@ -370,7 +382,7 @@ def approve(
         versioned, _ = content_for(ver, short)
         return jws_module.sign_naryad(versioned, key), key.kid, _semantic_sha(versioned)
 
-    version = repository.create_magex_version(organization_id, actor, layer_id, build)
+    version = repository.create_magex_version(organization_id, actor, layer_id, build, expected_version=expected_version)
     signed = decode_content(version["jws"])
     merged, _ = magex_lines(lines, ctx.materials, ctx.catalog)
     magex_snapshot = {
@@ -393,9 +405,7 @@ def approve(
         raise
     # В очередь — только вместе с ревизией и со сроком аренды: упадёт процесс до ответа MagEX —
     # отправит очередь; версия без ревизии (сбой выпуска) остаётся SENDING и в очередь не попадает.
-    version = repository.update_magex_version(
-        version["id"], layer_revision_id=revision["id"], status="PENDING", next_attempt_at=now + timedelta(seconds=LEASE_S),
-    )
+    version = repository.activate_magex_version(version["id"], revision["id"], now + timedelta(seconds=LEASE_S))
     return _send(repository, organization_id, actor, layer_id, version, client, now)
 
 

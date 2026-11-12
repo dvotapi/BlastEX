@@ -287,12 +287,16 @@ def _permit(payload: Mapping[str, Any]) -> str:
 
     number, issued = text(payload.get("permit_number")), text(payload.get("permit_date"))
     composed = " ".join(part for part in (f"№ {number}" if number else "", f"от {date(issued)}" if issued else "") if part)
-    return text(payload.get("permit")) or composed
+    # Раздельные поля — как в подписанной выписке (QR); прежняя строка — когда их нет.
+    return composed or text(payload.get("permit"))
 
 
 def _vehicle(payload: Mapping[str, Any]) -> str:
-    composed = " ".join(part for part in (text(payload.get("vehicle_model")), text(payload.get("vehicle_plate"))) if part)
-    return text(payload.get("vehicle")) or composed
+    model = text(payload.get("vehicle_model")) or text(payload.get("vehicle"))
+    plate = text(payload.get("vehicle_plate"))
+    if not text(payload.get("vehicle_model")) and not plate:
+        return text(payload.get("vehicle"))
+    return " ".join(part for part in (model, plate) if part)
 
 
 def _info_grid(revision: Mapping[str, Any], width: float) -> Table:

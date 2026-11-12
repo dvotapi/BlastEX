@@ -124,17 +124,18 @@ def _magex_refusal(repository: PostgresMassBlastRepository, organization_id: str
     magex = (layer_revision.get("context") or {}).get("magex") or {}
     if magex.get("mode") != "ONLINE":
         return ""
-    version = repository.magex_version_for_revision(organization_id, layer_revision["id"])
+    # Версия — по номеру из снимка: ревизия для печати после взрыва повторяет принятую строку.
+    versions = repository.list_magex_versions(organization_id, str(layer_revision.get("layer_id") or ""))
+    version = next((item for item in versions if item["ver"] == magex.get("ver")), None)
+    if version is not None and version.get("jws") != magex.get("jws"):
+        version = None
     if version is None or version["status"] != "ACCEPTED":
         state = {"PENDING": "ожидает MagEX", "SENDING": "отправляется в MagEX"}.get(
             str((version or {}).get("status") or ""), "не принята MagEX"
         )
         return f"наряд-путёвка {state}: печать — после того, как её примет MagEX"
     layer_id = str(layer_revision.get("layer_id") or "")
-    newest = max(
-        (item["ver"] for item in repository.list_magex_versions(organization_id, layer_id) if item["status"] == "ACCEPTED"),
-        default=version["ver"],
-    )
+    newest = max((item["ver"] for item in versions if item["status"] == "ACCEPTED"), default=version["ver"])
     if version["ver"] != newest:
         # QR старой версии склад не примет: печатается только последняя принятая.
         return f"MagEX принял более новую версию наряда-путёвки ({newest}): печатайте её ревизию"

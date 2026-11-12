@@ -164,12 +164,13 @@ class MemoryRepository:
         return self.get_layer(organization_id, layer_id)
 
     # --- MagEX
-    def create_magex_version(self, organization_id, actor, layer_id, build):
+    def create_magex_version(self, organization_id, actor, layer_id, build, *, expected_version=None):
+        if expected_version is not None and self.layer["version"] != expected_version:
+            raise MassBlastConflictError("версия")
+        if any(item["status"] == "SENDING" for item in self.versions):
+            raise MassBlastConflictError("уже отправляется")
         ver = max((item["ver"] for item in self.versions), default=0) + 1
         jws, kid, sha = build(ver)
-        for item in self.versions:
-            if item["status"] in ("PENDING", "SENDING"):
-                item.update(status="SUPERSEDED", next_attempt_at=None)
         now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
         version = {"id": str(uuid.uuid4()), "organization_id": organization_id, "layer_id": layer_id, "ver": ver,
                    "layer_revision_id": None, "jws": jws, "kid": kid, "payload_sha256": sha, "status": "SENDING",
@@ -177,6 +178,13 @@ class MemoryRepository:
                    "created_by": actor, "updated_at": now, "accepted_at": None}
         self.versions.append(version)
         return copy.deepcopy(version)
+
+    def activate_magex_version(self, version_id, layer_revision_id, next_attempt_at):
+        for item in self.versions:
+            if item["id"] != version_id and item["status"] in ("PENDING", "SENDING"):
+                item.update(status="SUPERSEDED", next_attempt_at=None)
+        return self.update_magex_version(version_id, layer_revision_id=layer_revision_id, status="PENDING",
+                                         next_attempt_at=next_attempt_at)
 
     def update_magex_version(self, version_id, **changes):
         version = next(item for item in self.versions if item["id"] == version_id)
@@ -186,10 +194,6 @@ class MemoryRepository:
 
     def list_magex_versions(self, organization_id, layer_id):
         return [copy.deepcopy(item) for item in sorted(self.versions, key=lambda item: item["ver"])]
-
-    def magex_version_for_revision(self, organization_id, layer_revision_id):
-        found = [item for item in self.versions if item["layer_revision_id"] == layer_revision_id]
-        return copy.deepcopy(found[0]) if found else None
 
     def claim_due_magex_versions(self, now, lease_s, limit=20):
         due = [item for item in self.versions if item["status"] == "PENDING" and item["next_attempt_at"]

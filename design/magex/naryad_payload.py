@@ -273,6 +273,11 @@ def build_naryad_payload(
             "error", "magex_admissions_unconfirmed",
             "Подтвердите, что допуски взрывника, водителя и спецавтомобиля проверены.", "payload.admissions_confirmed",
         ))
+    if len([block for block in seed.get("blocks") or [] if _text(block.get("code"))]) > MAX_BLOCKS:
+        issues.append(_issue(
+            "error", "magex_too_many_blocks",
+            f"Блоков больше {MAX_BLOCKS} — столько не принимает MagEX: разделите на несколько наряд-путёвок.", "seed.blocks",
+        ))
     magex, line_issues = magex_lines(lines, ctx.materials, ctx.catalog)
     issues += line_issues
 

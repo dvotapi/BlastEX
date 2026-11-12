@@ -433,16 +433,21 @@ def _magex_state(repository: PostgresMassBlastRepository, organization_id: str, 
         if naryad["kind"] != "NARYAD":
             continue
         stored = repository.magex_execution(organization_id, naryad["id"])
-        if not stored:
+        if stored and stored["status"] == "cancelled":
             continue
+        if not stored:
+            # Наряд вне MagEX или не разрешён: итог по MagEX был бы неполным — акт по «Факту».
+            return {}
         lines = _accepted_magex_lines(repository, organization_id, naryad["id"])
         explosive_keys = {
             str(line.get("key")) for line in naryad["seed"].get("materials") or [] if line.get("kind") == "explosive"
         }
         value = explosive_consumed_kg(stored["execution"], lines, explosive_keys)
-        if value is not None:
-            total += value
-            found = True
+        if value is None:
+            # Расход по этому наряду ещё не внесён — не подменять итог частью.
+            return {}
+        total += value
+        found = True
     return {"magex_explosive_kg": round(total, 3)} if found else {}
 
 
@@ -697,6 +702,7 @@ def issue_layer(
     expected_version: int,
     *,
     magex: Mapping[str, Any] | None = None,
+    skip_if_same: bool = False,
 ) -> dict[str, Any]:
     """Неизменяемая ревизия слоя: перенесённое, введённое и вычисленное (строки наряда).
 
@@ -732,6 +738,11 @@ def issue_layer(
         snapshot["magex"] = dict(magex)
     elif mode == "OFFLINE":
         snapshot["magex"] = {"mode": "OFFLINE", "reason": offline_reason(organization_id)}
+    if skip_if_same and layer.get("current_revision_id"):
+        # Повтор принятой MagEX выписки: та же ревизия, если печатать нечего нового.
+        current = repository.get_layer_revision(organization_id, layer["current_revision_id"])
+        if current.get("content_sha256") == content_sha256(snapshot):
+            return current
     return repository.create_layer_revision(
         organization_id, actor, layer_id, expected_version=expected_version, context=snapshot,
         content_sha256=content_sha256(snapshot),

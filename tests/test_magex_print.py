@@ -109,3 +109,15 @@ def test_signed_blaster_permit_and_vehicle_are_printed(revision):
     text = pdfium.PdfDocument(render_layer_document(online))[0].get_textpage().get_text_range()
     for expected in ("Трегубов Александр Иванович", "ЮФ60АВ", "№ РВ-66 от 15.01.2026", "КамАЗ 43118 А123ВС96"):
         assert expected in text
+
+
+def test_structured_fields_win_over_legacy_text(revision):
+    """Печать — как подписанная выписка: раздельные поля главнее прежней строки (замечание Codex)."""
+
+    online = _online(revision)
+    online["payload"] = {**online["payload"], "vehicle": "ГАЗ старый", "permit": "старое разрешение",
+                         "vehicle_model": "КамАЗ 43118", "vehicle_plate": "А123ВС96",
+                         "permit_number": "РВ-66", "permit_date": "2026-01-15"}
+    text = pdfium.PdfDocument(render_layer_document(online))[0].get_textpage().get_text_range()
+    assert "КамАЗ 43118 А123ВС96" in text and "№ РВ-66 от 15.01.2026" in text
+    assert "ГАЗ старый" not in text and "старое разрешение" not in text

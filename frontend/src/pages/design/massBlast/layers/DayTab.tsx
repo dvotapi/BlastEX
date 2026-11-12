@@ -169,7 +169,8 @@ function LayerCard({
       REJECTED: "MagEX не принял наряд-путёвку — см. причину выше.",
     };
     if (result.outcome === "REJECTED") setRejection(result.rejection ?? null);
-    setMessage({ text: texts[result.outcome], error: result.outcome === "REJECTED" });
+    const reprint = result.reprinted ? " Выпущена ревизия для печати с данными исполнения." : "";
+    setMessage({ text: texts[result.outcome] + reprint, error: result.outcome === "REJECTED" });
   }, "Не удалось разрешить наряд-путёвку.");
 
   const onDownload = () => run(async () => {

@@ -32,6 +32,7 @@ def _client(monkeypatch, *, intelligence: bool, drill_passport: bool = False) ->
     monkeypatch.setenv(config.INTELLIGENCE_ENABLED_ENV, "true" if intelligence else "false")
     monkeypatch.setenv(config.DRILL_PASSPORT_ENABLED_ENV, "true" if drill_passport else "false")
     monkeypatch.delenv(config.MASS_BLAST_V2_ENABLED_ENV, raising=False)
+    monkeypatch.delenv(config.MAGEX_INTEGRATION_ENABLED_ENV, raising=False)
     module = importlib.reload(importlib.import_module("api.main"))
     return TestClient(module.app, headers={"X-API-Key": "test-api-key"})
 
@@ -61,11 +62,13 @@ def test_features_endpoint_reports_the_flag(monkeypatch) -> None:
         "intelligence": False,
         "drill_passport": False,
         "mass_blast_v2": True,
+        "magex_integration": False,
     }
     assert _client(monkeypatch, intelligence=True).get("/api/v1/features").json() == {
         "intelligence": True,
         "drill_passport": False,
         "mass_blast_v2": True,
+        "magex_integration": False,
     }
 
 

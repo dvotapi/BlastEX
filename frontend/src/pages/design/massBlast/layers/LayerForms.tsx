@@ -1,0 +1,373 @@
+// Формы ручного ввода слоёв дня взрыва (TASK-018, PR 6, §6). Поля — схемы
+// payload слоёв из api/schemas/mass_blast.py; перенесённое из проекта и
+// посчитанное сервером (`seed`, `view`) показывается только для чтения.
+import type { MassBlastLayer, NaryadLine } from "../../../../types/massBlast";
+import { numberText, parseNumber } from "../form";
+import { Field, ruNum, TextInput, type AutoValue, type RememberControl } from "../ui";
+
+/** Ручной ввод слоя в окне: числа — текстом, как их вводит пользователь. */
+export type LayerDraft = Record<string, unknown>;
+
+const DICTS = ["reserve", "issued", "consumed", "returned"] as const;
+
+export function draftFromPayload(layer: MassBlastLayer): LayerDraft {
+  const draft: LayerDraft = { ...layer.payload };
+  for (const key of DICTS) {
+    const source = (layer.payload[key] ?? {}) as Record<string, number>;
+    if (key in layer.payload || layer.kind === "NARYAD") {
+      draft[key] = Object.fromEntries(Object.entries(source).map(([line, value]) => [line, numberText(value)]));
+    }
+  }
+  if (layer.kind === "ACCEPTANCE_ACT") draft.accepted_volume_m3 = numberText(layer.payload.accepted_volume_m3);
+  if (layer.kind === "EXECUTION") {
+    draft.misfired_text = ((layer.payload.misfired_holes ?? []) as string[]).join(", ");
+    draft.note_rows = Object.entries((layer.payload.hole_notes ?? {}) as Record<string, string>).map(([hole, note]) => ({ hole, note }));
+  }
+  return draft;
+}
+
+/** Payload слоя для сохранения; ошибки ввода — по ключу поля. */
+export function payloadFromDraft(kind: MassBlastLayer["kind"], draft: LayerDraft): { payload: Record<string, unknown>; errors: Record<string, string> } {
+  const errors: Record<string, string> = {};
+  const payload: Record<string, unknown> = { ...draft };
+  for (const key of DICTS) {
+    if (!(key in draft)) continue;
+    const values: Record<string, number> = {};
+    for (const [line, text] of Object.entries((draft[key] ?? {}) as Record<string, string>)) {
+      const parsed = parseNumber(String(text ?? ""));
+      if (parsed === null) continue;
+      if (parsed === "invalid" || parsed < 0) errors[`${key}:${line}`] = "Число не меньше нуля";
+      else values[line] = parsed;
+    }
+    payload[key] = values;
+  }
+  if (kind === "ACCEPTANCE_ACT") {
+    const parsed = parseNumber(String(draft.accepted_volume_m3 ?? ""));
+    if (parsed === "invalid" || (typeof parsed === "number" && parsed < 0)) errors.accepted_volume_m3 = "Число не меньше нуля";
+    payload.accepted_volume_m3 = typeof parsed === "number" ? parsed : null;
+  }
+  if (kind === "EXECUTION") {
+    payload.misfired_holes = String(draft.misfired_text ?? "")
+      // Только явные разделители: код блока может содержать пробел («66 север:1»).
+      .split(/[,;\n]+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    payload.hole_notes = Object.fromEntries(
+      ((draft.note_rows ?? []) as Array<{ hole: string; note: string }>)
+        .filter((row) => row.hole.trim() && row.note.trim())
+        .map((row) => [row.hole.trim(), row.note.trim()]),
+    );
+    delete payload.misfired_text;
+    delete payload.note_rows;
+  }
+  return { payload, errors };
+}
+
+type FormProps = {
+  layer: MassBlastLayer;
+  draft: LayerDraft;
+  set: (key: string, value: unknown) => void;
+  disabled: boolean;
+  errors: Record<string, string>;
+  afterBlast: boolean;
+  /** «Запомнить для объекта» у поля слоя (В8); null — не показывать. */
+  remember: (name: string, own: string) => RememberControl | null;
+};
+
+type TextProps = Pick<FormProps, "draft" | "set" | "disabled" | "layer" | "remember">;
+
+/** Значения по умолчанию ручного ввода слоя (сервер, `view.defaults`). */
+function layerDefaults(layer: MassBlastLayer): Record<string, AutoValue> {
+  return ((layer.view ?? {}).defaults ?? {}) as Record<string, AutoValue>;
+}
+
+const str = (value: unknown) => (value === null || value === undefined ? "" : String(value));
+
+function Text({ draft, set, disabled, layer, remember, name, label, type, max, wide, hint }: TextProps & {
+  name: string; label: string; type?: "date" | "time"; max?: number; wide?: boolean; hint?: string;
+}) {
+  return (
+    <TextInput label={label} value={str(draft[name])} type={type} maxLength={max} wide={wide} hint={hint} disabled={disabled}
+      multiline={(max ?? 0) > 300} auto={layerDefaults(layer)[name]} remember={remember(name, str(draft[name]))}
+      onChange={(value) => set(name, value)} />
+  );
+}
+
+function setIn(draft: LayerDraft, set: FormProps["set"], dict: string, key: string, value: string) {
+  set(dict, { ...((draft[dict] ?? {}) as Record<string, string>), [key]: value });
+}
+
+export function NaryadForm({ layer, draft, set, disabled, errors, afterBlast, remember }: FormProps) {
+  const common = { draft, set, disabled, layer, remember };
+  const lines = ((layer.view.lines ?? []) as NaryadLine[]);
+  const reserve = (draft.reserve ?? {}) as Record<string, string>;
+  const issued = (draft.issued ?? {}) as Record<string, string>;
+  const consumed = (draft.consumed ?? {}) as Record<string, string>;
+  const returned = (draft.returned ?? {}) as Record<string, string>;
+  const vvSite = Boolean(draft.vv_site);
+  return (
+    <>
+      <div className="drill-grid">
+        <Text {...common} name="number" label="№ наряда-путёвки" max={40} />
+        <Text {...common} name="issue_date" label="Дата выписки" type="date" />
+        <Text {...common} name="warehouse" label="Склад выдачи" max={200} />
+        <Text {...common} name="permit" label="Разрешение на ведение взрывных работ" max={300} />
+        <Text {...common} name="blaster_index" label="Индивидуальный индекс взрывника" max={40} />
+        <Text {...common} name="vehicle" label="Спецавтомобиль" max={200} />
+        <Text {...common} name="driver" label="Водитель" max={200} />
+        <Text {...common} name="delivery" label="Лица, привлекаемые к доставке" max={300} />
+        <Field label="ВВ изготавливаются на месте (СЗМ)" hint="возврата ВВ нет: остаток заряжается в крайние скважины">
+          {(id) => <input id={id} type="checkbox" checked={vvSite} disabled={disabled} onChange={(event) => set("vv_site", event.target.checked)} />}
+        </Field>
+      </div>
+      <table className="drill-check mb-naryad" aria-label="ВМ наряда-путёвки">
+        <thead>
+          <tr>
+            <th>ВМ</th><th>По проекту</th><th>Запас</th><th>К выдаче</th>
+            {afterBlast && <><th>Выдано</th><th>Израсходовано</th><th>Возвращено</th></>}
+          </tr>
+        </thead>
+        <tbody>
+          {lines.map((line) => {
+            const own = reserve[line.key];
+            const parsed = parseNumber(own ?? "");
+            // Очищенный ручной запас: значение справочника станет известно после сохранения.
+            const cleared = own !== undefined && !own.trim() && line.reserve_source === "MANUAL_OVERRIDE";
+            const extra = typeof parsed === "number" ? parsed : own?.trim() || cleared ? null : line.reserve_qty;
+            // Килограммы — до 0,1 кг, штуки — целые (как в печатной форме).
+            const digits = line.unit === "кг" ? 1 : 3;
+            const toIssue = extra === null ? "—" : ruNum(line.project_qty + extra, digits);
+            const noReturn = vvSite && line.kind === "explosive";
+            return (
+              <tr key={line.key}>
+                <th scope="row">
+                  {line.name}{line.delay_ms !== null && line.delay_ms !== undefined ? ` (${ruNum(line.delay_ms, 0)} мс)` : ""}, {line.unit}
+                  {line.outside_project ? " — вне проекта" : ""}
+                </th>
+                <td>{ruNum(line.project_qty, digits)}</td>
+                <td>
+                  <input aria-label={`Запас: ${line.name}`} inputMode="decimal" value={own ?? ""} disabled={disabled || line.outside_project}
+                    placeholder={line.reserve_source === "MANUAL_OVERRIDE" ? "как в справочнике" : line.reserve_qty ? `${ruNum(line.reserve_qty, 3)} (справочник)` : "0"}
+                    onChange={(event) => setIn(draft, set, "reserve", line.key, event.target.value)} />
+                  {errors[`reserve:${line.key}`] && <small className="form-error">{errors[`reserve:${line.key}`]}</small>}
+                </td>
+                <td title={extra === null ? "пересчитается после сохранения" : undefined}>{toIssue}</td>
+                {afterBlast && (
+                  <>
+                    <td>
+                      <input aria-label={`Выдано: ${line.name}`} inputMode="decimal" value={issued[line.key] ?? ""} disabled={disabled}
+                        onChange={(event) => setIn(draft, set, "issued", line.key, event.target.value)} />
+                    </td>
+                    <td>
+                      <input aria-label={`Израсходовано: ${line.name}`} inputMode="decimal" value={consumed[line.key] ?? ""} disabled={disabled}
+                        placeholder={line.consumed_qty === null || line.consumed_qty === undefined ? "" : `${ruNum(line.consumed_qty, 3)} (факт)`}
+                        onChange={(event) => setIn(draft, set, "consumed", line.key, event.target.value)} />
+                    </td>
+                    <td>
+                      {noReturn ? "—" : (
+                        <input aria-label={`Возвращено: ${line.name}`} inputMode="decimal" value={returned[line.key] ?? ""} disabled={disabled}
+                          placeholder={line.returned_qty === null || line.returned_qty === undefined ? "" : `${ruNum(line.returned_qty, 3)} (выдано − израсходовано)`}
+                          onChange={(event) => setIn(draft, set, "returned", line.key, event.target.value)} />
+                      )}
+                    </td>
+                  </>
+                )}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <small className="drill-hint">
+        Запас добавляет менеджер на случай, если понадобится; «к выдаче» = по проекту + запас. Расчёты проекта
+        (опасные зоны, Q_э, сейсмика) запас не меняет. Больше ВМ после выдачи — новая наряд-путёвка, а не правка этой.
+      </small>
+    </>
+  );
+}
+
+export function NotificationForm({ layer, draft, set, disabled, remember }: FormProps) {
+  const common = { draft, set, disabled, layer, remember };
+  const registry = (layer.seed.addressee ?? {}) as Record<string, unknown>;
+  const fromRegistry = Object.keys(registry).length > 0;
+  return (
+    <>
+      {fromRegistry ? (
+        <small className="drill-hint">
+          Адресат — из справочника уведомлений карьера: {[registry.recipient_position, registry.recipient_name].filter(Boolean).join(" ")}
+        </small>
+      ) : (
+        <div className="drill-grid">
+          <Text {...common} name="recipient_position" label="Адресат — должность, орган" max={300} />
+          <Text {...common} name="recipient_name" label="Адресат — фамилия, инициалы (дательный падеж)" max={120} />
+          <Text {...common} name="salutation" label="Обращение" max={200} />
+        </div>
+      )}
+      <div className="drill-grid">
+        <Text {...common} name="out_no" label="Исх. №" max={40} />
+        <Text {...common} name="out_date" label="Дата" type="date" />
+        {/* Подписант из справочника уведомлений печатается всегда — поле только для показа. */}
+        {fromRegistry && str(registry.signer) ? (
+          <Field label="Подписывает" hint="из справочника уведомлений карьера">
+            {(id) => <input id={id} value={str(registry.signer)} disabled readOnly />}
+          </Field>
+        ) : (
+          <Text {...common} name="signer" label="Подписывает" max={200} />
+        )}
+      </div>
+    </>
+  );
+}
+
+export function ReadinessForm({ layer, draft, set, disabled, remember }: FormProps) {
+  const common = { draft, set, disabled, layer, remember };
+  const conditions = (layer.seed.conditions ?? []) as string[];
+  const marks = (draft.conditions ?? {}) as Record<string, boolean | null>;
+  return (
+    <>
+      <div className="drill-grid">
+        <Text {...common} name="act_date" label="Дата составления акта" type="date" />
+        <Text {...common} name="handed_by" label="Блок передал (должность, Ф. И. О.)" max={200} />
+        <Text {...common} name="accepted_by" label="Блок принял (должность, Ф. И. О.)" max={200} />
+        <Field label="Заключение">
+          {(id) => (
+            <select id={id} value={str(draft.conclusion)} disabled={disabled} onChange={(event) => set("conclusion", event.target.value)}>
+              <option value="">— не отмечено —</option>
+              <option value="READY">готов</option>
+              <option value="NOT_READY">не готов</option>
+            </select>
+          )}
+        </Field>
+        <Field label="Исполнительная съёмка блока выполнена и передана (маркшейдер)">
+          {(id) => <input id={id} type="checkbox" checked={Boolean(draft.survey_handed_over)} disabled={disabled} onChange={(event) => set("survey_handed_over", event.target.checked)} />}
+        </Field>
+      </div>
+      <table className="drill-check" aria-label="Условия готовности">
+        <tbody>
+          {conditions.map((condition, index) => {
+            const key = String(index + 1);
+            const mark = marks[key];
+            return (
+              <tr key={key}>
+                <th scope="row">{index + 1}. {condition}</th>
+                <td>
+                  <select aria-label={`Условие ${index + 1}`} value={mark === true ? "yes" : mark === false ? "no" : ""} disabled={disabled}
+                    onChange={(event) => set("conditions", { ...marks, [key]: event.target.value === "yes" ? true : event.target.value === "no" ? false : null })}>
+                    <option value="">—</option>
+                    <option value="yes">да</option>
+                    <option value="no">нет</option>
+                  </select>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <Text {...common} name="remarks" label="Замечания" max={1000} wide />
+    </>
+  );
+}
+
+export function TalonForm({ layer, draft, set, disabled, remember }: FormProps) {
+  const common = { draft, set, disabled, layer, remember };
+  const notBefore = str(layer.view.admittance_not_before);
+  const source = layer.view.admittance_source === "FACT" ? "по фактическому времени взрыва" : "по проектному времени взрыва";
+  return (
+    <>
+      <div className="drill-grid">
+        <Text {...common} name="fired_date" label="Взрыв произведён — дата" type="date" />
+        <Text {...common} name="fired_time" label="Взрыв произведён — время" type="time" />
+        <Text {...common} name="issued_date" label="Дата выдачи талона" type="date" />
+        <Text {...common} name="issued_time" label="Время выдачи" type="time" />
+        <Text {...common} name="issued_by" label="Выдал" max={200} />
+        <Text {...common} name="received_by" label="Получил" max={200} />
+      </div>
+      {notBefore && (
+        <small className="drill-hint">
+          Допуск не ранее {notBefore}{layer.view.admittance_date ? ` ${str(layer.view.admittance_date).split("-").reverse().join(".")}` : ""} — {source}, + 30 мин (п. 422). Пересчитывается после сохранения.
+        </small>
+      )}
+    </>
+  );
+}
+
+export function AcceptanceForm({ layer, draft, set, disabled, errors, remember }: FormProps) {
+  const common = { draft, set, disabled, layer, remember };
+  const fact = (layer.view.fact ?? {}) as { basis?: string; explosive_kg?: number; q_kg_m3?: number | null; volume_basis?: string };
+  const contour = layer.seed.volume_contour_m3 as number | null | undefined;
+  return (
+    <>
+      <div className="drill-grid">
+        <Text {...common} name="act_date" label="Дата акта" type="date" />
+        <Text {...common} name="contract_no" label="Договор №" max={80} />
+        <Text {...common} name="contract_date" label="Дата договора" type="date" />
+        <Text {...common} name="appendix_no" label="Приложение №" max={20} />
+        <Text {...common} name="customer_person" label="Ответственное лицо заказчика" max={300} />
+        <TextInput label="К оплате по технологическому взрыванию, м³" value={str(draft.accepted_volume_m3)} inputMode="decimal" disabled={disabled}
+          error={errors.accepted_volume_m3}
+          hint={contour ? `объём по маркшейдерскому контуру: ${ruNum(contour, 0)} м³` : undefined}
+          onChange={(value) => set("accepted_volume_m3", value)} />
+      </div>
+      <Text {...common} name="remarks" label="Особые замечания" max={1000} wide />
+      <small className="drill-hint">
+        {fact.basis === "FACT"
+          ? `Параметры — по факту: расход ВВ ${ruNum(fact.explosive_kg, 0)} кг, удельный расход ${ruNum(fact.q_kg_m3 ?? null, 2)} кг/м³ (${fact.volume_basis === "ACCEPTED" ? "к объёму к оплате" : "к объёму по контуру"}).`
+          : "Параметры — по проекту: слой «Факт» не выпущен."}
+        {" "}Пустые реквизиты договора берутся из справочника объекта.
+      </small>
+    </>
+  );
+}
+
+export function ExecutionForm({ layer, draft, set, disabled, remember }: FormProps) {
+  const common = { draft, set, disabled, layer, remember };
+  const blocks = (layer.view.blocks ?? []) as Array<{ code: string; parameter_table: { rows: Array<Record<string, unknown>> } }>;
+  const rows = (draft.note_rows ?? []) as Array<{ hole: string; note: string }>;
+  const multi = blocks.length > 1;
+  return (
+    <>
+      <div className="drill-grid">
+        <Text {...common} name="blast_date" label="Дата взрыва по факту" type="date" />
+        <Text {...common} name="blast_time" label="Время взрыва по факту" type="time" />
+        <TextInput label={multi ? "Отказы — «блок:номер» через запятую" : "Отказы — номера скважин через запятую"} value={str(draft.misfired_text)} disabled={disabled}
+          wide hint="пусто — отказов нет" onChange={(value) => set("misfired_text", value)} />
+      </div>
+      <h4>Примечания по факту к скважинам</h4>
+      {rows.map((row, index) => (
+        <div key={index} className="drill-grid drill-person">
+          <TextInput label={multi ? "Скважина (блок:номер)" : "Скважина №"} value={row.hole} disabled={disabled} maxLength={40}
+            onChange={(value) => set("note_rows", rows.map((item, at) => (at === index ? { ...item, hole: value } : item)))} />
+          <TextInput label="Примечание" value={row.note} disabled={disabled} maxLength={200}
+            onChange={(value) => set("note_rows", rows.map((item, at) => (at === index ? { ...item, note: value } : item)))} />
+          {!disabled && (
+            <button type="button" className="link-button" onClick={() => set("note_rows", rows.filter((_, at) => at !== index))}>Удалить</button>
+          )}
+        </div>
+      ))}
+      {!disabled && (
+        <button type="button" className="secondary-button" onClick={() => set("note_rows", [...rows, { hole: "", note: "" }])}>
+          Добавить примечание
+        </button>
+      )}
+      {blocks.map((block) => {
+        const total = block.parameter_table.rows.length;
+        const drilled = block.parameter_table.rows.filter((row) => row.depth_fact_m !== null && row.depth_fact_m !== undefined).length;
+        const charged = block.parameter_table.rows.filter((row) => row.charged).length;
+        return (
+          <small key={block.code} className="drill-hint">
+            Блок {block.code}: факт бурения — {drilled} из {total}, заряжания — {charged} из {total} скважин. Факт вводится в
+            панелях «Факт бурения / заряжания» «Проектирования».
+          </small>
+        );
+      })}
+    </>
+  );
+}
+
+export const LAYER_FORMS = {
+  NARYAD: NaryadForm,
+  NOTIFICATION: NotificationForm,
+  READINESS_ACT: ReadinessForm,
+  TALON: TalonForm,
+  ACCEPTANCE_ACT: AcceptanceForm,
+  EXECUTION: ExecutionForm,
+} as const;

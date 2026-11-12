@@ -95,6 +95,7 @@ def test_columns_start_with_the_record_fields() -> None:
         "fissuring_ff",
         "relief_min_ms_m",
         "relief_max_ms_m",
+        "blast_rock_group",
     ]
 
 

@@ -13,11 +13,6 @@
 .lifecycle-pill.status-executed { background:#eef2ff; color:#2a3a7a; }
 .lifecycle-pill.status-closed { background:#fdecea; color:#7a2a22; }
 .lifecycle-banner { margin:0 0 14px; padding:10px 12px; border-radius:10px; background:#fde8d4; color:#5a3d12; font-size:12px; font-weight:var(--font-weight-strong); }
-.lifecycle-freeze { color:#8a3b12; background:#fde8d4; border-radius:6px; padding:6px 8px; font-weight:var(--font-weight-strong); }
-.lifecycle-meta { display:flex; flex-wrap:wrap; gap:8px; font-size:10px; color:#5c6a63; }
-.lifecycle-log { list-style:none; margin:0; padding:0; display:grid; gap:4px; }
-.lifecycle-log li { display:grid; gap:2px; padding:6px 8px; border-radius:8px; background:#f6f8f7; font-size:11px; }
-.lifecycle-log small { color:#7b8982; }
 
 .workflow-nav { display:flex; gap:5px; margin:0 0 12px; overflow-x:auto; padding-bottom:2px; scrollbar-width:thin; }
 .workflow-nav button { display:flex; align-items:center; gap:5px; white-space:nowrap; padding:7px 9px; border:1px solid #ced9d3; border-radius:8px; background:#fff; color:#3b4b43; font-size:11px; font-weight:var(--font-weight-strong); }
@@ -45,6 +40,7 @@
 .crs-warning { padding:4px 10px; border-radius:999px; background:#fff3d6; color:#6a4a28; font-size:11px; font-weight:var(--font-weight-strong); white-space:nowrap; }
 .crs-banner { padding:8px 10px; border-radius:8px; background:#fff3d6; color:#6a4a28; font-size:12px; font-weight:var(--font-weight-strong); line-height:1.35; }
 .lifecycle-banner.compact { margin:0; padding:6px 10px; }
+.lifecycle-banner .secondary-button { margin-left:6px; padding:3px 10px; font-size:12px; }
 .design-chrome .history-controls { margin-left:auto; }
 .design-chrome .history-controls button { padding:6px 10px; }
 
@@ -322,7 +318,11 @@
 .grid-preview { width:32px; height:32px; }
 .grid-preview circle { fill:#2d7556; }
 
-.plans-panel .panel-body { gap:12px; }
+.plans-menu { position:relative; flex:0 0 auto; }
+.plans-menu-toggle { padding:6px 10px; border:1px solid #ced9d3; border-radius:9px; background:#fff; color:#3b4b43; font-size:12px; font-weight:var(--font-weight-strong); }
+.plans-menu-popover { position:absolute; top:calc(100% + 6px); left:0; z-index:40; width:min(360px, calc(100vw - 32px)); display:grid; gap:8px; padding:10px; border:1px solid #d9e2dd; border-radius:12px; background:#fff; box-shadow:0 12px 32px rgba(23,35,29,.16); }
+.plans-menu-popover .plans-list { max-height:min(360px, 60vh); }
+.plans-menu-empty { color:#7b8982; font-size:11px; }
 .plans-actions { display:flex; gap:8px; flex-wrap:wrap; }
 .plans-list { list-style:none; margin:6px 0 0; padding:0; display:grid; gap:4px; max-height:220px; overflow:auto; }
 .plans-list li { display:flex; align-items:center; gap:6px; border-radius:9px; }
@@ -455,21 +455,6 @@
 .frag-curve text { fill:#7b8982; font-size:8px; }
 .frag-warnings { color:#a15c32; }
 .movement-disclaimer { color:#6a4a28; }
-.passport-roles { display:flex; flex-wrap:wrap; gap:6px; }
-.passport-role { display:inline-block; padding:3px 8px; border-radius:999px; font-size:10px; font-weight:var(--font-weight-strong); }
-.passport-role.role-designed { background:#e8f3ec; color:#173125; }
-.passport-role.role-executed { background:#eef2ff; color:#2a3a7a; }
-.passport-role.role-predicted { background:#fff3d6; color:#6a4a28; }
-.passport-role.role-measured { background:#fdecea; color:#7a2a22; }
-.passport-disclaimer { color:#6a4a28; }
-.passport-table { display:grid; gap:3px; max-height:280px; overflow:auto; }
-.passport-head, .passport-row { display:grid; grid-template-columns:1.4fr repeat(4, .8fr); gap:6px; font-size:11px; padding:4px 6px; border-radius:6px; }
-.passport-head { color:#5c6a63; font-weight:var(--font-weight-strong); }
-.passport-row { background:#f6f8f7; }
-.passport-row .col-designed { color:#173125; }
-.passport-row .col-executed { color:#2a3a7a; }
-.passport-row .col-predicted { color:#6a4a28; }
-.passport-row .col-measured { color:#7a2a22; }
 .movement-vector line { stroke:#8a5a1a; stroke-width:1.6; opacity:0.9; }
 
 .receptor-marker rect { fill:#c45c1a; stroke:#fff; stroke-width:1.2; }

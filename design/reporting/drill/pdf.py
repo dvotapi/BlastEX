@@ -9,17 +9,14 @@
 from __future__ import annotations
 
 from io import BytesIO
-from pathlib import Path
 from typing import Any, Mapping
 from xml.sax.saxutils import escape
 
-from reportlab.lib.colors import HexColor, white
+from reportlab.lib.colors import white
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
     BaseDocTemplate,
     Frame,
@@ -32,19 +29,24 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+from design.reporting.brand import (  # noqa: F401 — имена доступны и отсюда (ведомость, тесты)
+    ASSETS,
+    FONT,
+    FONT_BOLD,
+    GRAPHITE,
+    GREY,
+    LINE,
+    LOGO_W,
+    RED,
+    TINT,
+    ZEBRA,
+    draw_header,
+    fit_font_size,
+    fit_text,
+    register_fonts as _register_fonts,
+)
 from design.reporting.drill import plan_drawing, rig_scheme
 from design.reporting.drill.layout import DepthPage, PassportLayout, build_layout
-
-ASSETS = Path(__file__).with_name("assets")
-FONT = "BlastEXRoboto"
-FONT_BOLD = "BlastEXRoboto-Bold"
-
-GRAPHITE = HexColor("#2E3237")
-RED = HexColor("#B71C1C")
-TINT = HexColor("#FCEDEE")
-ZEBRA = HexColor("#F3F4F5")
-LINE = HexColor("#C9CCD0")
-GREY = HexColor("#6B7075")
 
 FOOTER = "ООО «Комплексные решения» · Паспорт на бурение · стр. {page} из {total}"
 TITLE_SAFETY = "Меры безопасности. Порядок работ. Установка станка"
@@ -62,14 +64,6 @@ FRAME_H = PAGE_H - TOP - BOTTOM
 CELL_PAD_X = 4
 CELL_PAD_Y = 2
 ACQUAINTANCE_ROW_H = 7.2 * mm
-LOGO_W = 34 * mm
-
-
-def _register_fonts() -> None:
-    if FONT not in pdfmetrics.getRegisteredFontNames():
-        pdfmetrics.registerFont(TTFont(FONT, str(ASSETS / "Roboto-Regular.ttf")))
-        pdfmetrics.registerFont(TTFont(FONT_BOLD, str(ASSETS / "Roboto-Bold.ttf")))
-        pdfmetrics.registerFontFamily(FONT, normal=FONT, bold=FONT_BOLD, italic=FONT, boldItalic=FONT_BOLD)
 
 
 def _style(name: str, size: float, *, bold: bool = False, color=GRAPHITE, align=TA_LEFT, leading: float | None = None,
@@ -188,25 +182,6 @@ def _people_table(title) -> Table:
         ("TOPPADDING", (0, 0), (-1, -1), CELL_PAD_Y), ("BOTTOMPADDING", (0, 0), (-1, -1), CELL_PAD_Y),
     ]))
     return people
-
-
-def fit_text(text: str, font: str, size: float, width: float) -> str:
-    """Строка, обрезанная с «…» по ширине; помещается — как есть."""
-
-    if pdfmetrics.stringWidth(text, font, size) <= width:
-        return text
-    while text and pdfmetrics.stringWidth(text + "…", font, size) > width:
-        text = text[:-1]
-    return text.rstrip() + "…"
-
-
-def fit_font_size(text: str, font: str, size: float, width: float, min_size: float = 4.5) -> float:
-    """Кегль, при котором строка помещается по ширине (не меньше `min_size`)."""
-
-    actual = pdfmetrics.stringWidth(text, font, size)
-    if actual <= width:
-        return size
-    return max(min_size, size * width / actual)
 
 
 # --- страница 2 ----------------------------------------------------------
@@ -385,20 +360,7 @@ def draw_page_frame(
     Пустая шапка или название не рисуются. Общее для паспорта и ведомости."""
 
     canvas.saveState()
-    logo = str(ASSETS / "logo.png")
-    canvas.drawImage(logo, margin_x, page_h - 17 * mm, width=LOGO_W, height=LOGO_W * 738 / 2400, mask="auto")
-    canvas.setStrokeColor(RED)
-    canvas.setLineWidth(1.2)
-    canvas.line(margin_x, page_h - 20 * mm, page_w - margin_x, page_h - 20 * mm)
-    if header:
-        canvas.setFillColor(GREY)
-        canvas.setFont(FONT, 7.5)
-        header_w = page_w - 2 * margin_x - LOGO_W - 8 * mm
-        canvas.drawRightString(page_w - margin_x, page_h - 11.5 * mm, fit_text(header, FONT, 7.5, header_w))
-    if title:
-        canvas.setFillColor(GRAPHITE)
-        canvas.setFont(FONT_BOLD, 8.5)
-        canvas.drawRightString(page_w - margin_x, page_h - 16.5 * mm, title)
+    draw_header(canvas, page_w=page_w, page_h=page_h, margin_x=margin_x, header=header, title=title)
     canvas.setFillColor(GREY)
     canvas.setFont(FONT, 7)
     canvas.drawCentredString(page_w / 2, 8 * mm, footer)

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response
 
+from api import config
 from api.schemas.reference_schema import ReferenceSchemaResponse
 from api.schemas.economics import (
     CalculationRunSchema,
@@ -262,8 +263,9 @@ def put_public_settings(
 
     organization_id, user_id = _identity(session)
     try:
+        current = repository.get_public_sync_settings(organization_id)
         saved = repository.set_public_sync_settings(
-            organization_id, user_id, settings_from_request(payload)
+            organization_id, user_id, settings_from_request(payload, current)
         )
     except PublicWriteError as exc:
         # Таблицу зеркала создать не вышло — отказала чужая схема, а не BlastEX.
@@ -482,9 +484,9 @@ def export_references(
     file_name = f"references-{snapshot.revision_id[:8]}.{format}"
     disposition = f'attachment; filename="{file_name}"'
     if format == "json":
-        return JSONResponse(export_json(snapshot), headers={"Content-Disposition": disposition})
+        return JSONResponse(export_json(snapshot, config.features()), headers={"Content-Disposition": disposition})
     return Response(
-        export_xlsx(snapshot),
+        export_xlsx(snapshot, config.features()),
         media_type=XLSX_MEDIA_TYPE,
         headers={"Content-Disposition": disposition},
     )

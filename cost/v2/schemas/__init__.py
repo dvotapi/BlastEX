@@ -20,6 +20,8 @@ from cost.v2.schemas.costs import (
     UnitFixedCostPayload,
 )
 from cost.v2.schemas.drill_profile import DrillPassportProfilePayload
+from cost.v2.schemas.mass_blast import BlastNotificationPayload, MassBlastProfilePayload, MassBlastSitePayload
+from cost.v2.schemas.safety import BlastSafetyPayload
 from cost.v2.schemas.stakeout_profile import StakeoutProfilePayload
 from cost.v2.schemas.equipment import (
     DrillingConditionPayload,
@@ -137,6 +139,34 @@ SECTION_FIELDSETS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
         )),
         ("Геология", ("geology",)),
     ),
+    "blast_safety": (
+        ("Объект", ("site_code",)),
+        ("Сейсмика", ("k_ground", "k_structure", "alpha_blast", "delay_group_ms", "buildings_damaged")),
+        ("Разлёт кусков", ("people_min_m", "k_mech", "relief_height_m", "slope_angle_deg")),
+        ("Воздушная волна", ("rock_group_ix", "rock_group_v_reduce", "frost", "kz_by_stemming", "kz_by_free", "kn_external")),
+        ("Запас для наряда-путёвки", ("reserve_primers_pcs", "reserve_nsi_pcs", "reserve_starters_pcs")),
+    ),
+    "mass_blast_sites": (
+        ("Объект", ("site_code", "tp_basis", "profile_code")),
+        ("Удельный расход", ("q_tp_kg_m3", "q_tp_source", "q_just")),
+        ("Подписант заказчика", (
+            "customer_approver_position", "customer_approver_name", "customer_approver_is_head",
+            "customer_approver_authority", "customer_tech_contact",
+        )),
+        ("Подписант подрядчика", (
+            "contractor_approver_position", "contractor_approver_name", "contractor_approver_is_head",
+            "contractor_approver_authority",
+        )),
+    ),
+    "mass_blast_profiles": (
+        ("Таблица параметров", ("charge_round_kg",)),
+        ("Сигналы (п. 163)", ("signal_warning", "signal_combat", "signal_clear")),
+        ("Распорядок", ("schedule_texts",)),
+    ),
+    "blast_notifications": (
+        ("Адресат", ("site_code", "recipient_position", "recipient_name", "salutation")),
+        ("Направление", ("channel", "lead_days", "basis", "signer")),
+    ),
     "unit_fixed_costs": (
         ("Отнесение", ("production_unit_code", "scope", "category", "allocation_driver")),
         ("Персонал", ("position_code", "headcount")),
@@ -172,6 +202,10 @@ SECTION_SCHEMAS: dict[str, type[ReferencePayload]] = {
     "drilling_difficulty": DrillingDifficultyPayload,
     "rocks": RockPayload,
     "blast_design_parameters": BlastDesignParameterPayload,
+    "blast_safety": BlastSafetyPayload,
+    "mass_blast_sites": MassBlastSitePayload,
+    "mass_blast_profiles": MassBlastProfilePayload,
+    "blast_notifications": BlastNotificationPayload,
     "bench_surface_conditions": BenchSurfaceConditionPayload,
     "stakeout_modes": StakeoutModePayload,
     "site_infrastructure": SiteInfrastructurePayload,

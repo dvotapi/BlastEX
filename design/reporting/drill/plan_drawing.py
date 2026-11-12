@@ -12,6 +12,7 @@ from reportlab.lib.colors import HexColor, white
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 
+from design.reporting import plan_sheet
 from design.reporting.drill.plan import PLAN_H_MM, PLAN_W_MM, PlanSheet
 
 GRAPHITE = HexColor("#2E3237")
@@ -27,17 +28,7 @@ def _pts(line) -> list[float]:
     return [value * mm for point in line for value in point]
 
 
-def _north_arrow(x: float, y: float, font: str) -> Group:
-    """Стрелка «С» с вершиной в (x, y), pt."""
-
-    w, h = 4 * mm, 9 * mm
-    group = Group(
-        Polygon([x, y, x - w, y - h * 0.55, x - w * 0.35, y - h * 0.55, x - w * 0.35, y - h,
-                 x + w * 0.35, y - h, x + w * 0.35, y - h * 0.55, x + w, y - h * 0.55],
-                fillColor=white, strokeColor=GRAPHITE, strokeWidth=0.6),
-    )
-    group.add(String(x, y - h - 4 * mm, "С", fontName=font, fontSize=10, fillColor=GRAPHITE, textAnchor="middle"))
-    return group
+_north_arrow = plan_sheet.north_arrow
 
 
 def drawing(sheet: PlanSheet, *, font: str, bold_font: str) -> Drawing:
@@ -75,19 +66,7 @@ ARROW_H = 16 * mm
 
 
 def _scale_bar(sheet: PlanSheet, x: float, y: float, font: str) -> Group:
-    group = Group()
-    length = sheet.bar_mm * mm
-    half = length / 2
-    for index, fill in enumerate((GRAPHITE, white)):
-        group.add(Rect(x + index * half, y, half, 1.4 * mm, fillColor=fill, strokeColor=GRAPHITE, strokeWidth=0.4))
-    for offset, text in ((0, "0"), (half, _bar_text(sheet.bar_m / 2)), (length, f"{sheet.bar_m} м")):
-        group.add(String(x + offset, y + 2.2 * mm, text, fontName=font, fontSize=6.5, fillColor=GRAPHITE,
-                         textAnchor="middle"))
-    return group
-
-
-def _bar_text(value: float) -> str:
-    return str(int(value)) if value == int(value) else str(value).replace(".", ",")
+    return plan_sheet.scale_bar(sheet.bar_m, sheet.bar_mm, x, y, font)
 
 
 def _legend_items(sheet: PlanSheet) -> list[tuple[str, str]]:

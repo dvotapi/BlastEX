@@ -15,6 +15,9 @@ DRILL_PASSPORT_ENABLED_ENV = "BLASTEX_DRILL_PASSPORT_ENABLED"
 # Выгрузка DWG скважин паспорта (TASK-015, PR 4) — выключена: LibreDWG 0.14
 # пишет R2000, который AutoCAD 2022 не открывает (решение владельца 10.11.2026).
 DWG_EXPORT_ENABLED_ENV = "BLASTEX_DWG_EXPORT_ENABLED"
+# Проект массового взрыва по форме ВМ.09.03 (TASK-018) — за флагом до PR 6
+# (интерфейс). В PR 1 флаг прячет только раздел справочника `blast_safety`.
+MASS_BLAST_V2_ENABLED_ENV = "BLASTEX_MASS_BLAST_V2_ENABLED"
 
 # Префиксы ML-слоя: роутеры регистрируются только при включённом флаге.
 INTELLIGENCE_PREFIXES: tuple[str, ...] = (
@@ -73,7 +76,21 @@ def dwg_export_enabled() -> bool:
     return os.getenv(DWG_EXPORT_ENABLED_ENV, "").strip().lower() in _TRUE_VALUES
 
 
+def mass_blast_v2_enabled() -> bool:
+    """Включён ли проект МВ по форме ВМ.09.03 (TASK-018).
+
+    С PR 6 по умолчанию включён: выключает только явное «нет»
+    (`0`, `false`, `no`, `off`, `нет`).
+    """
+
+    return os.getenv(MASS_BLAST_V2_ENABLED_ENV, "").strip().lower() not in _FALSE_VALUES
+
+
 def features() -> dict[str, bool]:
     """Состав включённых модулей — фронт скрывает разделы по этому ответу."""
 
-    return {"intelligence": intelligence_enabled(), "drill_passport": drill_passport_enabled()}
+    return {
+        "intelligence": intelligence_enabled(),
+        "drill_passport": drill_passport_enabled(),
+        "mass_blast_v2": mass_blast_v2_enabled(),
+    }

@@ -11,15 +11,17 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+import shapely
 from reportlab.graphics.shapes import Circle, Drawing, Group, Line, Polygon, PolyLine, Rect, String
 from reportlab.lib.colors import HexColor, white
 from reportlab.lib.units import mm
 from reportlab.platypus import Table, TableStyle
+from shapely.geometry import Polygon as ShapelyPolygon
 
 from design.reporting import plan_sheet
 from design.reporting.brand import FONT, FONT_BOLD, GRAPHITE, GREY, LINE, RED
 from design.reporting.mass_blast.common import cell, grid_style, num, p, rich, spacer, text
-from design.reporting.mass_blast.graphics.sheet import FIELD_H_MM, FIELD_W_MM, LEGEND_H_MM, ORANGE, SITUATION, pts
+from design.reporting.mass_blast.graphics.sheet import FIELD_H_MM, FIELD_W_MM, LEGEND_H_MM, ORANGE, SITUATION, fit, pts
 from design.reporting.plan_sheet import PlanView
 
 SITUATION_SCALES = (2000, 5000, 10000, 25000)
@@ -46,6 +48,7 @@ POINT_CODES = {"guard_post": "П", "blast_station": "ВС", "shelter": "У", "ga
 POINT_TITLES = {"blast_station": "Взрывная станция", "shelter": "Укрытие", "gather": "Место сбора"}
 SCHEDULE_KEYS = {"blast_station": "station", "shelter": "shelter", "gather": "gather"}
 NO_SITUATION = "Ситуации карьера нет: объекты, посты и дороги привязать по плану карьера."
+NOT_FITTED = "План не помещается в масштаб 1:25 000: часть зон, объектов и постов — за краем листа (см. таблицы справа)."
 
 
 def _extent(graphics: Mapping[str, Any]) -> list[tuple[float, float]]:
@@ -121,8 +124,13 @@ def map_drawing(context: Mapping[str, Any], view: PlanView) -> Drawing:
                          fillColor=style["strokeColor"]))
     for ring in graphics.get("outlines") or ():
         line = view.line(plan_sheet.line(ring))
-        if len(line) >= 3:
-            d.add(Polygon(pts(line), fillColor=RED, strokeColor=RED, strokeWidth=0.6))
+        if len(line) < 3:
+            continue
+        # Блок за краем карты (план не поместился) не рисуется поверх таблиц справа.
+        clipped = shapely.clip_by_rect(ShapelyPolygon(line).buffer(0), 0.0, 0.0, MAP_W_MM, MAP_H_MM)
+        for part in getattr(clipped, "geoms", [clipped]):
+            if part.geom_type == "Polygon" and not part.is_empty:
+                d.add(Polygon(pts(list(part.exterior.coords)[:-1]), fillColor=RED, strokeColor=RED, strokeWidth=0.6))
     objects = {str(item.get("key")): item for item in context.get("protected_objects") or ()}
     for item in graphics.get("objects") or ():
         link = plan_sheet.line(item.get("link") or ())
@@ -144,8 +152,10 @@ def map_drawing(context: Mapping[str, Any], view: PlanView) -> Drawing:
         code = POINT_CODES.get(kind, "")
         label = f"{code}{item.get('number')}" if kind == "guard_post" else code
         d.add(_marker(kind, x * mm, y * mm, label))
-    if not graphics.get("has_situation"):
-        d.add(String(3 * mm, (MAP_H_MM - 6) * mm, NO_SITUATION, fontName=FONT_BOLD, fontSize=6.5, fillColor=RED))
+    notes = ([] if graphics.get("has_situation") else [NO_SITUATION]) + ([] if view.fits else [NOT_FITTED])
+    for index, note in enumerate(notes):
+        d.add(String(3 * mm, (MAP_H_MM - 6 - 4 * index) * mm, fit(note, 6.5, (MAP_W_MM - 6) * mm, bold=True),
+                     fontName=FONT_BOLD, fontSize=6.5, fillColor=RED))
     d.add(plan_sheet.north_arrow(9 * mm, (MAP_H_MM - 10) * mm, FONT_BOLD))
     bar_m, bar_mm = plan_sheet.bar(view.scale, steps=(50, 100, 200, 250, 500, 1000, 2000), target_mm=45.0)
     d.add(String(3 * mm, 9 * mm, f"Масштаб 1:{view.scale:,}".replace(",", " "), fontName=FONT_BOLD, fontSize=8,

@@ -353,3 +353,27 @@ def test_szm_routes_fit_the_shared_view():
         for point in item["points"]:
             x, y = view.xy(tuple(point))
             assert 0 <= x <= FIELD_W_MM and 0 <= y <= FIELD_H_MM
+
+
+def test_situation_that_does_not_fit_says_so(context):
+    data = copy.deepcopy(context)
+    graphics = data["graphics"]
+    # Второй блок за 6 км: в 1:25 000 охват не помещается — лист говорит об этом, блоки не лезут на таблицы.
+    far = [[x + 6000.0, y] for x, y in graphics["outlines"][0]]
+    graphics["outlines"].append(far)
+    view = situation.situation_view(graphics)
+    assert view.scale == 25000 and not view.fits
+    text = _text(_pages(render_project_document(data, "graphics"))[4])
+    assert "не помещается в масштаб 1:25 000" in text
+    drawing = situation.map_drawing(data, view)
+    from reportlab.graphics.shapes import Polygon
+
+    for shape in drawing.contents:
+        if isinstance(shape, Polygon):
+            xs = shape.points[0::2]
+            assert max(xs) <= situation.MAP_W_MM * mm + 0.01
+
+
+def test_fit_view_marks_overflow():
+    assert fit_view(_rect(40, 20), FIELD_W_MM, FIELD_H_MM, pad_mm=FIELD_PAD_MM).fits
+    assert not fit_view(_rect(5000, 5000), FIELD_W_MM, FIELD_H_MM, pad_mm=FIELD_PAD_MM).fits

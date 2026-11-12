@@ -175,7 +175,12 @@ def _common_items(graphics: Mapping[str, Any], *, crests: bool) -> list[tuple[st
     return items
 
 
+NOT_FITTED = "Блок не помещается на лист и в 1:5000: часть плана — за краем поля."
+
+
 def _legend(view: PlanView, items, notes) -> Drawing:
+    if not view.fits:
+        notes = [(NOT_FITTED, RED), *notes]
     bar_m, bar_mm = plan_sheet.bar(view.scale)
     return legend_band(scale=view.scale, bar_m=bar_m, bar_mm=bar_mm, items=items, notes=notes, north=view.north)
 

@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Iterable, Mapping, Sequence
 
 import numpy as np
@@ -120,6 +120,7 @@ class PlanView:
     oy: float
     cu: float = 0.0
     cv: float = 0.0
+    fits: bool = True           # False — не помещается и в самом мелком масштабе ряда
 
     @property
     def k(self) -> float:
@@ -174,7 +175,8 @@ def fit_view(
     если «север вверх» требует мельче `rotate_from` — поворот (0…179° шагом
     1°, угол с наибольшим запасом) в `rotate_from`; не помещается ни при каком
     угле — следующий масштаб ряда (сначала «север вверх», потом поворот).
-    Не помещается и в самом мелком — самый мелкий с лучшим углом.
+    Не помещается и в самом мелком — самый мелкий с лучшим углом и
+    `fits=False`: лист обязан сказать, что часть плана за его краем.
     """
 
     data = np.array([p for p in points], dtype=float).reshape(-1, 2)
@@ -220,7 +222,7 @@ def fit_view(
             return view(scale, 0.0)
         if rotate_from is not None and need(best_angle()) <= scale + eps:
             return view(scale, best_angle())
-    return view(series[-1], best_angle() if rotate_from is not None else 0.0)
+    return replace(view(series[-1], best_angle() if rotate_from is not None else 0.0), fits=False)
 
 
 # --------------------------------------------------------------- элементы листа

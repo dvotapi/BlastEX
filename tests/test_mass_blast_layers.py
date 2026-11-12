@@ -602,3 +602,22 @@ def test_acceptance_grid_is_resolved_per_block():
     }
     view, _issues = acceptance_view(seed, {})
     assert [(g["code"], g["basis"], g["spacing_m"]) for g in view["grids"]] == [("66", "FACT", 4.0), ("67", "PROJECT", 5.0)]
+
+
+def test_naryad_lines_carry_the_material_code_to_find_the_fact(context66_v2):
+    from design.mass_blast_layers import naryad_after_blast
+
+    seed = layer_seed("NARYAD", context66_v2)
+    primer = _line(seed["materials"], "primer")
+    assert primer["material_code"] == "MAT_PD_1000"
+    lines = naryad_lines(seed, {}, {})
+    seed["fact"] = {"blocks": [], "consumption": [
+        {"key": "primer:Другая подпись:", "kind": "primer", "name": "Другая подпись", "unit": "шт", "delay_ms": None,
+         "material_code": "MAT_PD_1000", "quantity": 197.0, "mass_kg": 197.0, "mass_known": True},
+    ]}
+    key = _line(lines, "primer")["key"]
+    after, _blocks, issues = naryad_after_blast(seed, {"issued": {key: 198}}, lines)
+    row = next(line for line in after if line["key"] == key)
+    assert row["consumed_qty"] == 197 and row["returned_qty"] == 1
+    assert not any(line.get("outside_project") for line in after)
+    assert "fact_material_not_in_project" not in {issue["code"] for issue in issues}

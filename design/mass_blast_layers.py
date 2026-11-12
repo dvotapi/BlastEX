@@ -145,11 +145,15 @@ def _consumption(context: Mapping[str, Any]) -> list[dict[str, Any]]:
                     "name": line.get("name", ""),
                     "unit": line.get("unit", ""),
                     "delay_ms": line.get("delay_ms"),
+                    # Код материала справочника — по нему строка наряда находит факт (PR 5).
+                    "material_code": line.get("material_code", ""),
                     "project_qty": 0.0,
                     "mass_kg": None,
                     "mass_known": True,
                 },
             )
+            if not row["material_code"] and line.get("material_code"):
+                row["material_code"] = line["material_code"]
             row["project_qty"] = round(row["project_qty"] + float(line.get("quantity") or 0.0), 3)
             # Масса ПД неизвестна (`primer_mass_unknown`: расход пишет 0) — масса строки
             # неизвестна целиком, а не занижена: в наряд не идут нулевые килограммы.

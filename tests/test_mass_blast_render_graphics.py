@@ -260,7 +260,7 @@ def test_long_signature_and_crowded_legend_keep_one_page_per_sheet(context):
     data = copy.deepcopy(context)
     data["requisites"]["made_by"] = {"position": "ведущий " * 25, "name": "Фамилия-Длинная " * 12}
     network = data["blocks_v2"][0]["graphics"]["network"]
-    network["groups"] = [{"label": f"НСИ «Искра-П» длинное название марки № {n} — {n * 17} мс", "count": n} for n in range(12)]
+    network["groups"] = [{"label": f"НСИ «Искра-П» длинное название марки № {n} — {n * 17} мс", "count": n} for n in range(40)]
     pages = _pages(render_project_document(data, "graphics"))
     assert len(pages) == 5
     _field, legend = plans.g4_drawings(data["blocks_v2"][0]["graphics"], plans.block_view(data["blocks_v2"][0]["graphics"]))
@@ -272,6 +272,7 @@ def test_long_signature_and_crowded_legend_keep_one_page_per_sheet(context):
             yield shape
 
     assert min(item.y for item in strings(legend)) >= 0          # ничего не легло на подпись
+    assert any(item.text.startswith("также: ") for item in strings(legend))   # лишние группы — строкой
 
 
 def test_sheet_overflow_is_an_error(context):

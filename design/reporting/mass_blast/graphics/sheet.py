@@ -133,17 +133,29 @@ def legend_band(
     d.add(String(30 * mm + bar_mm * mm + 9 * mm, top, note, fontName=FONT, fontSize=LEGEND_SIZE, fillColor=GREY))
     room = width - arrow_room
     # Строки условных обозначений и примечаний должны уместиться в полосу
-    # (иначе легли бы на подпись): кегль уменьшается, а не помещающиеся
+    # (иначе легли бы на подпись): кегль уменьшается; если и в самом мелком
+    # не помещается — лишние обозначения идут одной строкой «также: …», а
     # примечания склеиваются в последнюю строку с обрезкой.
     for size in LEGEND_SIZES:
         row_mm = LEGEND_ROW_MM * size / LEGEND_SIZE
+        row_pt = row_mm * mm
+        # Строк обозначений — столько, чтобы под ними осталась строка примечаний.
+        max_rows = max(1, int((top + 0.2 * mm) // row_pt) - 1) if notes else max(1, int((top - 0.6 * mm) // row_pt))
         placed, rows = _place_items(items, size, room)
-        notes_top = top - row_mm * mm * (rows + 1) + 0.2 * mm
+        if rows > max_rows and size == LEGEND_SIZES[-1]:
+            overflow = [label for _kind, _style, label, _x, row in placed if row >= max_rows]
+            placed = [item for item in placed if item[4] < max_rows]
+            placed.append(("text", {}, "также: " + "; ".join(overflow), 0.0, max_rows))
+            rows = max_rows
+        notes_top = top - row_pt * (rows + 1) + 0.2 * mm
         capacity = max(0, int(notes_top // (size * 1.3)) + 1)
-        if len(notes) <= capacity or size == LEGEND_SIZES[-1]:
+        if (rows <= max_rows and len(notes) <= capacity) or size == LEGEND_SIZES[-1]:
             break
     for kind, style, label, x, row in placed:
         y = top - row_mm * mm * row - 0.6 * mm
+        if kind == "text":
+            d.add(String(x, y + 0.3 * mm, fit(label, size, room), fontName=FONT, fontSize=size, fillColor=GRAPHITE))
+            continue
         d.add(_symbol(kind, x, y, style))
         d.add(String(x + 9 * mm, y + 0.3 * mm, label, fontName=FONT, fontSize=size, fillColor=GRAPHITE))
     lines = list(notes)

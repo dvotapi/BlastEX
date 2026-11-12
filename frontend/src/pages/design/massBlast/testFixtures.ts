@@ -60,6 +60,12 @@ export function validation(changes: Partial<MassBlastValidationV2> = {}): MassBl
         points: [],
       },
     },
+    defaults: {
+      "requisites.tp_basis": { value: "ТП из справочника", source: "REFERENCE" },
+      "requisites.project_no": { value: "66-26/МВ", source: "RULE" },
+      "explosives.initiation": { value: "Неэлектрическая система инициирования (НСИ)", source: "DESIGN" },
+    },
+    rememberable: { "requisites.tp_basis": "ТП из справочника", "schedule.station": null },
     ...changes,
   };
 }

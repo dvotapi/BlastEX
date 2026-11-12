@@ -220,7 +220,24 @@ export type MassBlastContextV2 = {
   }>;
 };
 
-export type MassBlastValidationV2 = { valid: boolean; issues: MassBlastIssue[]; context: MassBlastContextV2 };
+/** Значение по умолчанию поля (§14 плана PR 6): что подставится в пустое поле и откуда. */
+export type FieldDefault = { value: unknown; source: string };
+
+export type MassBlastValidationV2 = {
+  valid: boolean;
+  issues: MassBlastIssue[];
+  context: MassBlastContextV2;
+  /** Путь поля payload → значение по умолчанию. */
+  defaults?: Record<string, FieldDefault>;
+  /** «Запомнить для объекта»: путь поля → значение в справочнике объекта (null — пусто). */
+  rememberable?: Record<string, unknown>;
+};
+
+export type SuggestedLayout = {
+  posts: Array<{ code: string; location: string }>;
+  points: MassBlastLayoutPoint[];
+  reason: string;
+};
 
 export type MassBlastHints = {
   previous_project_no: string;

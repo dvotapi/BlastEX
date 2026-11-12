@@ -37,3 +37,7 @@
   .drill-post { grid-template-columns:1fr; }
 }
 .mb-content fieldset > button, .mb-content fieldset > .drill-object > button { justify-self:start; }
+/* Значение по умолчанию в поле (§14, В1): серым курсивом, пока не правили. */
+.drill-field.mb-auto input, .drill-field.mb-auto textarea { color:#52625a; font-style:italic; background:#f7f9f8; }
+.mb-reset { justify-self:start; font-size:11px; }
+.mb-remember { font-size:11px; color:#3b4b43; }

@@ -1,15 +1,49 @@
 // Вкладка «Посты и план»: посты охраны (п. 35 распорядка) и точки на
 // ситуационном плане Г.5 — постов, взрывной станции, укрытия, места сбора.
 import { useState } from "react";
+import { api } from "../../../api/endpoints";
 import type { LayoutPointKind } from "../../../types/massBlast";
 import { issuesFor, numberText, POINT_KINDS } from "./form";
 import { LayoutPlan } from "./LayoutPlan";
 import type { TabProps } from "./ProjectTabs";
-import { Field, Issues, ruNum, TextInput } from "./ui";
+import { errorText, Field, Issues, ruNum, TextInput } from "./ui";
 
 const KIND_LABEL = Object.fromEntries(POINT_KINDS.map((item) => [item.code, item.label])) as Record<LayoutPointKind, string>;
 
-export function PostsTab({ form, edit, editable, errors, issues, context }: TabProps) {
+export function PostsTab({ form, edit, editable, errors, issues, context, projectId }: TabProps & { projectId: string }) {
+  const [suggesting, setSuggesting] = useState(false);
+  const [note, setNote] = useState<{ text: string; error: boolean } | null>(null);
+
+  /** «Предложить посты» (В6): посты на пересечениях дорог с границей зоны, станция и укрытие за зоной. */
+  async function suggest() {
+    setSuggesting(true);
+    setNote(null);
+    try {
+      const result = await api.massBlast.suggestLayout(projectId);
+      if (!result.posts.length && !result.points.length) {
+        setNote({ text: result.reason || "Предложить нечего.", error: false });
+        return;
+      }
+      const replacing = form.guard_posts.length > 0 || form.points.some((point) => point.kind !== "gather");
+      if (replacing && !window.confirm("Заменить посты, взрывную станцию и укрытие предложенными? Место сбора останется.")) return;
+      edit((draft) => {
+        draft.guard_posts = result.posts.map((post) => ({ code: post.code, location: post.location, responsible_employee_code: "", notes: "" }));
+        draft.points = [
+          ...draft.points.filter((point) => point.kind === "gather"),
+          ...result.points.map((point) => ({ ...point, x: String(point.x).replace(".", ","), y: String(point.y).replace(".", ",") })),
+        ];
+      });
+      setNote({
+        text: `Предложено постов: ${result.posts.length}. Проверьте места на плане и сохраните проект.${result.reason ? ` ${result.reason}` : ""}`,
+        error: false,
+      });
+    } catch (reason) {
+      setNote({ text: errorText(reason, "Не удалось предложить посты."), error: true });
+    } finally {
+      setSuggesting(false);
+    }
+  }
+
   const disabled = !editable;
   const [kind, setKind] = useState<LayoutPointKind>("guard_post");
   const posts = form.guard_posts.map((post) => post.code.trim()).filter(Boolean);
@@ -59,6 +93,13 @@ export function PostsTab({ form, edit, editable, errors, issues, context }: TabP
           </div>
         ))}
         {errors.guard_posts && <small className="form-error">{errors.guard_posts}</small>}
+        {editable && context?.graphics?.has_situation && (
+          <button type="button" className="secondary-button" disabled={suggesting} onClick={() => void suggest()}
+            title="Посты — где дороги пересекают границу зоны для людей, станция и укрытие — за зоной">
+            Предложить посты
+          </button>
+        )}
+        {note && <small className={note.error ? "form-error" : "drill-message"}>{note.text}</small>}
         {editable && (
           <button type="button" className="secondary-button" onClick={() => edit((draft) => {
             const used = new Set(draft.guard_posts.map((post) => post.code));

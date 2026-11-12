@@ -17,6 +17,8 @@ vi.mock("../../../api/endpoints", () => ({
       approveRevision: vi.fn(),
       transition: vi.fn(),
       revision: vi.fn(),
+      remember: vi.fn(),
+      suggestLayout: vi.fn(),
       layers: vi.fn(),
       layersAvailable: vi.fn(),
       addressees: vi.fn(),
@@ -66,11 +68,32 @@ beforeEach(() => {
 });
 
 describe("окно проекта МВ", () => {
-  it("подсказка пустого поля — значение справочника; № прошлого проекта", async () => {
+  it("в пустом поле — значение по умолчанию с источником; правка делает его своим, «↺» возвращает", async () => {
+    const user = userEvent.setup();
     render(<MassBlastDialog project={projectV2()} onClose={() => {}} onChange={() => {}} />);
-    expect(await screen.findByText("из справочника объекта: ТП из справочника")).toBeTruthy();
-    expect(await screen.findByText(/№ прошлого проекта объекта: 65-МВ от 01\.11\.2026/)).toBeTruthy();
-    expect(screen.getByText("из справочника объекта: Заказчиков З. З.")).toBeTruthy();
+    const number = (await screen.findByLabelText("№ проекта")) as HTMLInputElement;
+    await waitFor(() => expect(number.value).toBe("66-26/МВ"));
+    expect(screen.getByText("правило")).toBeTruthy();
+    expect((screen.getByLabelText("Составлен на основании (типовой проект)") as HTMLInputElement).value).toBe("ТП из справочника");
+    await user.clear(number);
+    await user.type(number, "66-МВ-1");
+    expect(number.value).toBe("66-МВ-1");
+    await user.click(screen.getByRole("button", { name: /↺ правило: 66-26\/МВ/ }));
+    expect(number.value).toBe("66-26/МВ");
+  });
+
+  it("«Запомнить для объекта»: заполненное поле, пустое в справочнике, уходит в справочник после сохранения", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.me).mockResolvedValue({ email: "lead@example.test", role: "admin" } as never);
+    vi.mocked(api.massBlast.remember).mockReset().mockResolvedValue({ revision_id: "r2", fields: ["station"] });
+    render(<MassBlastDialog project={projectV2()} onClose={() => {}} onChange={() => {}} />);
+    await user.click(await screen.findByRole("button", { name: "Распорядок" }));
+    // «станция» уже введена в проекте, в справочнике пусто — галочка включена.
+    const box = (await screen.findByRole("checkbox", { name: "Запомнить для объекта" })) as HTMLInputElement;
+    expect(box.checked).toBe(true);
+    await user.type(screen.getByLabelText("Место укрытия"), "у въезда");
+    await user.click(screen.getByRole("button", { name: "Сохранить" }));
+    await waitFor(() => expect(api.massBlast.remember).toHaveBeenCalledWith("p1", { paths: ["schedule.station"] }));
   });
 
   it("сохраняет правку с версией черновика и числом с запятой", async () => {
@@ -156,6 +179,24 @@ describe("окно проекта МВ", () => {
     await user.click(await screen.findByRole("button", { name: "Обновить снимок блоков" }));
     await waitFor(() => expect(api.massBlast.saveV2).toHaveBeenCalledWith("p1", expect.objectContaining({ expected_version: 3 })));
     await waitFor(() => expect(screen.queryByRole("button", { name: "Обновить снимок блоков" })).toBeNull());
+  });
+
+  it("«Предложить посты» ставит посты и точки в форму", async () => {
+    const user = userEvent.setup();
+    const base = validation();
+    vi.mocked(api.massBlast.validateV2).mockResolvedValue({ ...base, context: { ...base.context, graphics: { ...base.context.graphics!, has_situation: true } } });
+    vi.mocked(api.massBlast.suggestLayout).mockReset().mockResolvedValue({
+      posts: [{ code: "1", location: "Карьерная дорога, на границе опасной зоны (750 м)" }],
+      points: [{ kind: "guard_post", ref: "1", x: 100.5, y: 200, label: "" }, { kind: "blast_station", ref: "", x: -800, y: 0, label: "" }],
+      reason: "",
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<MassBlastDialog project={projectV2()} onClose={() => {}} onChange={() => {}} />);
+    await user.click(await screen.findByRole("button", { name: "Посты и план" }));
+    await user.click(await screen.findByRole("button", { name: "Предложить посты" }));
+    expect(await screen.findByDisplayValue("Карьерная дорога, на границе опасной зоны (750 м)")).toBeTruthy();
+    expect(screen.getByDisplayValue("100,5")).toBeTruthy();
+    expect(screen.getByText(/Предложено постов: 1/)).toBeTruthy();
   });
 
   it("ручные коэффициенты подписаны по схеме справочника, с источником значения", async () => {

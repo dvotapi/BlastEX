@@ -94,6 +94,18 @@ describe("слои дня взрыва", () => {
     expect(screen.getByRole("button", { name: "Перенести данные заново" })).toBeTruthy();
   });
 
+  it("поля наряда показывают значения по умолчанию с источником", async () => {
+    const base = layer();
+    vi.mocked(api.massBlast.layers).mockResolvedValue([{
+      ...base,
+      view: { ...base.view, defaults: { warehouse: { value: "Склад № 1", source: "REFERENCE" }, issue_date: { value: "2026-11-20", source: "RULE" } } },
+    }]);
+    render(<DayTab project={approved} />);
+    expect(((await screen.findByLabelText("Склад выдачи")) as HTMLInputElement).value).toBe("Склад № 1");
+    expect((screen.getByLabelText("Дата выписки") as HTMLInputElement).value).toBe("2026-11-20");
+    expect(screen.getByText("справочник объекта")).toBeTruthy();
+  });
+
   it("графы после взрыва — только когда взрыв произведён", async () => {
     const { unmount } = render(<DayTab project={approved} />);
     await screen.findByLabelText("Запас: ВВ");

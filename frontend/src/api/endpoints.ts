@@ -169,6 +169,7 @@ import type {
   MassBlastValidationV2,
   NotificationAddressees,
   ProjectDocument,
+  SuggestedLayout,
 } from "../types/massBlast";
 import type {
   CadAreaBasis,
@@ -1073,11 +1074,15 @@ export const api = {
     revisionDocumentUrl: (revisionId: string, document: ProjectDocument) =>
       `${MB}/revisions/${encodeURIComponent(revisionId)}/documents/${document}.pdf`,
     packageUrl: (revisionId: string) => `${MB}/revisions/${encodeURIComponent(revisionId)}/package.zip`,
+    remember: (id: string, payload: { paths: string[]; layer_id?: string | null }) =>
+      post<{ revision_id: string; fields: string[] }>(`${MB}/${encodeURIComponent(id)}/remember`, payload),
+    suggestLayout: (id: string) => post<SuggestedLayout>(`${MB}/${encodeURIComponent(id)}/suggest-layout`, {}),
     layersAvailable: (id: string) => get<LayerAvailability[]>(`${MB}/${encodeURIComponent(id)}/layers/available`),
     addressees: (id: string) => get<NotificationAddressees>(`${MB}/${encodeURIComponent(id)}/notification-addressees`),
     layers: (id: string) => get<MassBlastLayer[]>(`${MB}/${encodeURIComponent(id)}/layers`),
     createLayer: (id: string, payload: { kind: LayerKind; payload?: Record<string, unknown> }) =>
       post<MassBlastLayer>(`${MB}/${encodeURIComponent(id)}/layers`, payload),
+    getLayer: (layerId: string) => get<MassBlastLayer>(`${MB}/layers/${encodeURIComponent(layerId)}`),
     saveLayer: (layerId: string, payload: { payload: Record<string, unknown>; expected_version: number }) =>
       put<MassBlastLayer>(`${MB}/layers/${encodeURIComponent(layerId)}`, payload),
     refreshLayer: (layerId: string, payload: { expected_version: number; confirm: boolean }) =>

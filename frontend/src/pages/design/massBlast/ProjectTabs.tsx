@@ -11,7 +11,7 @@ import type {
   ProtectedObjectRow,
 } from "../../../types/massBlast";
 import { APPROVAL_ROLES, EMPTY_PERSON, issuesFor, ZONE_KINDS, type ObjectForm, type ProjectForm, type SignerForm } from "./form";
-import { Field, fromReference, Issues, ruNum, TextInput } from "./ui";
+import { autoText, Field, Issues, ruNum, SOURCE_LABELS, TextInput, type AutoValue, type RememberControl } from "./ui";
 
 export type TabProps = {
   form: ProjectForm;
@@ -20,16 +20,27 @@ export type TabProps = {
   errors: Record<string, string>;
   issues: MassBlastIssue[];
   context: MassBlastContextV2 | null;
+  /** Значения по умолчанию полей (сервер, §14 плана PR 6): путь → значение и источник. */
+  defaults: Record<string, AutoValue>;
+  /** Галочка «Запомнить для объекта» у поля объекта (null — не показывать). */
+  remember: (path: string, own: string) => RememberControl | null;
 };
 
-const SOURCE_LABELS: Record<string, string> = {
+/** Пустой вариант списка: значение по умолчанию и его источник, иначе «не указано». */
+function autoOption(auto: AutoValue | undefined, labels: Record<string, string>): string {
+  const value = autoText(auto);
+  if (!value || !auto) return "— не указано —";
+  return `${labels[value] ?? value} (${SOURCE_LABELS[auto.source] ?? "автоматически"})`;
+}
+
+const PARAM_SOURCE_LABELS: Record<string, string> = {
   REFERENCE: "справочник",
   MANUAL_OVERRIDE: "задано в проекте",
   DESIGN: "проект блока",
   CALCULATED: "расчёт",
   FORM_DEFAULT: "форма v0.11",
 };
-const sourceLabel = (source: string | undefined) => (source ? SOURCE_LABELS[source] ?? "справочник" : "");
+const sourceLabel = (source: string | undefined) => (source ? PARAM_SOURCE_LABELS[source] ?? "справочник" : "");
 
 const valueText = (value: MassBlastValue) =>
   typeof value.value === "number" ? `${ruNum(value.value, 3)}${value.unit ? ` ${value.unit}` : ""}` : `${value.value ?? "—"}${value.unit ? ` ${value.unit}` : ""}`;
@@ -55,27 +66,35 @@ function ValueRows({ items, label }: { items: MassBlastValue[]; label: string })
 
 function SignerFields({
   title,
+  prefix,
   value,
   computed,
   disabled,
   issues,
   onChange,
+  defaults,
+  remember,
 }: {
   title: string;
+  prefix: string;
   value: SignerForm;
   computed: { position?: string; name?: string; authority?: string; is_head?: boolean | null } | undefined;
   disabled: boolean;
   issues: MassBlastIssue[];
   onChange: (next: SignerForm) => void;
+  defaults: Record<string, AutoValue>;
+  remember: TabProps["remember"];
 }) {
   return (
     <fieldset>
       <legend>{title}</legend>
       <div className="drill-grid">
         <TextInput label="Должность" value={value.position} disabled={disabled} maxLength={200}
-          hint={fromReference(value.position, computed?.position)} onChange={(position) => onChange({ ...value, position })} />
+          auto={defaults[`${prefix}.position`]} remember={remember(`${prefix}.position`, value.position)}
+          onChange={(position) => onChange({ ...value, position })} />
         <TextInput label="Ф. И. О." value={value.name} disabled={disabled} maxLength={200}
-          hint={fromReference(value.name, computed?.name)} onChange={(name) => onChange({ ...value, name })} />
+          auto={defaults[`${prefix}.name`]} remember={remember(`${prefix}.name`, value.name)}
+          onChange={(name) => onChange({ ...value, name })} />
         <Field label="Технический руководитель">
           {(id) => (
             <select id={id} value={value.is_head} disabled={disabled} onChange={(event) => onChange({ ...value, is_head: event.target.value as SignerForm["is_head"] })}>
@@ -86,14 +105,15 @@ function SignerFields({
           )}
         </Field>
         <TextInput label="Основание полномочий (приказ № и дата)" value={value.authority} disabled={disabled} maxLength={200}
-          hint={fromReference(value.authority, computed?.authority)} onChange={(authority) => onChange({ ...value, authority })} />
+          auto={defaults[`${prefix}.authority`]} remember={remember(`${prefix}.authority`, value.authority)}
+          onChange={(authority) => onChange({ ...value, authority })} />
       </div>
       <Issues issues={issues} />
     </fieldset>
   );
 }
 
-export function RequisitesTab({ form, edit, editable, errors, issues, context, hints }: TabProps & { hints: MassBlastHints | null }) {
+export function RequisitesTab({ form, edit, editable, errors, issues, context, hints, defaults, remember }: TabProps & { hints: MassBlastHints | null }) {
   const req = form.requisites;
   const computed = context?.requisites ?? {};
   const disabled = !editable;
@@ -105,9 +125,10 @@ export function RequisitesTab({ form, edit, editable, errors, issues, context, h
       <fieldset>
         <legend>Проект</legend>
         <div className="drill-grid">
-          <TextInput label="№ проекта" value={req.project_no} disabled={disabled} maxLength={40} hint={req.project_no ? undefined : previous}
+          <TextInput label="№ проекта" value={req.project_no} disabled={disabled} maxLength={40} auto={defaults["requisites.project_no"]}
+            hint={req.project_no || defaults["requisites.project_no"] ? undefined : previous}
             onChange={(value) => edit((draft) => { draft.requisites.project_no = value; })} />
-          <TextInput label="Дата проекта" type="date" value={req.project_date} disabled={disabled}
+          <TextInput label="Дата проекта" type="date" value={req.project_date} disabled={disabled} auto={defaults["requisites.project_date"]}
             onChange={(value) => edit((draft) => { draft.requisites.project_date = value; })} />
           <TextInput label="Наименование проекта" value={form.name} disabled={disabled} maxLength={300} error={errors.name} wide
             onChange={(value) => edit((draft) => { draft.name = value; })} />
@@ -119,35 +140,38 @@ export function RequisitesTab({ form, edit, editable, errors, issues, context, h
             issues={issues.filter((issue) => issue.code === "blast_time_missing")}
             onChange={(value) => edit((draft) => { draft.blast_time = value; })} />
           <TextInput label="Составлен на основании (типовой проект)" value={req.tp_basis} disabled={disabled} maxLength={300} wide
-            hint={fromReference(req.tp_basis, computed.tp_basis)}
+            auto={defaults["requisites.tp_basis"]} remember={remember("requisites.tp_basis", req.tp_basis)}
             onChange={(value) => edit((draft) => { draft.requisites.tp_basis = value; })} />
         </div>
       </fieldset>
       <fieldset>
         <legend>Стороны</legend>
         <div className="drill-grid">
-          <TextInput label="Заказчик" value={req.customer_name} disabled={disabled} maxLength={300}
+          <TextInput label="Заказчик" value={req.customer_name} disabled={disabled} maxLength={300} auto={defaults["requisites.customer_name"]}
             onChange={(value) => edit((draft) => { draft.requisites.customer_name = value; })} />
-          <TextInput label="Подрядчик" value={req.contractor_name} disabled={disabled} maxLength={300}
+          <TextInput label="Подрядчик" value={req.contractor_name} disabled={disabled} maxLength={300} auto={defaults["requisites.contractor_name"]}
             onChange={(value) => edit((draft) => { draft.requisites.contractor_name = value; })} />
           <Field label="Бурение выполнил">
             {(id) => (
               <select id={id} value={req.drilled_by} disabled={disabled}
                 onChange={(event) => edit((draft) => { draft.requisites.drilled_by = event.target.value as typeof req.drilled_by; })}>
-                <option value="">— не указано —</option>
+                <option value="">{autoOption(defaults["requisites.drilled_by"], { CUSTOMER: "заказчик", CONTRACTOR: "Общество" })}</option>
                 <option value="CUSTOMER">заказчик</option>
                 <option value="CONTRACTOR">Общество (бурит и взрывает один участок — акт готовности не составляется)</option>
               </select>
             )}
           </Field>
           <TextInput label="Маркшейдер — исполнитель съёмки" value={req.surveyor_name} disabled={disabled} maxLength={200}
+            auto={defaults["requisites.surveyor_name"]}
             onChange={(value) => edit((draft) => { draft.requisites.surveyor_name = value; })} />
         </div>
       </fieldset>
       <SignerFields title="«СОГЛАСОВАНО» / «УТВЕРЖДАЮ» — технический руководитель заказчика" value={req.customer_approver}
+        prefix="requisites.customer_approver" defaults={defaults} remember={remember}
         computed={computed.customer_approver} disabled={disabled} issues={issuesFor("requisites.customer_approver", issues)}
         onChange={(next) => edit((draft) => { draft.requisites.customer_approver = next; })} />
       <SignerFields title="«УТВЕРЖДАЮ» — технический руководитель подрядчика" value={req.contractor_approver}
+        prefix="requisites.contractor_approver" defaults={defaults} remember={remember}
         computed={computed.contractor_approver} disabled={disabled} issues={issuesFor("requisites.contractor_approver", issues)}
         onChange={(next) => edit((draft) => { draft.requisites.contractor_approver = next; })} />
       <fieldset>
@@ -155,8 +179,9 @@ export function RequisitesTab({ form, edit, editable, errors, issues, context, h
         {(["made_by", "checked_by"] as const).map((key) => (
           <div key={key} className="drill-grid">
             <TextInput label={key === "made_by" ? "Составил — должность" : "Проверил — должность"} value={req[key].position} disabled={disabled} maxLength={200}
+              auto={defaults[`requisites.${key}.position`]}
               onChange={(value) => edit((draft) => { draft.requisites[key].position = value; })} />
-            <TextInput label="Ф. И. О." value={req[key].name} disabled={disabled} maxLength={200}
+            <TextInput label="Ф. И. О." value={req[key].name} disabled={disabled} maxLength={200} auto={defaults[`requisites.${key}.name`]}
               onChange={(value) => edit((draft) => { draft.requisites[key].name = value; })} />
           </div>
         ))}
@@ -179,7 +204,7 @@ export function RequisitesTab({ form, edit, editable, errors, issues, context, h
 
 // --- Блоки -----------------------------------------------------------------
 
-export function BlocksTab({ form, edit, editable, errors, issues, context }: TabProps) {
+export function BlocksTab({ form, edit, editable, errors, issues, context, defaults }: TabProps) {
   const disabled = !editable;
   return (
     <>
@@ -198,7 +223,7 @@ export function BlocksTab({ form, edit, editable, errors, issues, context }: Tab
                 {(id) => (
                   <select id={id} value={block.purpose} disabled={disabled}
                     onChange={(event) => edit((draft) => { draft.blocks[index].purpose = event.target.value as typeof block.purpose; })}>
-                    <option value="">— не указано —</option>
+                    <option value="">{autoOption(defaults[`blocks[${index}].details.purpose`], { MINING: "добыча", STRIPPING: "вскрыша" })}</option>
                     <option value="MINING">добыча</option>
                     <option value="STRIPPING">вскрыша</option>
                   </select>
@@ -208,8 +233,10 @@ export function BlocksTab({ form, edit, editable, errors, issues, context }: Tab
                 hint={block.area_m2 ? undefined : "пусто — по маркшейдерскому контуру"} error={errors[`blocks[${index}].details.area_m2`]}
                 onChange={(value) => edit((draft) => { draft.blocks[index].area_m2 = value; })} />
               <TextInput label="Порода (текстом)" value={block.rock_text} disabled={disabled} maxLength={300} wide
+                auto={defaults[`blocks[${index}].details.rock_text`]}
                 onChange={(value) => edit((draft) => { draft.blocks[index].rock_text = value; })} />
               <TextInput label="Гидрогеология (обводнённость)" value={block.hydro_text} disabled={disabled} maxLength={200} wide
+                auto={defaults[`blocks[${index}].details.hydro_text`]}
                 onChange={(value) => edit((draft) => { draft.blocks[index].hydro_text = value; })} />
             </div>
             <h4>Примечания к скважинам (таблица параметров — только действие, например «снизить заряд»)</h4>
@@ -248,35 +275,36 @@ export function BlocksTab({ form, edit, editable, errors, issues, context }: Tab
 
 // --- ВМ и СИ ---------------------------------------------------------------
 
-export function ExplosivesTab({ form, edit, editable, errors, issues, context }: TabProps) {
+export function ExplosivesTab({ form, edit, editable, errors, issues, context, defaults, remember }: TabProps) {
   const ex = form.explosives;
   const disabled = !editable;
-  const qtp = context?.q_tp;
-  const qHint = !ex.q_tp_kg_m3 && qtp?.value ? `${sourceLabel(qtp.source)}: ${ruNum(qtp.value, 2)} кг/м³${qtp.basis ? ` (${qtp.basis})` : ""}` : undefined;
   return (
     <>
       <fieldset>
         <legend>Взрывчатые материалы и средства инициирования</legend>
         <div className="drill-grid">
-          <TextInput label="Способ инициирования" value={ex.initiation} disabled={disabled} maxLength={300} wide
+          <TextInput label="Способ инициирования" value={ex.initiation} disabled={disabled} auto={defaults["explosives.initiation"]} maxLength={300} wide
             onChange={(value) => edit((draft) => { draft.explosives.initiation = value; })} />
-          <TextInput label="Схема взрывания" value={ex.scheme} disabled={disabled} maxLength={300} wide
+          <TextInput label="Схема взрывания" value={ex.scheme} disabled={disabled} auto={defaults["explosives.scheme"]} maxLength={300} wide
             hint={context?.network_intervals?.length ? `интервалы сети: ${context.network_intervals.join(", ")}` : undefined}
             onChange={(value) => edit((draft) => { draft.explosives.scheme = value; })} />
-          <TextInput label="Конструкция заряда" value={ex.charge_design} disabled={disabled} maxLength={300} wide
+          <TextInput label="Конструкция заряда" value={ex.charge_design} disabled={disabled} auto={defaults["explosives.charge_design"]} maxLength={300} wide
             onChange={(value) => edit((draft) => { draft.explosives.charge_design = value; })} />
-          <TextInput label="Материал забойки" value={ex.stemming_material} disabled={disabled} maxLength={120}
+          <TextInput label="Материал забойки" value={ex.stemming_material} disabled={disabled} auto={defaults["explosives.stemming_material"]} maxLength={120}
             onChange={(value) => edit((draft) => { draft.explosives.stemming_material = value; })} />
-          <TextInput label="Марка стартера" value={ex.starter_product} disabled={disabled} maxLength={200}
+          <TextInput label="Марка стартера" value={ex.starter_product} disabled={disabled} auto={defaults["explosives.starter_product"]} maxLength={200}
             onChange={(value) => edit((draft) => { draft.explosives.starter_product = value; })} />
           <TextInput label="Долото, мм" value={ex.bit_mm} disabled={disabled} inputMode="decimal" error={errors["explosives.bit_mm"]}
+            auto={defaults["explosives.bit_mm"]}
             hint="только для подписи «долото × k» в техрасчёте" onChange={(value) => edit((draft) => { draft.explosives.bit_mm = value; })} />
           <TextInput label="k разбуривания" value={ex.reaming_k} disabled={disabled} inputMode="decimal" error={errors["explosives.reaming_k"]}
+            auto={defaults["explosives.reaming_k"]}
             onChange={(value) => edit((draft) => { draft.explosives.reaming_k = value; })} />
           <TextInput label="q по типовому проекту, кг/м³" value={ex.q_tp_kg_m3} disabled={disabled} inputMode="decimal" error={errors["explosives.q_tp_kg_m3"]}
-            hint={qHint} onChange={(value) => edit((draft) => { draft.explosives.q_tp_kg_m3 = value; })} />
+            auto={defaults["explosives.q_tp_kg_m3"]} remember={remember("explosives.q_tp_kg_m3", ex.q_tp_kg_m3)}
+            onChange={(value) => edit((draft) => { draft.explosives.q_tp_kg_m3 = value; })} />
           <TextInput label="Обоснование удельного расхода (при отклонении от ТП больше 10 %)" value={ex.q_just} disabled={disabled} maxLength={600} multiline
-            hint={fromReference(ex.q_just, qtp?.justification)}
+            auto={defaults["explosives.q_just"]} remember={remember("explosives.q_just", ex.q_just)}
             onChange={(value) => edit((draft) => { draft.explosives.q_just = value; })} />
         </div>
         <Issues issues={issuesFor("explosives", issues)} />
@@ -517,7 +545,7 @@ const SCHEDULE_TEXTS: Array<{ key: keyof ProjectForm["schedule"]; label: string;
   { key: "airblast_buildings", label: "УВВ на здания и сооружения (текст техрасчёта)", max: 300, wide: true },
 ];
 
-export function ScheduleTab({ form, edit, editable, issues, context }: TabProps) {
+export function ScheduleTab({ form, edit, editable, issues, context, defaults, remember }: TabProps) {
   const sch = form.schedule;
   const disabled = !editable;
   const signals = context?.schedule?.signals?.rows ?? [];
@@ -526,13 +554,13 @@ export function ScheduleTab({ form, edit, editable, issues, context }: TabProps)
       <fieldset>
         <legend>Заряжание</legend>
         <div className="drill-grid">
-          <TextInput label="Заряжание с (дата)" type="date" value={sch.charging_from} disabled={disabled}
+          <TextInput label="Заряжание с (дата)" type="date" value={sch.charging_from} disabled={disabled} auto={defaults["schedule.charging_from"]}
             onChange={(value) => edit((draft) => { draft.schedule.charging_from = value; })} />
-          <TextInput label="Смена с" type="time" value={sch.charging_shift_from} disabled={disabled}
+          <TextInput label="Смена с" type="time" value={sch.charging_shift_from} disabled={disabled} auto={defaults["schedule.charging_shift_from"]}
             onChange={(value) => edit((draft) => { draft.schedule.charging_shift_from = value; })} />
-          <TextInput label="Смена до" type="time" value={sch.charging_shift_to} disabled={disabled}
+          <TextInput label="Смена до" type="time" value={sch.charging_shift_to} disabled={disabled} auto={defaults["schedule.charging_shift_to"]}
             onChange={(value) => edit((draft) => { draft.schedule.charging_shift_to = value; })} />
-          <TextInput label="Дата инструктажа" type="date" value={sch.briefing_date} disabled={disabled}
+          <TextInput label="Дата инструктажа" type="date" value={sch.briefing_date} disabled={disabled} auto={defaults["schedule.briefing_date"]}
             onChange={(value) => edit((draft) => { draft.schedule.briefing_date = value; })} />
           <Field label="Заходки СЗМ (Г.3) нумеруются с фланга">
             {(id) => (
@@ -551,6 +579,7 @@ export function ScheduleTab({ form, edit, editable, issues, context }: TabProps)
         <div className="drill-grid">
           {SCHEDULE_TEXTS.map((item) => (
             <TextInput key={item.key} label={item.label} value={sch[item.key]} disabled={disabled} maxLength={item.max}
+              auto={defaults[`schedule.${item.key}`]} remember={remember(`schedule.${item.key}`, sch[item.key])}
               multiline={item.max > 300} wide={item.wide}
               onChange={(value) => edit((draft) => { (draft.schedule[item.key] as string) = value; })} />
           ))}

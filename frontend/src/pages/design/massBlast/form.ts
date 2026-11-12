@@ -390,3 +390,20 @@ export function issuesFor(prefix: string, issues: MassBlastIssue[]): MassBlastIs
 }
 
 export { EMPTY_PERSON };
+
+/** Значение поля сохраняемого проекта по пути «a.b.c» (для «Запомнить для объекта»). */
+export function valueAt(input: unknown, path: string): string {
+  let current: unknown = input;
+  for (const part of path.split(".")) {
+    if (current === null || typeof current !== "object") return "";
+    current = (current as Record<string, unknown>)[part];
+  }
+  return current === null || current === undefined ? "" : String(current);
+}
+
+/** Совпадает ли введённое с тем, что уже в справочнике (числа — по значению). */
+export function sameAsReference(own: string, reference: unknown): boolean {
+  if (reference === null || reference === undefined || reference === "") return false;
+  if (typeof reference === "number") return parseNumber(own) === reference;
+  return own.trim() === String(reference).trim();
+}

@@ -12,7 +12,8 @@ import type {
   MassBlastProjectV2,
   NotificationAddressees,
 } from "../../../../types/massBlast";
-import { download, errorText, Issues, openPdf } from "../ui";
+import { sameAsReference } from "../form";
+import { download, errorText, Issues, openPdf, type RememberControl } from "../ui";
 import { draftFromPayload, LAYER_FORMS, payloadFromDraft, type LayerDraft } from "./LayerForms";
 
 const ORDER: LayerKind[] = ["NARYAD", "NOTIFICATION", "READINESS_ACT", "TALON", "ACCEPTANCE_ACT", "EXECUTION"];
@@ -27,6 +28,7 @@ function LayerCard({
   onChange,
   onIssued,
   onDirty,
+  canRemember,
 }: {
   layer: MassBlastLayer;
   label: string;
@@ -36,7 +38,10 @@ function LayerCard({
   onIssued: () => Promise<void>;
   /** Есть ли у карточки несохранённые правки — окно спросит перед закрытием. */
   onDirty: (layerId: string, dirty: boolean) => void;
+  /** Может ли пользователь писать в справочник объекта (В8). */
+  canRemember: boolean;
 }) {
+  const [rememberChoice, setRememberChoice] = useState<Record<string, boolean>>({});
   const [draft, setDraft] = useState<LayerDraft>(() => draftFromPayload(layer));
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -68,13 +73,35 @@ function LayerCard({
     setDirty(true);
   }
 
+  /** «Запомнить для объекта» у поля слоя (В8): заполненное, другое, чем в справочнике. */
+  function remember(name: string, own: string): RememberControl | null {
+    const fields = ((layer.view ?? {}).rememberable ?? {}) as Record<string, unknown>;
+    if (!canRemember || !(name in fields) || !own.trim()) return null;
+    const reference = fields[name];
+    if (sameAsReference(own, reference)) return null;
+    const empty = reference === null || reference === undefined || reference === "";
+    return {
+      checked: rememberChoice[name] ?? empty,
+      onChange: (checked) => setRememberChoice((current) => ({ ...current, [name]: checked })),
+    };
+  }
+
   async function save(): Promise<MassBlastLayer | null> {
     if (!dirty) return layer;
     if (hasInputErrors) {
       setMessage({ text: "Исправьте числа в форме слоя.", error: true });
       return null;
     }
+    const fields = Object.keys(((layer.view ?? {}).rememberable ?? {}) as Record<string, unknown>);
+    const remembered = fields.filter((name) => remember(name, String(payload[name] ?? ""))?.checked);
     const saved = await api.massBlast.saveLayer(layer.id, { payload, expected_version: layer.version });
+    if (remembered.length) {
+      await api.massBlast.remember(saved.project_id, { paths: remembered, layer_id: saved.id });
+      setRememberChoice({});
+      // Справочник изменился — поля «запомнить» и значения по умолчанию слоя тоже.
+      onChange(await api.massBlast.getLayer(saved.id));
+      return saved;
+    }
     onChange(saved);
     return saved;
   }
@@ -149,7 +176,7 @@ function LayerCard({
         {layer.stale ? " · устарел: проект перевыпущен" : ""}
         {dirty ? " · есть несохранённые правки" : ""}
       </small>
-      <Form layer={layer} draft={draft} set={set} disabled={busy} errors={errors} afterBlast={AFTER_BLAST.has(projectStatus)} />
+      <Form layer={layer} draft={draft} set={set} disabled={busy} errors={errors} afterBlast={AFTER_BLAST.has(projectStatus)} remember={remember} />
       <Issues issues={layer.issues} />
       {changes && changes.length > 0 && (
         <div className="mb-diff">
@@ -199,8 +226,9 @@ function cardLabel(layer: MassBlastLayer, label: string, number: number): string
   return number ? `${label} № ${number}` : label;
 }
 
-export function DayTab({ project, onDirty }: {
+export function DayTab({ project, onDirty, canRemember = false }: {
   project: MassBlastProjectV2;
+  canRemember?: boolean;
   /** Есть ли несохранённые правки хоть в одном слое. */
   onDirty?: (dirty: boolean) => void;
 }) {
@@ -277,7 +305,7 @@ export function DayTab({ project, onDirty }: {
         return (
           <section key={kind} className="mb-layer-group" aria-label={label}>
             {own.map((layer, index) => (
-              <LayerCard key={layer.id} layer={layer} projectStatus={project.lifecycle_status} onChange={replace} onIssued={reload} onDirty={markDirty}
+              <LayerCard key={layer.id} layer={layer} projectStatus={project.lifecycle_status} onChange={replace} onIssued={reload} onDirty={markDirty} canRemember={canRemember}
                 label={cardLabel(layer, label, own.length > 1 ? index + 1 : 0)} />
             ))}
             {info && !info.can_open && own.length === 0 && (

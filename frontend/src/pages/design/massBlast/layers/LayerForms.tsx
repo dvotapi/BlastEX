@@ -3,7 +3,7 @@
 // посчитанное сервером (`seed`, `view`) показывается только для чтения.
 import type { MassBlastLayer, NaryadLine } from "../../../../types/massBlast";
 import { numberText, parseNumber } from "../form";
-import { Field, ruNum, TextInput } from "../ui";
+import { Field, ruNum, TextInput, type AutoValue, type RememberControl } from "../ui";
 
 /** Ручной ввод слоя в окне: числа — текстом, как их вводит пользователь. */
 export type LayerDraft = Record<string, unknown>;
@@ -70,16 +70,26 @@ type FormProps = {
   disabled: boolean;
   errors: Record<string, string>;
   afterBlast: boolean;
+  /** «Запомнить для объекта» у поля слоя (В8); null — не показывать. */
+  remember: (name: string, own: string) => RememberControl | null;
 };
+
+type TextProps = Pick<FormProps, "draft" | "set" | "disabled" | "layer" | "remember">;
+
+/** Значения по умолчанию ручного ввода слоя (сервер, `view.defaults`). */
+function layerDefaults(layer: MassBlastLayer): Record<string, AutoValue> {
+  return ((layer.view ?? {}).defaults ?? {}) as Record<string, AutoValue>;
+}
 
 const str = (value: unknown) => (value === null || value === undefined ? "" : String(value));
 
-function Text({ draft, set, disabled, name, label, type, max, wide, hint }: Pick<FormProps, "draft" | "set" | "disabled"> & {
+function Text({ draft, set, disabled, layer, remember, name, label, type, max, wide, hint }: TextProps & {
   name: string; label: string; type?: "date" | "time"; max?: number; wide?: boolean; hint?: string;
 }) {
   return (
     <TextInput label={label} value={str(draft[name])} type={type} maxLength={max} wide={wide} hint={hint} disabled={disabled}
-      multiline={(max ?? 0) > 300} onChange={(value) => set(name, value)} />
+      multiline={(max ?? 0) > 300} auto={layerDefaults(layer)[name]} remember={remember(name, str(draft[name]))}
+      onChange={(value) => set(name, value)} />
   );
 }
 
@@ -87,7 +97,8 @@ function setIn(draft: LayerDraft, set: FormProps["set"], dict: string, key: stri
   set(dict, { ...((draft[dict] ?? {}) as Record<string, string>), [key]: value });
 }
 
-export function NaryadForm({ layer, draft, set, disabled, errors, afterBlast }: FormProps) {
+export function NaryadForm({ layer, draft, set, disabled, errors, afterBlast, remember }: FormProps) {
+  const common = { draft, set, disabled, layer, remember };
   const lines = ((layer.view.lines ?? []) as NaryadLine[]);
   const reserve = (draft.reserve ?? {}) as Record<string, string>;
   const issued = (draft.issued ?? {}) as Record<string, string>;
@@ -97,14 +108,14 @@ export function NaryadForm({ layer, draft, set, disabled, errors, afterBlast }: 
   return (
     <>
       <div className="drill-grid">
-        <Text draft={draft} set={set} disabled={disabled} name="number" label="№ наряда-путёвки" max={40} />
-        <Text draft={draft} set={set} disabled={disabled} name="issue_date" label="Дата выписки" type="date" />
-        <Text draft={draft} set={set} disabled={disabled} name="warehouse" label="Склад выдачи" max={200} />
-        <Text draft={draft} set={set} disabled={disabled} name="permit" label="Разрешение на ведение взрывных работ" max={300} />
-        <Text draft={draft} set={set} disabled={disabled} name="blaster_index" label="Индивидуальный индекс взрывника" max={40} />
-        <Text draft={draft} set={set} disabled={disabled} name="vehicle" label="Спецавтомобиль" max={200} />
-        <Text draft={draft} set={set} disabled={disabled} name="driver" label="Водитель" max={200} />
-        <Text draft={draft} set={set} disabled={disabled} name="delivery" label="Лица, привлекаемые к доставке" max={300} />
+        <Text {...common} name="number" label="№ наряда-путёвки" max={40} />
+        <Text {...common} name="issue_date" label="Дата выписки" type="date" />
+        <Text {...common} name="warehouse" label="Склад выдачи" max={200} />
+        <Text {...common} name="permit" label="Разрешение на ведение взрывных работ" max={300} />
+        <Text {...common} name="blaster_index" label="Индивидуальный индекс взрывника" max={40} />
+        <Text {...common} name="vehicle" label="Спецавтомобиль" max={200} />
+        <Text {...common} name="driver" label="Водитель" max={200} />
+        <Text {...common} name="delivery" label="Лица, привлекаемые к доставке" max={300} />
         <Field label="ВВ изготавливаются на месте (СЗМ)" hint="возврата ВВ нет: остаток заряжается в крайние скважины">
           {(id) => <input id={id} type="checkbox" checked={vvSite} disabled={disabled} onChange={(event) => set("vv_site", event.target.checked)} />}
         </Field>
@@ -174,7 +185,8 @@ export function NaryadForm({ layer, draft, set, disabled, errors, afterBlast }: 
   );
 }
 
-export function NotificationForm({ layer, draft, set, disabled }: FormProps) {
+export function NotificationForm({ layer, draft, set, disabled, remember }: FormProps) {
+  const common = { draft, set, disabled, layer, remember };
   const registry = (layer.seed.addressee ?? {}) as Record<string, unknown>;
   const fromRegistry = Object.keys(registry).length > 0;
   return (
@@ -185,30 +197,30 @@ export function NotificationForm({ layer, draft, set, disabled }: FormProps) {
         </small>
       ) : (
         <div className="drill-grid">
-          <Text draft={draft} set={set} disabled={disabled} name="recipient_position" label="Адресат — должность, орган" max={300} />
-          <Text draft={draft} set={set} disabled={disabled} name="recipient_name" label="Адресат — фамилия, инициалы (дательный падеж)" max={120} />
-          <Text draft={draft} set={set} disabled={disabled} name="salutation" label="Обращение" max={200} />
+          <Text {...common} name="recipient_position" label="Адресат — должность, орган" max={300} />
+          <Text {...common} name="recipient_name" label="Адресат — фамилия, инициалы (дательный падеж)" max={120} />
+          <Text {...common} name="salutation" label="Обращение" max={200} />
         </div>
       )}
       <div className="drill-grid">
-        <Text draft={draft} set={set} disabled={disabled} name="out_no" label="Исх. №" max={40} />
-        <Text draft={draft} set={set} disabled={disabled} name="out_date" label="Дата" type="date" />
-        <Text draft={draft} set={set} disabled={disabled} name="signer" label="Подписывает" max={200}
-          hint={fromRegistry && registry.signer && !str(draft.signer) ? `из справочника: ${str(registry.signer)}` : undefined} />
+        <Text {...common} name="out_no" label="Исх. №" max={40} />
+        <Text {...common} name="out_date" label="Дата" type="date" />
+        <Text {...common} name="signer" label="Подписывает" max={200} />
       </div>
     </>
   );
 }
 
-export function ReadinessForm({ layer, draft, set, disabled }: FormProps) {
+export function ReadinessForm({ layer, draft, set, disabled, remember }: FormProps) {
+  const common = { draft, set, disabled, layer, remember };
   const conditions = (layer.seed.conditions ?? []) as string[];
   const marks = (draft.conditions ?? {}) as Record<string, boolean | null>;
   return (
     <>
       <div className="drill-grid">
-        <Text draft={draft} set={set} disabled={disabled} name="act_date" label="Дата составления акта" type="date" />
-        <Text draft={draft} set={set} disabled={disabled} name="handed_by" label="Блок передал (должность, Ф. И. О.)" max={200} />
-        <Text draft={draft} set={set} disabled={disabled} name="accepted_by" label="Блок принял (должность, Ф. И. О.)" max={200} />
+        <Text {...common} name="act_date" label="Дата составления акта" type="date" />
+        <Text {...common} name="handed_by" label="Блок передал (должность, Ф. И. О.)" max={200} />
+        <Text {...common} name="accepted_by" label="Блок принял (должность, Ф. И. О.)" max={200} />
         <Field label="Заключение">
           {(id) => (
             <select id={id} value={str(draft.conclusion)} disabled={disabled} onChange={(event) => set("conclusion", event.target.value)}>
@@ -243,23 +255,24 @@ export function ReadinessForm({ layer, draft, set, disabled }: FormProps) {
           })}
         </tbody>
       </table>
-      <Text draft={draft} set={set} disabled={disabled} name="remarks" label="Замечания" max={1000} wide />
+      <Text {...common} name="remarks" label="Замечания" max={1000} wide />
     </>
   );
 }
 
-export function TalonForm({ layer, draft, set, disabled }: FormProps) {
+export function TalonForm({ layer, draft, set, disabled, remember }: FormProps) {
+  const common = { draft, set, disabled, layer, remember };
   const notBefore = str(layer.view.admittance_not_before);
   const source = layer.view.admittance_source === "FACT" ? "по фактическому времени взрыва" : "по проектному времени взрыва";
   return (
     <>
       <div className="drill-grid">
-        <Text draft={draft} set={set} disabled={disabled} name="fired_date" label="Взрыв произведён — дата" type="date" />
-        <Text draft={draft} set={set} disabled={disabled} name="fired_time" label="Взрыв произведён — время" type="time" />
-        <Text draft={draft} set={set} disabled={disabled} name="issued_date" label="Дата выдачи талона" type="date" />
-        <Text draft={draft} set={set} disabled={disabled} name="issued_time" label="Время выдачи" type="time" />
-        <Text draft={draft} set={set} disabled={disabled} name="issued_by" label="Выдал" max={200} />
-        <Text draft={draft} set={set} disabled={disabled} name="received_by" label="Получил" max={200} />
+        <Text {...common} name="fired_date" label="Взрыв произведён — дата" type="date" />
+        <Text {...common} name="fired_time" label="Взрыв произведён — время" type="time" />
+        <Text {...common} name="issued_date" label="Дата выдачи талона" type="date" />
+        <Text {...common} name="issued_time" label="Время выдачи" type="time" />
+        <Text {...common} name="issued_by" label="Выдал" max={200} />
+        <Text {...common} name="received_by" label="Получил" max={200} />
       </div>
       {notBefore && (
         <small className="drill-hint">
@@ -270,23 +283,24 @@ export function TalonForm({ layer, draft, set, disabled }: FormProps) {
   );
 }
 
-export function AcceptanceForm({ layer, draft, set, disabled, errors }: FormProps) {
+export function AcceptanceForm({ layer, draft, set, disabled, errors, remember }: FormProps) {
+  const common = { draft, set, disabled, layer, remember };
   const fact = (layer.view.fact ?? {}) as { basis?: string; explosive_kg?: number; q_kg_m3?: number | null; volume_basis?: string };
   const contour = layer.seed.volume_contour_m3 as number | null | undefined;
   return (
     <>
       <div className="drill-grid">
-        <Text draft={draft} set={set} disabled={disabled} name="act_date" label="Дата акта" type="date" />
-        <Text draft={draft} set={set} disabled={disabled} name="contract_no" label="Договор №" max={80} />
-        <Text draft={draft} set={set} disabled={disabled} name="contract_date" label="Дата договора" type="date" />
-        <Text draft={draft} set={set} disabled={disabled} name="appendix_no" label="Приложение №" max={20} />
-        <Text draft={draft} set={set} disabled={disabled} name="customer_person" label="Ответственное лицо заказчика" max={300} />
+        <Text {...common} name="act_date" label="Дата акта" type="date" />
+        <Text {...common} name="contract_no" label="Договор №" max={80} />
+        <Text {...common} name="contract_date" label="Дата договора" type="date" />
+        <Text {...common} name="appendix_no" label="Приложение №" max={20} />
+        <Text {...common} name="customer_person" label="Ответственное лицо заказчика" max={300} />
         <TextInput label="К оплате по технологическому взрыванию, м³" value={str(draft.accepted_volume_m3)} inputMode="decimal" disabled={disabled}
           error={errors.accepted_volume_m3}
           hint={contour ? `объём по маркшейдерскому контуру: ${ruNum(contour, 0)} м³` : undefined}
           onChange={(value) => set("accepted_volume_m3", value)} />
       </div>
-      <Text draft={draft} set={set} disabled={disabled} name="remarks" label="Особые замечания" max={1000} wide />
+      <Text {...common} name="remarks" label="Особые замечания" max={1000} wide />
       <small className="drill-hint">
         {fact.basis === "FACT"
           ? `Параметры — по факту: расход ВВ ${ruNum(fact.explosive_kg, 0)} кг, удельный расход ${ruNum(fact.q_kg_m3 ?? null, 2)} кг/м³ (${fact.volume_basis === "ACCEPTED" ? "к объёму к оплате" : "к объёму по контуру"}).`
@@ -297,15 +311,16 @@ export function AcceptanceForm({ layer, draft, set, disabled, errors }: FormProp
   );
 }
 
-export function ExecutionForm({ layer, draft, set, disabled }: FormProps) {
+export function ExecutionForm({ layer, draft, set, disabled, remember }: FormProps) {
+  const common = { draft, set, disabled, layer, remember };
   const blocks = (layer.view.blocks ?? []) as Array<{ code: string; parameter_table: { rows: Array<Record<string, unknown>> } }>;
   const rows = (draft.note_rows ?? []) as Array<{ hole: string; note: string }>;
   const multi = blocks.length > 1;
   return (
     <>
       <div className="drill-grid">
-        <Text draft={draft} set={set} disabled={disabled} name="blast_date" label="Дата взрыва по факту" type="date" />
-        <Text draft={draft} set={set} disabled={disabled} name="blast_time" label="Время взрыва по факту" type="time" />
+        <Text {...common} name="blast_date" label="Дата взрыва по факту" type="date" />
+        <Text {...common} name="blast_time" label="Время взрыва по факту" type="time" />
         <TextInput label={multi ? "Отказы — «блок:номер» через запятую" : "Отказы — номера скважин через запятую"} value={str(draft.misfired_text)} disabled={disabled}
           wide hint="пусто — отказов нет" onChange={(value) => set("misfired_text", value)} />
       </div>

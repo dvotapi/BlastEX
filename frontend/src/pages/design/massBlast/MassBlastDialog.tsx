@@ -7,13 +7,13 @@ import { api } from "../../../api/endpoints";
 import type { MassBlastAccount } from "../../../types/design";
 import type { MassBlastHints, MassBlastIssue, MassBlastProjectV2, MassBlastValidationV2 } from "../../../types/massBlast";
 import { fieldIndex, type FieldDescriptor } from "../../references/schemaFields";
-import { formErrors, formFromProject, toInput, type ProjectForm } from "./form";
+import { formErrors, formFromProject, sameAsReference, toInput, valueAt, type ProjectForm } from "./form";
 import { MassBlastHelp } from "./MassBlastHelp";
 import { DayTab } from "./layers/DayTab";
 import { PostsTab } from "./PostsTab";
 import { ProjectDocuments, STATUS_LABELS } from "./ProjectDocuments";
 import { BlocksTab, ExplosivesTab, ObjectsTab, PersonnelTab, RequisitesTab, SafetyTab, ScheduleTab } from "./ProjectTabs";
-import { errorText } from "./ui";
+import { errorText, type RememberControl } from "./ui";
 
 export type TabCode =
   | "requisites" | "blocks" | "explosives" | "safety" | "objects" | "schedule" | "personnel" | "posts" | "documents" | "day";
@@ -72,6 +72,10 @@ export function MassBlastDialog({
   const [accounts, setAccounts] = useState<MassBlastAccount[]>([]);
   const [fields, setFields] = useState<Map<string, FieldDescriptor> | null>(null);
   const [userEmail, setUserEmail] = useState("");
+  // Писать в справочник могут администратор и редактор справочников (В8).
+  const [canRemember, setCanRemember] = useState(false);
+  // Выбор «Запомнить для объекта» по полю; нет записи — по умолчанию (пусто в справочнике — да).
+  const [rememberChoice, setRememberChoice] = useState<Record<string, boolean>>({});
   const [hasGraphics, setHasGraphics] = useState(true);
   const [tab, setTab] = useState<TabCode>(() => (["approved", "executed", "closed"].includes(initial.lifecycle_status) ? "day" : "requisites"));
   const [busy, setBusy] = useState(false);
@@ -92,7 +96,11 @@ export function MassBlastDialog({
     void check(initial, false);
     api.massBlast.hints(initial.id).then((value) => alive.current && setHints(value)).catch(() => undefined);
     api.massBlast.accounts().then((value) => alive.current && setAccounts(value)).catch(() => undefined);
-    api.me().then((user) => alive.current && setUserEmail(String((user as { email?: string }).email ?? ""))).catch(() => undefined);
+    api.me().then((user) => {
+      if (!alive.current) return;
+      setUserEmail(String(user.email ?? ""));
+      setCanRemember(user.role === "admin" || user.role === "reference_editor");
+    }).catch(() => undefined);
     api.economics
       .referenceSchema()
       .then((catalog) => {
@@ -154,17 +162,43 @@ export function MassBlastDialog({
   }
 
   /** `force` — сохранить и без правок: сервер заново снимет проекты блоков (ошибка `stale_source`). */
+  /** Галочка «Запомнить для объекта» (В8): поле объекта, заполненное в проекте, другое, чем в справочнике. */
+  function rememberControl(path: string, own: string): RememberControl | null {
+    const fields = validation?.rememberable ?? {};
+    if (!canRemember || project.lifecycle_status !== "draft" || !(path in fields) || !own.trim()) return null;
+    const reference = fields[path];
+    if (sameAsReference(own, reference)) return null;
+    const empty = reference === null || reference === undefined || reference === "";
+    return {
+      checked: rememberChoice[path] ?? empty,
+      onChange: (checked) => setRememberChoice((current) => ({ ...current, [path]: checked })),
+    };
+  }
+
   async function save(force = false): Promise<MassBlastProjectV2 | null> {
     if (!dirty && !force) return project;
     if (Object.keys(errors).length) {
       setMessage({ text: "Исправьте поля, отмеченные в форме.", error: true });
       return null;
     }
-    const saved = await api.massBlast.saveV2(project.id, toInput(form, project));
+    const input = toInput(form, project);
+    const remembered = Object.keys(validation?.rememberable ?? {}).filter(
+      (path) => rememberControl(path, valueAt(input, path))?.checked,
+    );
+    const saved = await api.massBlast.saveV2(project.id, input);
     if (!alive.current) return null;
     accept(saved);
     setForm(formFromProject(saved));
     setDirty(false);
+    if (remembered.length) {
+      try {
+        await api.massBlast.remember(saved.id, { paths: remembered });
+        setRememberChoice({});
+        setMessage({ text: `Запомнено в справочнике объекта: ${remembered.length}.`, error: false });
+      } catch (reason) {
+        setMessage({ text: errorText(reason, "Проект сохранён, но в справочник объекта значения не записаны."), error: true });
+      }
+    }
     await check(saved, false);
     return saved;
   }
@@ -193,7 +227,8 @@ export function MassBlastDialog({
   }
 
   const onSave = () => run(async () => {
-    if (await save()) setMessage({ text: "Проект сохранён.", error: false });
+    const saved = await save();
+    if (saved) setMessage((current) => current ?? { text: "Проект сохранён.", error: false });
   }, "Не удалось сохранить проект.");
 
   const staleBlocks = project.lifecycle_status === "draft" && issues.some((issue) => issue.code === "stale_source");
@@ -268,7 +303,7 @@ export function MassBlastDialog({
     requestClose();
   }
 
-  const props = { form, edit, editable, errors, issues, context };
+  const props = { form, edit, editable, errors, issues, context, defaults: validation?.defaults ?? {}, remember: rememberControl };
   const approvedLike = ["approved", "executed", "closed"].includes(project.lifecycle_status);
   return (
     <dialog ref={ref} className="cad-dialog drill-dialog mb-dialog" aria-labelledby="mb-dialog-title" onCancel={onDialogCancel}
@@ -312,7 +347,7 @@ export function MassBlastDialog({
           {tab === "objects" && <ObjectsTab {...props} />}
           {tab === "schedule" && <ScheduleTab {...props} />}
           {tab === "personnel" && <PersonnelTab {...props} hints={hints} accounts={accounts} />}
-          {tab === "posts" && <PostsTab {...props} />}
+          {tab === "posts" && <PostsTab {...props} projectId={project.id} />}
           {tab === "documents" && (
             <ProjectDocuments project={project} issues={issues} checked={validation !== null} dirty={dirty} busy={busy}
               userEmail={userEmail} hasGraphics={hasGraphics} ensureSaved={saveLocked}
@@ -321,7 +356,7 @@ export function MassBlastDialog({
           )}
           {approvedLike && (
             <div hidden={tab !== "day"}>
-              <DayTab project={project} onDirty={setLayersDirty} />
+              <DayTab project={project} onDirty={setLayersDirty} canRemember={canRemember} />
             </div>
           )}
         </div>

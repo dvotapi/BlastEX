@@ -212,12 +212,18 @@ def plan_pages(parts: Sequence[Part], counts: Sequence[int], *, duplex: bool) ->
             raw.append((index, None))
     project = [k for k, (index, _page) in enumerate(raw) if parts[index].numbering == "project"]
     numbers: dict[int, str] = {k: f"Стр. {n} из {len(project)}" for n, k in enumerate(project, start=1)}
+    # Своя нумерация — у каждого документа (`"own"`); части одного документа
+    # слоя (`"group:<ключ>"`, исполнительная таблица и Г.1 слоя «Факт») — общая.
+    groups: dict[str, list[int]] = {}
     for index, part in enumerate(parts):
         if part.numbering == "project":
             continue
-        own = [k for k, (i, page) in enumerate(raw) if i == index and page is not None]
+        key = part.numbering if part.numbering.startswith("group:") else f"own:{index}"
+        groups.setdefault(key, []).append(index)
+    for members in groups.values():
+        own = [k for k, (i, page) in enumerate(raw) if i in members and page is not None]
         numbers.update({k: f"Стр. {n} из {len(own)}" for n, k in enumerate(own, start=1)})
-        numbers.update({k: "" for k, (i, page) in enumerate(raw) if i == index and page is None})
+        numbers.update({k: "" for k, (i, page) in enumerate(raw) if i in members and page is None})
     return [PageSlot(index, page, numbers[k]) for k, (index, page) in enumerate(raw)]
 
 

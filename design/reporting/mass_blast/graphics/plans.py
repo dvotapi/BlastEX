@@ -38,6 +38,8 @@ from design.reporting.brand import FONT, FONT_BOLD, GRAPHITE, GREY, RED, ZEBRA
 from design.reporting.plan_sheet import XY, PlanView
 
 MIN_HOLE_MM = 1.3
+# Допуск смещения устья — условие 2 акта готовности (±0,5 м); тот же, что у факта.
+OFFSET_TOLERANCE_M = 0.5
 LABEL_SHARE = 0.22
 LABEL_PT = (3.0, 5.6)
 # Масса у скважины на Г.1 — только при шаге на листе не меньше 6 мм (решение В2).
@@ -205,7 +207,7 @@ def g1_drawings(graphics: Mapping[str, Any], view: PlanView) -> tuple[Drawing, D
     sheet = [view.xy(p) for _hole, p in holes]
     spacing = _spacing_mm(sheet)
     size = min(LABEL_PT[1], max(LABEL_PT[0], LABEL_SHARE * spacing * plan_sheet.MM_TO_PT))
-    with_mass = spacing >= MASS_MIN_SPACING_MM
+    with_mass = spacing >= MASS_MIN_SPACING_MM and any(hole.get("charge_kg") is not None for hole, _p in holes)
     for section in graphics.get("sections") or ():
         line = plan_sheet.line(section.get("line") or ())
         if len(line) != 2:
@@ -227,13 +229,25 @@ def g1_drawings(graphics: Mapping[str, Any], view: PlanView) -> tuple[Drawing, D
         if toe:
             tx, ty = view.xy(toe)
             d.add(Line(x * mm, y * mm, tx * mm, ty * mm, strokeColor=GREY, strokeWidth=0.3))
+    # Г.1 по исполнительной съёмке (слой «Факт», PR 5): у скважин есть `surveyed`.
+    survey = any("surveyed" in hole for hole, _p in holes)
     for (hole, _p), (x, y) in zip(holes, sheet):
         first = bool(hole.get("first_row"))
         r = _radius(view, hole)
         color = RED if first else GRAPHITE
-        d.add(Circle(x * mm, y * mm, r * mm, fillColor=RED if first else white, strokeColor=color, strokeWidth=0.5))
-        d.add(String(x * mm, (y + r) * mm + 0.8, text(hole.get("hole_id")), fontName=FONT_BOLD if first else FONT,
-                     fontSize=size, fillColor=color, textAnchor="middle"))
+        number_color = color
+        if survey and hole.get("surveyed") is False:
+            # Без съёмки — по проекту, пустым серым кружком.
+            d.add(Circle(x * mm, y * mm, r * mm, fillColor=white, strokeColor=GREY, strokeWidth=0.5,
+                         strokeDashArray=(1.2, 0.8)))
+            number_color = GREY
+        else:
+            d.add(Circle(x * mm, y * mm, r * mm, fillColor=RED if first else white, strokeColor=color, strokeWidth=0.5))
+        if survey and float(hole.get("offset_m") or 0.0) > OFFSET_TOLERANCE_M:
+            number_color = RED
+        d.add(String(x * mm, (y + r) * mm + 0.8, text(hole.get("hole_id")),
+                     fontName=FONT_BOLD if first or number_color is RED else FONT,
+                     fontSize=size, fillColor=number_color, textAnchor="middle"))
         below = (y - r) * mm - 0.6 - size * 0.75
         d.add(String(x * mm, below, num(hole.get("depth_m"), 1), fontName=FONT, fontSize=size * 0.9, fillColor=GREY,
                      textAnchor="middle"))
@@ -242,15 +256,43 @@ def g1_drawings(graphics: Mapping[str, Any], view: PlanView) -> tuple[Drawing, D
                          fillColor=GREY, textAnchor="middle"))
     field_frame(d)
     label = "скважина: № — сверху, глубина L, м — снизу" + (", под ней масса заряда, кг" if with_mass else "")
+    if survey:
+        label = "скважина по съёмке: № — сверху, фактическая глубина L, м — снизу" + (
+            ", под ней масса заряда по факту, кг" if with_mass else "")
     items = [
         ("circle", {}, label),
         ("circle", {"fill": RED, "stroke": RED}, "скважина первого ряда"),
         *_common_items(graphics, crests=True),
     ]
+    if survey:
+        items.append(("circle", {"stroke": GREY}, "без съёмки — по проекту"))
     if graphics.get("sections"):
         items.append(("line", {"dash": SECTION_DASH, "width": 0.6}, "линия поперечного профиля (Г.2)"))
-    notes = [(_g1_note(graphics, with_mass), GREY)]
+    # Пометка «тесно» — только когда массу не печатаем из-за шага на листе.
+    notes = [(_g1_note(graphics, spacing >= MASS_MIN_SPACING_MM), GREY)]
+    if survey:
+        notes += _survey_notes(graphics)
     return d, _legend(view, items, notes)
+
+
+def _survey_notes(graphics: Mapping[str, Any]) -> list[tuple[str, Color]]:
+    """Г.1 по съёмке: скважины без съёмки и со смещением устья больше допуска (условие 2 акта готовности)."""
+
+    holes = list(graphics.get("holes") or ())
+    missing = [text(hole.get("hole_id")) for hole in holes if hole.get("surveyed") is False]
+    moved = [hole for hole in holes if float(hole.get("offset_m") or 0.0) > OFFSET_TOLERANCE_M]
+    notes: list[tuple[str, Color]] = []
+    if missing:
+        notes.append((f"По проекту, без съёмки ({len(missing)}): {_short_list(missing)}.", GREY))
+    if moved:
+        shown = ", ".join(f"№ {text(h.get('hole_id'))} — {num(h.get('offset_m'), 2)} м" for h in moved[:12])
+        more = f" и ещё {len(moved) - 12}" if len(moved) > 12 else ""
+        notes.append((f"Смещение устья от проекта больше {num(OFFSET_TOLERANCE_M, 1)} м (№ красным): {shown}{more}.", RED))
+    return notes
+
+
+def _short_list(ids: Sequence[str], limit: int = 20) -> str:
+    return ", ".join(ids[:limit]) + (f" и ещё {len(ids) - limit}" if len(ids) > limit else "")
 
 
 def _g1_note(graphics: Mapping[str, Any], with_mass: bool) -> str:

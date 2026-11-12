@@ -111,3 +111,16 @@ def test_layer_revisions_for_print(repository) -> None:
     latest = repository.latest_layer_revision(ORG, layer["id"], revision["id"])
     assert latest["id"] == second["id"]
     assert repository.latest_layer_revision(ORG, layer["id"], "another-revision") is None
+
+
+def test_execution_layer_is_single_and_its_latest_revision_is_found(repository) -> None:
+    """Слой «Факт» (PR 5) хранится как любой слой: один на проект, последняя ревизия — для акта и наряда."""
+
+    project, revision = _approved(repository)
+    layer = _create(repository, project, revision, kind="EXECUTION", single=True)
+    with pytest.raises(MassBlastConflictError):
+        _create(repository, project, revision, kind="EXECUTION", single=True)
+    first = repository.create_layer_revision(ORG, AUTHOR, layer["id"], expected_version=1, context={"v": 1}, content_sha256="a" * 64)
+    second = repository.create_layer_revision(ORG, AUTHOR, layer["id"], expected_version=2, context={"v": 2}, content_sha256="b" * 64)
+    latest = repository.latest_layer_revision(ORG, layer["id"], revision["id"])
+    assert latest["id"] == second["id"] != first["id"] and latest["kind"] == "EXECUTION"

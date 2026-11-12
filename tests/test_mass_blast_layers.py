@@ -16,7 +16,8 @@ from api.services import mass_blast_layers_service as service
 from design.mass_blast import content_sha256
 from design.mass_blast_layers import layer_open_issue, layer_seed, naryad_lines, seed_diff
 from design.mass_blast_repository import MassBlastConflictError
-from tests.mass_blast_block66 import context66, payload66
+from tests.mass_blast_block66 import context66, design66, payload66
+from tests.test_safety_design import MATERIALS
 
 ORG = "org-a"
 
@@ -85,6 +86,11 @@ class _Repository:
         layer.update(status="issued", current_revision_id=revision["id"], version=layer["version"] + 1)
         return revision
 
+    def latest_layer_revision(self, organization_id, layer_id, project_revision_id):
+        found = [item for item in self.layer_revisions
+                 if item["layer_id"] == layer_id and item["project_revision_id"] == project_revision_id]
+        return copy.deepcopy(found[-1]) if found else None
+
     def reissue_project(self, context):
         self.revisions["r2"] = {"id": "r2", "project_id": "p1", "context": copy.deepcopy(context)}
         self.project["current_revision_id"] = "r2"
@@ -94,6 +100,7 @@ def _economics(*, reserve=None, notifications=()):
     sections = {
         "blast_safety": [SimpleNamespace(code="BS", name="ЖК", payload={"site_code": "ZHK", **(reserve or {})})],
         "blast_notifications": [SimpleNamespace(code=code, name=code, payload={"site_code": "ZHK", **data}) for code, data in notifications],
+        "materials": list(MATERIALS),
     }
     snapshot = SimpleNamespace(revision_id="ref-1", active_items=lambda section: tuple(sections.get(section, ())))
     return SimpleNamespace(get_reference_snapshot=lambda organization_id, revision_id=None: snapshot)
@@ -312,3 +319,162 @@ def test_unknown_primer_mass_is_not_printed_as_zero():
     assert lines["ПД X"]["unit_mass_kg"] is None and lines["ПД X"]["issue_kg"] is None
     # Масса известна только у части скважин — строка тоже без массы, а не занижена.
     assert lines["ПД Y"]["unit_mass_kg"] is None and lines["ПД Y"]["issue_kg"] is None
+
+
+# --- слой «Факт», наряд после взрыва, талон и акт приёмки по факту (PR 5) ------
+
+from design.as_charged import as_charged_from_design_load  # noqa: E402
+from design.as_drilled import as_drilled_from_design_hole  # noqa: E402
+
+
+@pytest.fixture()
+def executed(monkeypatch):
+    """Проект блока 66 с фактом бурения и заряжания (заряд +2 кг) и его ревизия проекта МВ."""
+
+    design = design66()
+    context = context66(design)
+    design.as_drilled_holes = [as_drilled_from_design_hole(hole) for hole in design.holes if hole.enabled]
+    design.as_charged_holes = [as_charged_from_design_load(load) for load in design.loads]
+    for item in design.as_charged_holes:
+        item.charge_mass_kg += 2.0
+    monkeypatch.setattr(service, "_load_design", lambda organization_id, design_id: design)
+    return design, context
+
+
+def _codes(layer):
+    return {issue["code"] for issue in layer["issues"]}
+
+
+def test_execution_layer_seeds_fact_and_needs_approval(executed):
+    _design, context = executed
+    assert layer_open_issue("EXECUTION", "in_review", context) is not None
+    assert layer_open_issue("EXECUTION", "approved", context) is None
+    repository = _Repository(context)
+    layer = service.create_layer(repository, _economics(), ORG, "user", "p1", "EXECUTION",
+                                 {"blast_date": "2026-10-14", "blast_time": "13:05", "misfired_holes": ["17"]})
+    block = layer["seed"]["blocks_fact"][0]
+    assert block["parameter_table"]["totals"]["drilled_count"] == 196
+    assert block["graphics"]["holes"] and block["consumption"]
+    rows = {row["hole_id"]: row for row in layer["view"]["blocks"][0]["parameter_table"]["rows"]}
+    assert "отказ" in rows["17"]["note"]
+    assert layer["view"]["blocks"][0]["parameter_table"]["totals"]["misfired_count"] == 1
+    assert "fact_copied_from_design" in _codes(layer) and "fact_changed" not in _codes(layer)
+    with pytest.raises(MassBlastConflictError):
+        service.create_layer(repository, _economics(), ORG, "user", "p1", "EXECUTION", {})
+
+
+def test_fact_recorded_after_transfer_blocks_issue(executed):
+    design, context = executed
+    repository = _Repository(context)
+    layer = service.create_layer(repository, _economics(), ORG, "user", "p1", "EXECUTION", {})
+    design.as_charged_holes[0].charge_mass_kg += 10.0
+    layer = service.get_layer(repository, _economics(), ORG, layer["id"])
+    assert "fact_changed" in _codes(layer)
+    with pytest.raises(ValueError, match="Факт в проекте блока изменился"):
+        service.issue_layer(repository, _economics(), ORG, "user", layer["id"], layer["version"])
+    refreshed = service.refresh_layer(repository, _economics(), ORG, "user", layer["id"], layer["version"], confirm=True)
+    assert refreshed["applied"] and "fact_changed" not in _codes(refreshed["layer"])
+    revision = service.issue_layer(repository, _economics(), ORG, "user", layer["id"], refreshed["layer"]["version"])
+    assert revision["context"]["kind"] == "EXECUTION"
+
+
+def test_fact_of_another_grid_is_refused(executed, monkeypatch):
+    design, context = executed
+    other = copy.deepcopy(design)
+    other.holes[0].subdrill_m += 1.0
+    other.designed_sha256 = ""
+    monkeypatch.setattr(service, "_load_design", lambda organization_id, design_id: other)
+    with pytest.raises(ValueError, match="изменён после выпуска ревизии"):
+        service.create_layer(_Repository(context), _economics(), ORG, "user", "p1", "EXECUTION", {})
+
+
+def test_unknown_misfire_hole_is_an_error(executed):
+    _design, context = executed
+    repository = _Repository(context)
+    layer = service.create_layer(repository, _economics(), ORG, "user", "p1", "EXECUTION", {"misfired_holes": ["999"]})
+    assert "fact_misfire_unknown_hole" in _codes(layer)
+    with pytest.raises(ValueError, match="нет в проекте"):
+        service.issue_layer(repository, _economics(), ORG, "user", layer["id"], layer["version"])
+
+
+def _issued_execution(repository, payload=None):
+    layer = service.create_layer(repository, _economics(), ORG, "user", "p1", "EXECUTION", payload or {})
+    return layer, service.issue_layer(repository, _economics(), ORG, "user", layer["id"], layer["version"])
+
+
+def test_acceptance_takes_the_latest_issued_fact(executed):
+    _design, context = executed
+    repository = _Repository(context, status="executed")
+    acceptance = service.create_layer(repository, _economics(), ORG, "user", "p1", "ACCEPTANCE_ACT", {})
+    assert acceptance["view"]["fact"]["basis"] == "PROJECT" and "execution_missing" in _codes(acceptance)
+
+    layer, first = _issued_execution(repository, {"blast_date": "2026-10-15"})
+    refreshed = service.refresh_layer(repository, _economics(), ORG, "user", acceptance["id"], acceptance["version"], confirm=True)
+    acceptance = refreshed["layer"]
+    fact = acceptance["view"]["fact"]
+    assert acceptance["seed"]["fact"]["execution_revision_id"] == first["id"]
+    assert fact["basis"] == "FACT" and fact["blast_date"] == "2026-10-15"
+    assert fact["explosive_kg"] == pytest.approx(32659.3 + 196 * 2.0, abs=1.0)
+    assert fact["volume_basis"] == "CONTOUR"
+    accepted = service.update_layer(repository, _economics(), ORG, "user", acceptance["id"],
+                                    {"accepted_volume_m3": 30000}, acceptance["version"])
+    assert accepted["view"]["fact"]["volume_basis"] == "ACCEPTED"
+    assert accepted["view"]["fact"]["q_kg_m3"] == pytest.approx(fact["explosive_kg"] / 30000, abs=0.01)
+
+    # Новая ревизия «Факта» — акт предлагает перенести заново.
+    layer = service.get_layer(repository, _economics(), ORG, layer["id"])
+    service.issue_layer(repository, _economics(), ORG, "user", layer["id"], layer["version"])
+    assert "fact_layer_stale" in _codes(service.get_layer(repository, _economics(), ORG, acceptance["id"]))
+
+
+def test_naryad_after_blast(executed):
+    _design, context = executed
+    repository = _Repository(context)
+    naryad = service.create_layer(repository, _economics(), ORG, "user", "p1", "NARYAD", {"number": "15"})
+    explosive = _line(naryad["view"]["lines"], "explosive")
+    key = explosive["key"]
+    # До взрыва графы «после взрыва» не правятся и в наряде их нет.
+    assert "after_blast" not in naryad["view"]
+    with pytest.raises(ValueError, match="после взрыва"):
+        service.update_layer(repository, _economics(), ORG, "user", naryad["id"], {"issued": {key: 33000}}, naryad["version"])
+
+    _issued_execution(repository, {"misfired_holes": ["17"]})
+    repository.project["lifecycle_status"] = "executed"
+    assert "fact_layer_stale" in _codes(service.get_layer(repository, _economics(), ORG, naryad["id"]))
+    naryad = service.refresh_layer(repository, _economics(), ORG, "user", naryad["id"], naryad["version"], confirm=True)["layer"]
+    surface = _line(naryad["view"]["lines"], "nsi_surface")["key"]
+    naryad = service.update_layer(repository, _economics(), ORG, "user", naryad["id"],
+                                  {"number": "15", "issued": {key: 33100, surface: 200}, "consumed": {surface: 195}},
+                                  naryad["version"])
+    lines = {line["key"]: line for line in naryad["view"]["lines"]}
+    assert lines[key]["consumed_source"] == "FACT"
+    assert lines[key]["consumed_qty"] == pytest.approx(32659.3 + 392, abs=1.0)
+    assert lines[key]["returned_qty"] == pytest.approx(33100 - lines[key]["consumed_qty"], abs=0.01)
+    assert lines[surface]["consumed_source"] == "MANUAL_OVERRIDE" and lines[surface]["returned_qty"] == 5
+    assert _line(naryad["view"]["lines"], "starter")["consumed_qty"] is None  # факта стартеров нет — вручную
+    block = naryad["view"]["blocks_fact"][0]
+    assert block["charged_holes"] == 196 and block["misfired"] == 1 and block["fired_holes"] == 195
+
+    # ВВ, изготавливаемые на месте: возврата нет, расход ≠ выдано — предупреждение.
+    site = service.update_layer(repository, _economics(), ORG, "user", naryad["id"],
+                                {**naryad["payload"], "vv_site": True}, naryad["version"])
+    explosive = {line["key"]: line for line in site["view"]["lines"]}[key]
+    assert explosive["returned_qty"] is None and explosive["returned_source"] == "VV_SITE"
+    assert "naryad_vv_site_balance" in _codes(site)
+
+    # Ручной возврат, который не сходится с выдано − израсходовано, — предупреждение.
+    manual = service.update_layer(repository, _economics(), ORG, "user", site["id"],
+                                  {**site["payload"], "vv_site": False, "returned": {key: 1.0}}, site["version"])
+    assert "naryad_balance_mismatch" in _codes(manual)
+
+
+def test_talon_admittance_from_fact_time(context66_v2):
+    repository = _Repository(context66_v2, status="executed")
+    talon = service.create_layer(repository, _economics(), ORG, "user", "p1", "TALON", {})
+    assert talon["view"]["admittance_not_before"] == "13:30" and talon["view"]["admittance_source"] == "PROJECT"
+    talon = service.update_layer(repository, _economics(), ORG, "user", talon["id"],
+                                 {"fired_date": "2026-10-14", "fired_time": "23:45"}, talon["version"])
+    assert talon["view"] == {**talon["view"], "admittance_not_before": "00:15", "admittance_date": "2026-10-15",
+                             "admittance_source": "FACT"}
+    with pytest.raises(ValueError):
+        service.update_layer(repository, _economics(), ORG, "user", talon["id"], {"fired_time": "25:00"}, talon["version"])

@@ -37,6 +37,7 @@ LAYER_DOCUMENTS = {
     "NARYAD": ("Наряд-путёвка", ""),
     "TALON": ("Талон-допуск", "Талон-допуск после массового взрыва (форма Общества)"),
     "ACCEPTANCE_ACT": ("Акт приёмки работ", "Акт приёмки выполненных работ (форма по договору подряда)"),
+    "EXECUTION": ("Таблица параметров (исполнительная)", ""),
 }
 TALON_COPIES = (
     "Экземпляр 1 — представителю заказчика",
@@ -321,11 +322,20 @@ def _naryad_blocks(revision: Mapping[str, Any], width: float) -> list:
     blocks = _blocks(seed)
     # Форма 4: 5 строк (до 5 блоков во взрыве); блоков больше — строка на каждый.
     row_count = max(5, len(blocks))
+    # После взрыва (PR 5): заряжено, взорвано, отказы, отклонение — из слоя «Факт».
+    done = list((revision.get("view") or {}).get("blocks_fact") or [])
     for index in range(row_count):
         block = blocks[index] if index < len(blocks) else None
         if block:
+            fact = done[index] if index < len(done) and "charged_holes" in done[index] else None
+            after = [""] * 6
+            if fact:
+                after = [cell(num(fact.get("charged_holes"), 0), "td_c"), cell(kg_text(fact.get("charged_kg")), "td_c"),
+                         cell(num(fact.get("fired_holes"), 0), "td_c"), cell(kg_text(fact.get("fired_kg")), "td_c"),
+                         cell(num(fact.get("misfired"), 0), "td_c"), cell(kg_text(fact.get("deviation_kg")), "td_c")]
             rows.append([cell(index + 1, "td_c"), cell(block.get("code"), "td_c"), cell(block.get("horizon"), "td_c"),
-                         cell(num(block.get("holes"), 0), "td_c"), cell(num(block.get("charge_kg"), 0), "td_c")] + [""] * 7)
+                         cell(num(block.get("holes"), 0), "td_c"), cell(num(block.get("charge_kg"), 0), "td_c")]
+                        + after + [""])
         else:
             rows.append([cell(index + 1, "td_c")] + [""] * 11)
     rows.append(["", "", cell("Итого", "td_b"), cell(num(totals.get("blocks_holes"), 0), "td_bc"),
@@ -363,18 +373,44 @@ def _naryad_materials(revision: Mapping[str, Any], width: float) -> list:
         unit_mass = line.get("unit_mass_kg")
         returned = "—" if explosive and vv_site else ""
         distribution = "; ".join(f"Блок {code} — ____ {text(line.get('unit'))}" for code in codes) or ""
+
+        def qty(value: Any, line=line) -> str:
+            if value is None:
+                return ""
+            return kg_text(value) if line.get("unit") == "кг" else num(value, 0)
+
+        # Графы после взрыва (PR 5) — только у ревизии с ними; иначе пустые клетки, как раньше.
+        after = ["", "", "", ""]
+        back = [cell(returned, "td_c"), cell(returned, "td_c")]
+        if view.get("after_blast"):
+            after = [cell(qty(line.get("issued_qty")), "td_c"), cell(kg_text(line.get("issued_kg")), "td_c"),
+                     cell(qty(line.get("consumed_qty")), "td_c"), cell(kg_text(line.get("consumed_kg")), "td_c")]
+            if not returned:
+                back = [cell(qty(line.get("returned_qty")), "td_c"), cell(kg_text(line.get("returned_kg")), "td_c")]
         rows.append([
             cell(index, "td_c"), cell(material_name(line)), "", "", "", cell(line.get("unit"), "td_c"),
             cell(num(unit_mass, 3) if unit_mass is not None else "", "td_c"),
             cell(kg_text(line.get("issue_qty")) if line.get("unit") == "кг" else num(line.get("issue_qty"), 0), "td_bc"),
             # Килограммы — как в ревизии (0,9 кг × 2 = 1,8 кг), без округления до целых.
             cell(kg_text(line.get("issue_kg")), "td_c"),
-            "", "", "", "", cell(returned, "td_c"), cell(returned, "td_c"), cell(distribution), "",
+            *after, *back, cell(distribution), "",
         ])
     rows.append([cell(len(lines) + 1, "td_c")] + [""] * 16)
     first_total = len(rows)
+    explosive_after = [""] * 6
+    if view.get("after_blast"):
+        explosive_lines = [line for line in lines if line.get("kind") == "explosive"]
+
+        def total(key: str) -> str:
+            values = [line.get(key) for line in explosive_lines]
+            if not values or any(value is None for value in values):
+                return ""
+            return kg_text(round(sum(float(value) for value in values), 3))
+
+        explosive_after = ["", cell(total("issued_kg"), "td_c"), "", cell(total("consumed_kg"), "td_c"), "",
+                           cell("—" if vv_site else total("returned_kg"), "td_c")]
     rows.append([cell("Итого ВВ, кг", "td_br"), "", "", "", "", "", "", "",
-                 cell(kg_text(totals.get("explosive_issue_kg")), "td_bc")] + [""] * 8)
+                 cell(kg_text(totals.get("explosive_issue_kg")), "td_bc")] + explosive_after + ["", ""])
     rows.append([cell("Итого средства инициирования, шт", "td_br"), "", "", "", "", "", "",
                  cell(num(totals.get("initiation_issue_pcs"), 0), "td_bc"), ""] + [""] * 8)
     style += [("SPAN", (0, first_total), (6, first_total)), ("SPAN", (0, first_total + 1), (6, first_total + 1)),
@@ -473,7 +509,14 @@ def _talon_half(revision: Mapping[str, Any], width: float) -> list:
                    p("Время выдачи:", "body_r"), p(time_text, "body")]],
                  colWidths=[width * 0.2, width * 0.25, width * 0.25, width * 0.3])
     when.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 2)]))
-    not_before = text(seed.get("admittance_not_before")) or "____"
+    view = revision.get("view") or {}
+    # Ревизия талона с PR 5: «не ранее» — от фактического времени взрыва (`view`);
+    # без него — от проектного, с пометкой. Прежние ревизии — как раньше.
+    not_before = text(view.get("admittance_not_before")) or text(seed.get("admittance_not_before")) or "____"
+    if text(view.get("admittance_date")):
+        not_before += f" ({date(view.get('admittance_date'))})"
+    elif view.get("admittance_source") == "PROJECT" and text(view.get("admittance_not_before")):
+        not_before += " *"
     admit = Table([[p("Осмотр блока произведён, сигнал «отбой» подан, отказавших зарядов нет. Допуск людей "
                       "(п. 422 ФНП 494) — не ранее:", "body"), p(not_before, "summary_value")]],
                   colWidths=[width * 0.6, width * 0.4])
@@ -483,7 +526,10 @@ def _talon_half(revision: Mapping[str, Any], width: float) -> list:
         p("ТАЛОН-ДОПУСК", "title_red"), spacer(1),
         p(f"для работы на блоке № {codes or '___'} горизонта {horizons or '___'} м после проведения взрывных работ", "body_c"),
         p(f"Объект: {text(project.get('object_name'))}" if text(project.get("object_name")) else " ", "grey_c"),
-        spacer(1), when, spacer(3), admit, spacer(3),
+        spacer(1), when, spacer(3), admit,
+        *([p("* по проектному времени взрыва: фактическое время в талоне не указано", "small")]
+          if view.get("admittance_source") == "PROJECT" and text(view.get("admittance_not_before")) else []),
+        spacer(3),
         _sign(width, "Выдал — ответственный руководитель массового взрыва:", issued_by), spacer(2),
         _sign(width, "Получил — представитель заказчика:", received_by),
     ]
@@ -529,12 +575,13 @@ def _talon_extra(canvas, part: Part, logo, _page: int) -> None:
 
 # --- 10. акт приёмки -------------------------------------------------------
 
-def _acceptance_text(seed: Mapping[str, Any]) -> list[str]:
+def _acceptance_text(seed: Mapping[str, Any], fact: Mapping[str, Any] | None = None) -> list[str]:
     project = seed.get("project") or {}
     template = text(seed.get("acceptance_text"))
+    blast_date = text((fact or {}).get("blast_date")) or text(project.get("blast_date"))
     values = {
         "{блок}": _codes(seed) or "___", "{горизонт}": _horizons(seed) or "___",
-        "{дата взрыва}": _date_words(text(project.get("blast_date"))),
+        "{дата взрыва}": _date_words(blast_date),
     }
     for key, value in values.items():
         template = template.replace(key, value)
@@ -569,10 +616,29 @@ def acceptance_story(revision: Mapping[str, Any], width: float) -> list:
         for b in blocks if b.get("spacing_mean_m") is not None and b.get("burden_mean_m") is not None
     )
     q = seed.get("specific_q_kg_m3")
+    fact = (revision.get("view") or {}).get("fact") or {}
+    q_label = "Удельный расход ВМ, кг/м³"
+    rows = []
+    if fact.get("basis") == "FACT":
+        # PR 5: параметры по факту — из последней выпущенной ревизии слоя «Факт».
+        fact_grid = "; ".join(
+            f"{short(g.get('spacing_m'), 1)} × {short(g.get('burden_m'), 1)}"
+            for g in fact.get("grids") or [] if g.get("spacing_m") is not None and g.get("burden_m") is not None
+        )
+        if fact_grid:
+            grid = fact_grid
+        elif grid:
+            grid += " (по проекту)"
+        q = fact.get("q_kg_m3")
+        if fact.get("volume_basis") == "CONTOUR":
+            q_label = "Удельный расход ВМ (к объёму по контуру), кг/м³"
+        rows = [[p("", "body", markup=f'<font color="{RED_HEX}"><b>3.</b></font> Израсходовано ВВ, кг'),
+                 p(kg_text(fact.get("explosive_kg")) or DASH, "bold_c")]]
     params = Table([
         [p("", "body", markup=f'<font color="{RED_HEX}"><b>1.</b></font> Сетка скважин, м'), p(grid or DASH, "bold_c")],
-        [p("", "body", markup=f'<font color="{RED_HEX}"><b>2.</b></font> Удельный расход ВМ, кг/м³'),
+        [p("", "body", markup=f'<font color="{RED_HEX}"><b>2.</b></font> {q_label}'),
          p(short(q, 2) if q is not None else DASH, "bold_c")],
+        *rows,
     ], colWidths=[width * 0.5, 45 * mm])
     params.setStyle(TableStyle([("LEFTPADDING", (0, 0), (0, -1), 4 * mm), ("LINEBELOW", (1, 0), (1, -1), 0.4, LINE)]))
     remarks = text(payload.get("remarks"))
@@ -596,12 +662,13 @@ def acceptance_story(revision: Mapping[str, Any], width: float) -> list:
         p("АКТ", "act_red"), p(f"приёмки выполненных работ блока № {codes or '___'}", "bold_c"), spacer(6),
         p("Комиссия в составе:", "bold"), spacer(1), commission, spacer(4), p("составили настоящий акт:", "body"), spacer(1),
     ]
-    story += [p(line, "body") for line in _acceptance_text(seed)]
+    story += [p(line, "body") for line in _acceptance_text(seed, fact)]
     volume_contour = seed.get("volume_contour_m3")
     story += [
         spacer(4), p("К оплате принимаются следующие объёмы:", "bold"), spacer(1), volume,
         p(f"по проекту (маркшейдерский контур): {num(volume_contour, 0)} м³" if volume_contour else " ", "small"),
-        spacer(4), p("Параметры взрывных работ:", "bold"), spacer(1), params, spacer(5),
+        spacer(4), p({"FACT": "Параметры взрывных работ (по факту):", "PROJECT": "Параметры взрывных работ (по проекту):"}
+                     .get(text(fact.get("basis")), "Параметры взрывных работ:"), "bold"), spacer(1), params, spacer(5),
         p("Данный акт составлен в 2-х равноценных экземплярах, по одному каждой стороне. Настоящий акт является "
           "основанием для дальнейших взаиморасчётов.", "body"),
         spacer(5), p("Особые замечания:", "bold"), remarks_table, spacer(10),
@@ -642,9 +709,19 @@ def layer_part(revision: Mapping[str, Any]) -> Part:
     )
 
 
+def layer_parts(revision: Mapping[str, Any]) -> list[Part]:
+    """Части документа слоя: у слоя «Факт» — исполнительные таблицы и Г.1 (PR 5), у остальных — одна."""
+
+    if text(revision.get("kind")) == "EXECUTION":
+        from design.reporting.mass_blast.fact import fact_parts
+
+        return fact_parts(revision, layer_header(_seed(revision)))
+    return [layer_part(revision)]
+
+
 def render_layer_document(revision: Mapping[str, Any], *, draft: bool = False) -> bytes:
-    part = layer_part(revision)
-    return frame.render([part], title=part.label, duplex=False, draft=draft)
+    parts = layer_parts(revision)
+    return frame.render(parts, title=parts[0].label, duplex=False, draft=draft)
 
 
-__all__ = ["LAYER_DOCUMENTS", "layer_part", "render_layer_document"]
+__all__ = ["LAYER_DOCUMENTS", "layer_part", "layer_parts", "render_layer_document"]

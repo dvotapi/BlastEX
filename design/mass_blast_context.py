@@ -24,6 +24,7 @@ from design.mass_blast import (
     validate_project_context,
 )
 from design.mass_blast_calc import MASS_BLAST_CALC_VERSION, explosives_consumption
+from design.mass_blast_graphics import block_graphics, project_graphics
 from design.mass_blast_objects import ObjectZones, assess_project_objects, situation_candidates
 from design.mass_blast_schedule import PERSONNEL_ROLES, build_schedule
 from design.mass_blast_table import DEFAULT_CHARGE_ROUND_KG, parameter_table
@@ -154,6 +155,11 @@ def _requisites(payload: Mapping[str, Any], site: Mapping[str, Any] | None) -> t
         "surveyor_name": _text(own.get("surveyor_name")),
         "drilled_by": _text(own.get("drilled_by")),
         "customer_tech_contact": _text(site.get("customer_tech_contact")),
+        # Акт приёмки выполненных работ (PR 3): реквизиты договора объекта.
+        "contract_no": _text(site.get("contract_no")),
+        "contract_date": _text(site.get("contract_date")),
+        "acceptance_appendix_no": _text(site.get("acceptance_appendix_no")),
+        "customer_responsible": _text(site.get("customer_responsible")),
     }
     return requisites, issues
 
@@ -334,6 +340,14 @@ def build_document_context_v2(
             volume_m3=item["volume"],
         )
         issues += [{**issue, "path": issue.get("path") or f"blocks[{index}].technical_calculation"} for issue in calc_issues]
+        # Графика Г.1–Г.4 (PR 4): всё, что определяет содержание листа, — в ревизии.
+        graphics, graphics_issues = block_graphics(
+            item["design"],
+            item["table"].rows,
+            situation_layers=references.situation_layers,
+            szm_start_flank=_text(schedule_payload.get("szm_start_flank")) or "left",
+        )
+        issues += [{**issue, "path": f"blocks[{index}].{issue['path']}"} for issue in graphics_issues]
         blocks_v2.append(
             {
                 "design_id": block.design_id,
@@ -344,6 +358,7 @@ def build_document_context_v2(
                 "consumption": [line.to_dict() for line in item["consumption"]],
                 "technical_calculation": sections,
                 "parameter_table": item["table"].to_dict(),
+                "graphics": graphics,
             }
         )
 
@@ -376,6 +391,20 @@ def build_document_context_v2(
     )
     issues += schedule_issues
 
+    # Ситуационный план Г.5 (PR 4): зоны, ситуация, объекты, точки постов и станции.
+    graphics, graphics_issues = project_graphics(
+        geometry,
+        zones=zones,
+        objects=objects,
+        situation_layers=references.situation_layers,
+        has_situation=references.has_situation_refs,
+        layout_points=list(payload.get("layout_points") or []),
+        guard_posts=list(payload.get("guard_posts") or []),
+    )
+    issues += graphics_issues
+    context["graphics"] = graphics
+    context["layout_points"] = list(payload.get("layout_points") or [])
+
     context["safety_plan"] = {
         **dict(context.get("safety_plan") or {}),
         "danger_zone_radius_m": zones["people"]["value"],
@@ -395,6 +424,12 @@ def build_document_context_v2(
     # Интервалы сети текстом (НСИ, ДШ, электронная) — для распорядка и слоёв.
     context["network_intervals"] = network_intervals([item["design"] for item in computed])
     context["q_tp"] = q_tp
+    # Тексты бланков документов дня взрыва из профиля документов (PR 3);
+    # пусто — тексты формы ВМ.09.03 из кода слоёв.
+    context["document_texts"] = {
+        "letterhead": _text(profile.get("letterhead")),
+        "acceptance_text": _text(profile.get("acceptance_text")),
+    }
     context["issues"] = issues
     return context
 
@@ -457,13 +492,23 @@ def _object_zones(results: Sequence[SafetyResult], zones: Mapping[str, Mapping[s
     )
 
 
+# Проверки v1, которых у проекта по форме ВМ.09.03 нет (см. `validate_project_context_v2`).
+V1_CODES_NOT_IN_V2 = frozenset({"danger_zone", "signal_profile", "notification"})
+
+
 def validate_project_context_v2(context: Mapping[str, Any], *, require_attachments: bool = False) -> list[ValidationIssue]:
-    """Проверки v1 (кроме ручного радиуса опасной зоны — в v2 он расчётный) и замечания расчёта v2."""
+    """Проверки v1 и замечания расчёта v2.
+
+    Из проверок v1 не берутся те, что в форме ВМ.09.03 решены иначе: ручной
+    радиус опасной зоны (в v2 он расчётный), профиль сигналов (сигналы — из
+    профиля документов, п. 163) и получатель уведомления (уведомления — слои
+    дня взрыва, по одному на адресата; TASK-018 PR 6).
+    """
 
     issues = [
         issue
         for issue in validate_project_context(dict(context), require_attachments=require_attachments)
-        if issue.code != "danger_zone"
+        if issue.code not in V1_CODES_NOT_IN_V2
     ]
     if not (context.get("zones") or {}).get("people", {}).get("value"):
         issues.append(

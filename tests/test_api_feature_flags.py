@@ -60,12 +60,12 @@ def test_features_endpoint_reports_the_flag(monkeypatch) -> None:
     assert _client(monkeypatch, intelligence=False).get("/api/v1/features").json() == {
         "intelligence": False,
         "drill_passport": False,
-        "mass_blast_v2": False,
+        "mass_blast_v2": True,
     }
     assert _client(monkeypatch, intelligence=True).get("/api/v1/features").json() == {
         "intelligence": True,
         "drill_passport": False,
-        "mass_blast_v2": False,
+        "mass_blast_v2": True,
     }
 
 
@@ -127,9 +127,11 @@ def test_drill_passport_other_values_keep_it_on(monkeypatch, value: str) -> None
     assert config.drill_passport_enabled() is True
 
 
-@pytest.mark.parametrize(("value", "enabled"), [(None, False), ("1", True), ("да", True), ("0", False), ("нет", False)])
-def test_mass_blast_v2_flag_is_off_by_default(monkeypatch, value, enabled) -> None:
-    """Проект МВ по форме ВМ.09.03 (TASK-018) — за флагом до PR 6, по умолчанию выключен."""
+@pytest.mark.parametrize(
+    ("value", "enabled"), [(None, True), ("", True), ("1", True), ("да", True), ("0", False), ("false", False), ("нет", False)]
+)
+def test_mass_blast_v2_flag_is_on_by_default(monkeypatch, value, enabled) -> None:
+    """Проект МВ по форме ВМ.09.03 (TASK-018): с PR 6 включён, выключает только явное «нет»."""
 
     if value is None:
         monkeypatch.delenv(config.MASS_BLAST_V2_ENABLED_ENV, raising=False)

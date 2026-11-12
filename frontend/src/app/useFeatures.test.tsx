@@ -17,10 +17,17 @@ describe("useFeatures", () => {
     await waitFor(() => expect(result.current.drill_passport).toBe(true));
   });
 
+  it("читает флаг проекта МВ по форме ВМ.09.03", async () => {
+    vi.mocked(api.features).mockResolvedValue({ intelligence: false, drill_passport: true, mass_blast_v2: true });
+    const { result } = renderHook(() => useFeatures());
+    await waitFor(() => expect(result.current.mass_blast_v2).toBe(true));
+  });
+
   it("без ответа сервера разделы выключены", async () => {
     vi.mocked(api.features).mockRejectedValue(new Error("сеть"));
     const { result } = renderHook(() => useFeatures());
     await waitFor(() => expect(api.features).toHaveBeenCalled());
-    expect(result.current).toEqual({ intelligence: false, drill_passport: false });
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    expect(result.current).toEqual({ intelligence: false, drill_passport: false, mass_blast_v2: false, loaded: true });
   });
 });

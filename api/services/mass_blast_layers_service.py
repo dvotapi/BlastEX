@@ -5,6 +5,10 @@
 отдельно. Повторный перенос (проект перевыпущен) показывает расхождение и
 применяется только с подтверждения. Ревизия слоя — неизменяемый снимок с
 `content_sha256`. Печать — PR 3, MagEX — PR 7.
+
+Слой «Факт» (PR 5) переносит факт из проектов блоков ревизии
+(`design/mass_blast_fact.py`); акт приёмки и наряд после взрыва — из последней
+выпущенной ревизии «Факта» на той же ревизии проекта.
 """
 from __future__ import annotations
 
@@ -12,19 +16,42 @@ from typing import Any, Mapping
 
 from api.schemas.mass_blast import LAYER_PAYLOAD_SCHEMAS
 from cost.v2.repository import EconomicsRepository
+from design import persistence as design_persistence
+from design.lifecycle import designed_sha256
 from design.mass_blast import content_sha256
+from design.mass_blast_fact import block_fact, execution_sha256
+from design.mass_blast_defaults import created_on, fill_layer_empty, layer_defaults
+from design.mass_blast_layer_diff import describe_changes
 from design.mass_blast_layers import (
+    AFTER_BLAST_STATUSES,
+    LAYER_KINDS,
     LAYER_LABELS,
     LAYER_OPEN_AFTER,
     MULTI_LAYER_KINDS,
+    acceptance_view,
+    execution_seed_diff,
+    execution_summary,
+    execution_view,
     layer_open_issue,
     layer_seed,
+    naryad_after_blast,
     naryad_lines,
+    naryad_totals,
     seed_diff,
+    talon_view,
 )
 from design.mass_blast_repository import PostgresMassBlastRepository
 
-__all__ = ["create_layer", "get_layer", "issue_layer", "list_layers", "refresh_layer", "update_layer"]
+__all__ = [
+    "available_layers",
+    "create_layer",
+    "get_layer",
+    "issue_layer",
+    "list_layers",
+    "notification_addressees",
+    "refresh_layer",
+    "update_layer",
+]
 
 LAYER_CONTEXT_VERSION = 1
 
@@ -114,15 +141,80 @@ def _reserve_defaults(snapshot: Any, context: Mapping[str, Any]) -> dict[str, in
     }
 
 
-def _with_view(layer: dict[str, Any], snapshot: Any, context: Mapping[str, Any]) -> dict[str, Any]:
-    """Что слой показывает и печатает: у наряда — строки ВМ «по проекту / запас / к выдаче»."""
+AFTER_BLAST_KEYS = ("issued", "consumed", "returned")
 
+
+def _after_blast(payload: Mapping[str, Any]) -> bool:
+    return any(payload.get(key) for key in AFTER_BLAST_KEYS)
+
+
+def _with_view(
+    layer: dict[str, Any], snapshot: Any, context: Mapping[str, Any], state: Mapping[str, Any] | None = None
+) -> dict[str, Any]:
+    """Что слой показывает и печатает: у наряда — строки ВМ «по проекту / запас / к выдаче».
+
+    `state` — то, что знает только сервис (`_fact_state`): изменился ли факт
+    проектов блоков после переноса в слой «Факт» и какая ревизия «Факта»
+    последняя (для акта приёмки и наряда).
+    """
+
+    state = state or {}
     view: dict[str, Any] = {"label": LAYER_LABELS.get(layer["kind"], layer["kind"])}
     issues: list[dict[str, str]] = []
+    seed, payload = layer["seed"], layer["payload"]
     if layer["kind"] == "NARYAD":
-        view["lines"] = naryad_lines(layer["seed"], layer["payload"], _reserve_defaults(snapshot, context))
-        view["vv_site"] = bool(layer["payload"].get("vv_site"))
+        view["lines"] = naryad_lines(seed, payload, _reserve_defaults(snapshot, context))
+        view["totals"] = naryad_totals(seed, view["lines"])
+        view["vv_site"] = bool(payload.get("vv_site"))
+        if seed.get("fact") or _after_blast(payload):
+            view["lines"], view["blocks_fact"], after_issues = naryad_after_blast(seed, payload, view["lines"])
+            view["after_blast"] = True
+            issues += after_issues
+    if layer["kind"] == "TALON":
+        view.update(talon_view(seed, payload))
+    if layer["kind"] == "ACCEPTANCE_ACT":
+        view["fact"], fact_issues = acceptance_view(seed, payload)
+        issues += fact_issues
+    if layer["kind"] == "EXECUTION":
+        execution, fact_issues = execution_view(seed, payload)
+        view.update(execution)
+        issues += fact_issues
+        if state.get("fact_error"):
+            issues.append(
+                {"level": "error", "code": "fact_source_invalid", "message": str(state["fact_error"]), "path": "seed.blocks_fact"}
+            )
+        if state.get("fact_changed"):
+            issues.append(
+                {
+                    "level": "error",
+                    "code": "fact_changed",
+                    "message": "Факт в проекте блока изменился после переноса: перенесите факт заново, затем выпускайте.",
+                    "path": "seed.blocks_fact",
+                }
+            )
+    fact = seed.get("fact") or {}
+    latest = state.get("latest_execution_id")
+    # Наряд до взрыва факта не берёт: про новую ревизию «Факта» — только после взрыва.
+    wants_fact = layer["kind"] == "ACCEPTANCE_ACT" or bool(fact) or state.get("after_blast")
+    if layer["kind"] in ("NARYAD", "ACCEPTANCE_ACT") and wants_fact and latest and fact.get("execution_revision_id") != latest:
+        issues.append(
+            {
+                "level": "warning",
+                "code": "fact_layer_stale",
+                "message": "Выпущена новая ревизия слоя «Факт»: перенесите данные заново.",
+                "path": "seed.fact",
+            }
+        )
     if layer["kind"] == "NOTIFICATION":
+        if not str(layer["seed"].get("letterhead") or "").strip():
+            issues.append(
+                {
+                    "level": "warning",
+                    "code": "letterhead_missing",
+                    "message": "В профиле документов нет бланка Общества: уведомление печатается только с наименованием.",
+                    "path": "seed.letterhead",
+                }
+            )
         registry = dict(layer["seed"].get("addressee") or {})
         if registry:
             view["addressee"] = registry
@@ -155,7 +247,183 @@ def _with_view(layer: dict[str, Any], snapshot: Any, context: Mapping[str, Any])
                 "path": "project_revision_id",
             }
         )
+    # Значения по умолчанию ручного ввода (PR 6, §14, В3 и В7): окно показывает их
+    # в полях, выпуск и предпросмотр подставляют в пустые поля.
+    site_code = str((context.get("project") or {}).get("site_code") or "")
+    view["defaults"] = layer_defaults(
+        layer["kind"], seed, payload, site=_site_record(snapshot, "mass_blast_sites", site_code),
+        previous_naryad=state.get("previous_naryad"), view=view, created_on=created_on(layer.get("created_at")),
+    )
     return {**layer, "view": view, "issues": issues}
+
+
+def _with_remember(
+    layers: list[dict[str, Any]], economics_repository: EconomicsRepository | None, organization_id: str,
+) -> list[dict[str, Any]]:
+    """«Запомнить для объекта» у полей слоя — по текущему справочнику, а не по ревизии,
+    на которой выпущен проект: пишется запомненное именно в текущий (ревью Codex)."""
+
+    from api.services.mass_blast_remember import rememberable
+
+    if not layers:
+        return layers
+    try:
+        current = economics_repository.get_reference_snapshot(organization_id) if economics_repository is not None else None
+    except Exception:  # noqa: BLE001 — без справочника запоминать некуда
+        current = None
+    for layer in layers:
+        site_code = str(((layer.get("seed") or {}).get("project") or {}).get("site_code") or "")
+        layer["view"]["rememberable"] = (
+            {} if current is None
+            else rememberable(_site_record(current, "mass_blast_sites", site_code), layer_kind=layer["kind"])
+        )
+    return layers
+
+
+def effective_payload(viewed: Mapping[str, Any]) -> dict[str, Any]:
+    """Ручной ввод слоя для выпуска и предпросмотра: пустые поля — значениями по умолчанию."""
+
+    return fill_layer_empty(viewed["payload"], (viewed.get("view") or {}).get("defaults") or {})
+
+
+def _previous_naryad(
+    repository: PostgresMassBlastRepository, organization_id: str, project: Mapping[str, Any]
+) -> list[dict[str, Any]]:
+    """Ручной ввод нарядов прошлых проектов того же объекта, от последнего (склад, разрешение,
+    транспорт): поле, взятое прошлым нарядом по умолчанию, ищется у нарядов раньше."""
+
+    from api.services.mass_blast_prefill import previous_v2_projects
+
+    payloads: list[dict[str, Any]] = []
+    try:
+        for previous in previous_v2_projects(
+            repository, organization_id, str(project.get("site_code") or ""), exclude=str(project.get("id") or ""),
+            before=str(project.get("created_at") or ""),
+        ):
+            naryads = [layer for layer in repository.list_layers(organization_id, previous["id"]) if layer["kind"] == "NARYAD"]
+            naryads.sort(key=lambda layer: str(layer.get("updated_at") or ""), reverse=True)
+            payloads += [dict(layer["payload"]) for layer in naryads]
+    except Exception:  # noqa: BLE001 — прошлые наряды дают только умолчания
+        return payloads
+    return payloads
+
+
+def _load_design(organization_id: str, design_id: str):
+    return design_persistence.load_design(organization_id, design_id)
+
+
+def _block_designs(organization_id: str, context: Mapping[str, Any]) -> list[Any]:
+    """Проекты блоков ревизии проекта МВ — источник факта.
+
+    Проектная часть блока обязана быть той, что утверждена в ревизии: иначе
+    факт относится к другой сетке.
+    """
+
+    designs = []
+    for block in context.get("blocks") or []:
+        name = str(block.get("code") or block.get("design_id") or "")
+        try:
+            design = _load_design(organization_id, str(block.get("design_id") or ""))
+        except design_persistence.DesignNotFoundError as exc:
+            raise ValueError(f"Проект блока «{name}» больше недоступен: факт взять неоткуда.") from exc
+        current = design.designed_sha256 or designed_sha256(design)
+        if current != str(block.get("design_sha256") or ""):
+            raise ValueError(
+                f"Проект блока «{name}» изменён после выпуска ревизии проекта МВ: факт относится к другой сетке."
+            )
+        designs.append(design)
+    return designs
+
+
+def _execution_facts(organization_id: str, context: Mapping[str, Any], snapshot: Any) -> list[tuple[dict, list]]:
+    designs = _block_designs(organization_id, context)
+    materials = list(snapshot.active_items("materials")) if snapshot is not None else []
+    starter = str((context.get("explosives") or {}).get("starter_product") or "")
+    blocks = list(context.get("blocks_v2") or [])
+    return [
+        block_fact(design, (blocks[index] if index < len(blocks) else {}).get("parameter_table") or {}, materials,
+                   starter_product=starter)
+        for index, design in enumerate(designs)
+    ]
+
+
+def _latest_execution(
+    repository: PostgresMassBlastRepository, organization_id: str, project_id: str, project_revision_id: str
+) -> tuple[str | None, dict[str, Any] | None]:
+    """Последняя выпущенная ревизия слоя «Факт» на этой ревизии проекта."""
+
+    for layer in repository.list_layers(organization_id, project_id):
+        if layer["kind"] != "EXECUTION" or not layer.get("current_revision_id"):
+            continue
+        revision = repository.latest_layer_revision(organization_id, layer["id"], project_revision_id)
+        if revision is not None:
+            return str(revision["id"]), dict(revision.get("context") or {})
+    return None, None
+
+
+def _fact_state(
+    repository: PostgresMassBlastRepository,
+    organization_id: str,
+    layer: Mapping[str, Any],
+    context: Mapping[str, Any],
+    project: Mapping[str, Any] | None = None,
+    latest: dict[str, str | None] | None = None,
+) -> dict[str, Any]:
+    """Что о слое знает только сервис; `latest` — кэш последней ревизии «Факта»
+    по ревизии проекта на один список слоёв."""
+
+    state: dict[str, Any] = {}
+    if layer["kind"] == "NARYAD":
+        project = project or repository.get_project(organization_id, layer["project_id"])
+        if latest is not None and "previous_naryad" in latest:
+            state["previous_naryad"] = latest["previous_naryad"]  # type: ignore[assignment]
+        else:
+            state["previous_naryad"] = _previous_naryad(repository, organization_id, project)
+            if latest is not None:
+                latest["previous_naryad"] = state["previous_naryad"]  # type: ignore[assignment]
+    if layer["kind"] == "EXECUTION":
+        try:
+            hashes = [execution_sha256(design) for design in _block_designs(organization_id, context)]
+        except ValueError as exc:
+            # Проект блока удалён или изменён: причина — как есть, а не «факт изменился».
+            state["fact_error"] = str(exc)
+            return state
+        seeded = [str(block.get("execution_sha256") or "") for block in layer["seed"].get("blocks_fact") or []]
+        state["fact_changed"] = hashes != seeded
+    elif layer["kind"] in ("NARYAD", "ACCEPTANCE_ACT"):
+        project = project or repository.get_project(organization_id, layer["project_id"])
+        state["after_blast"] = str(project.get("lifecycle_status") or "") in AFTER_BLAST_STATUSES
+        key = layer["project_revision_id"]
+        if latest is None or key not in latest:
+            found, _ = _latest_execution(repository, organization_id, layer["project_id"], key)
+            if latest is None:
+                return {**state, "latest_execution_id": found}
+            latest[key] = found
+        state["latest_execution_id"] = latest[key]
+    return state
+
+
+def _seed(
+    repository: PostgresMassBlastRepository,
+    organization_id: str,
+    kind: str,
+    context: Mapping[str, Any],
+    snapshot: Any,
+    project: Mapping[str, Any],
+    project_revision_id: str,
+    notification: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Перенос в слой: у «Факта» — факт проектов блоков; у акта приёмки и наряда
+    после взрыва — сводка последней выпущенной ревизии «Факта»."""
+
+    facts = _execution_facts(organization_id, context, snapshot) if kind == "EXECUTION" else None
+    execution = None
+    after_blast = str(project.get("lifecycle_status") or "") in AFTER_BLAST_STATUSES
+    if kind == "ACCEPTANCE_ACT" or (kind == "NARYAD" and after_blast):
+        revision_id, revision_context = _latest_execution(repository, organization_id, str(project["id"]), project_revision_id)
+        if revision_id is not None and revision_context is not None:
+            execution = execution_summary(revision_context, revision_id)
+    return layer_seed(kind, context, notification=notification, facts=facts, execution=execution)
 
 
 def list_layers(
@@ -164,6 +432,8 @@ def list_layers(
     """Слои проекта; вид каждого — по ревизии проекта, на которой он основан (как у `get_layer`)."""
 
     contexts: dict[str, tuple[Mapping[str, Any], Any]] = {}
+    latest: dict[str, str | None] = {}
+    project = repository.get_project(organization_id, project_id)
     result = []
     for layer in repository.list_layers(organization_id, project_id):
         revision_id = layer["project_revision_id"]
@@ -171,8 +441,9 @@ def list_layers(
             context = repository.get_revision(organization_id, revision_id)["context"]
             contexts[revision_id] = (context, _snapshot(economics_repository, organization_id, context))
         context, snapshot = contexts[revision_id]
-        result.append(_with_view(layer, snapshot, context))
-    return result
+        result.append(_with_view(layer, snapshot, context,
+                                 _fact_state(repository, organization_id, layer, context, project, latest)))
+    return _with_remember(result, economics_repository, organization_id)
 
 
 def get_layer(
@@ -180,7 +451,10 @@ def get_layer(
 ) -> dict[str, Any]:
     layer = repository.get_layer(organization_id, layer_id)
     context = repository.get_revision(organization_id, layer["project_revision_id"])["context"]
-    return _with_view(layer, _snapshot(economics_repository, organization_id, context), context)
+    return _with_remember([_with_view(
+        layer, _snapshot(economics_repository, organization_id, context), context,
+        _fact_state(repository, organization_id, layer, context),
+    )], economics_repository, organization_id)[0]
 
 
 def create_layer(
@@ -199,6 +473,7 @@ def create_layer(
     if reason:
         raise ValueError(reason)
     data = _payload(kind, payload)
+    _check_after_blast(kind, project, data, {})
     snapshot = _snapshot(economics_repository, organization_id, context)
     addressee = None
     if kind == "NOTIFICATION":
@@ -211,15 +486,27 @@ def create_layer(
             for layer in repository.list_layers(organization_id, project_id)
         ):
             raise ValueError("Уведомление этому адресату у проекта уже есть: на адресата — одно уведомление.")
+    seed = _seed(repository, organization_id, kind, context, snapshot, project, revision["id"], addressee)
     layer = repository.create_layer(
         organization_id, actor, project_id, kind=kind, project_revision_id=revision["id"],
         allowed_statuses=set(LAYER_OPEN_AFTER[kind]), single=kind not in MULTI_LAYER_KINDS,
-        seed=layer_seed(kind, context, notification=addressee), payload=data,
+        seed=seed, payload=data,
         # Одно уведомление на адресата: окончательная проверка — в транзакции
         # создания под блокировкой проекта (одновременные запросы).
         unique_payload_key="notification_code" if kind == "NOTIFICATION" else None,
     )
-    return _with_view(layer, snapshot, context)
+    # Только что перенесённый факт не изменился: проекты блоков второй раз не читаются.
+    state = {"fact_changed": False} if kind == "EXECUTION" else _fact_state(repository, organization_id, layer, context, project)
+    return _with_remember([_with_view(layer, snapshot, context, state)], economics_repository, organization_id)[0]
+
+
+def _check_after_blast(kind: str, project: Mapping[str, Any], data: Mapping[str, Any], stored: Mapping[str, Any]) -> None:
+    """Графы наряда «после взрыва» правятся только у проекта со взрывом (решение В9 PR 5)."""
+
+    if kind != "NARYAD" or str(project.get("lifecycle_status") or "") in AFTER_BLAST_STATUSES:
+        return
+    if any((data.get(key) or {}) != (stored.get(key) or {}) for key in AFTER_BLAST_KEYS):
+        raise ValueError("Графы «выдано», «израсходовано», «возвращено» заполняются после взрыва (проект «выполнен»).")
 
 
 def update_layer(
@@ -235,9 +522,14 @@ def update_layer(
     data = _payload(layer["kind"], payload)
     if layer["kind"] == "NOTIFICATION" and data.get("notification_code") != layer["payload"].get("notification_code"):
         raise ValueError("Адресат уведомления не меняется: заведите отдельное уведомление на другого адресата.")
+    project = repository.get_project(organization_id, layer["project_id"])
+    _check_after_blast(layer["kind"], project, data, layer["payload"])
     updated = repository.update_layer(organization_id, actor, layer_id, expected_version=expected_version, payload=data)
     context = repository.get_revision(organization_id, updated["project_revision_id"])["context"]
-    return _with_view(updated, _snapshot(economics_repository, organization_id, context), context)
+    return _with_remember([_with_view(
+        updated, _snapshot(economics_repository, organization_id, context), context,
+        _fact_state(repository, organization_id, updated, context, project),
+    )], economics_repository, organization_id)[0]
 
 
 def refresh_layer(
@@ -249,7 +541,8 @@ def refresh_layer(
     expected_version: int,
     confirm: bool,
 ) -> dict[str, Any]:
-    """Повторный перенос данных текущей ревизии проекта; без `confirm` — только расхождение."""
+    """Повторный перенос данных текущей ревизии проекта (у «Факта» — и факта
+    проектов блоков); без `confirm` — только расхождение."""
 
     layer = repository.get_layer(organization_id, layer_id)
     project = repository.get_project(organization_id, layer["project_id"])
@@ -264,16 +557,27 @@ def refresh_layer(
             found = None
         # Адресата убрали из справочника или справочник не прочитан — остаётся прежний.
         addressee = found or addressee
-    new_seed = layer_seed(layer["kind"], context, notification=addressee)
-    changes = seed_diff(layer["seed"], new_seed)
+    new_seed = _seed(repository, organization_id, layer["kind"], context, snapshot, project, revision["id"], addressee)
+    diff = execution_seed_diff if layer["kind"] == "EXECUTION" else seed_diff
+    changes = diff(layer["seed"], new_seed)
     if revision["id"] != layer["project_revision_id"]:
         changes.insert(0, {"path": "project_revision_id", "before": layer["project_revision_id"], "after": revision["id"]})
+    # Подписи и тексты значений — для окна проекта (PR 6): без служебных путей и JSON.
+    changes = describe_changes(changes)
     if not confirm or not changes:
-        return {"applied": False, "changes": changes, "layer": _with_view(layer, snapshot, context)}
+        return {
+            "applied": False, "changes": changes,
+            "layer": _with_remember([_with_view(layer, snapshot, context, _fact_state(repository, organization_id, layer, context, project))],
+                                    economics_repository, organization_id)[0],
+        }
     updated = repository.update_layer(
         organization_id, actor, layer_id, expected_version=expected_version, seed=new_seed, project_revision_id=revision["id"],
     )
-    return {"applied": True, "changes": changes, "layer": _with_view(updated, snapshot, context)}
+    return {
+        "applied": True, "changes": changes,
+        "layer": _with_remember([_with_view(updated, snapshot, context, _fact_state(repository, organization_id, updated, context, project))],
+                                economics_repository, organization_id)[0],
+    }
 
 
 def issue_layer(
@@ -290,7 +594,10 @@ def issue_layer(
     if layer["stale"]:
         raise ValueError("Проект перевыпущен: перенесите данные проекта в слой заново, затем выпускайте.")
     context = repository.get_revision(organization_id, layer["project_revision_id"])["context"]
-    viewed = _with_view(layer, _snapshot(economics_repository, organization_id, context), context)
+    viewed = _with_view(
+        layer, _snapshot(economics_repository, organization_id, context), context,
+        _fact_state(repository, organization_id, layer, context),
+    )
     errors = [item for item in viewed["issues"] if item["level"] == "error"]
     if errors:
         raise ValueError("Слой нельзя выпустить: " + "; ".join(item["message"] for item in errors))
@@ -299,10 +606,96 @@ def issue_layer(
         "kind": layer["kind"],
         "project_revision_id": layer["project_revision_id"],
         "seed": layer["seed"],
-        "payload": layer["payload"],
-        "view": viewed["view"],
+        # Пустые поля — значениями по умолчанию: ревизия печатает то, что окно показывало.
+        "payload": effective_payload(viewed),
+        "view": {key: value for key, value in viewed["view"].items() if key not in ("defaults", "rememberable")},
     }
     return repository.create_layer_revision(
         organization_id, actor, layer_id, expected_version=expected_version, context=snapshot,
         content_sha256=content_sha256(snapshot),
     )
+
+
+# --- Окно проекта (TASK-018, PR 6) ------------------------------------------
+
+# Способ направления уведомления — подписью для списка адресатов.
+CHANNEL_LABELS = {"LETTER": "письмо", "EMAIL": "эл. почта", "PHONEGRAM": "телефонограмма"}
+
+
+def available_layers(
+    repository: PostgresMassBlastRepository, organization_id: str, project_id: str
+) -> list[dict[str, Any]]:
+    """Какие слои можно открыть сейчас и почему нельзя (правило — `layer_open_issue`)."""
+
+    project = repository.get_project(organization_id, project_id)
+    status = str(project.get("lifecycle_status") or "")
+    context: Mapping[str, Any] = {}
+    if project.get("current_revision_id"):
+        context = repository.get_revision(organization_id, str(project["current_revision_id"]))["context"]
+    existing: dict[str, int] = {}
+    for layer in repository.list_layers(organization_id, project_id):
+        existing[layer["kind"]] = existing.get(layer["kind"], 0) + 1
+    result = []
+    for kind in LAYER_KINDS:
+        reason = (
+            layer_open_issue(kind, status, context) if context
+            else "У проекта нет выпущенной ревизии: слою не из чего брать данные."
+        )
+        multiple = kind in MULTI_LAYER_KINDS
+        if reason is None and existing.get(kind) and not multiple:
+            reason = "Слой уже открыт: у проекта он один."
+        result.append({
+            "kind": kind,
+            "label": LAYER_LABELS[kind],
+            "can_open": reason is None,
+            "reason": reason or "",
+            "multiple": multiple,
+            "count": existing.get(kind, 0),
+        })
+    return result
+
+
+def _addressee_label(name: str, payload: Mapping[str, Any]) -> str:
+    who = " ".join(part for part in (str(payload.get("recipient_position") or "").strip(),
+                                     str(payload.get("recipient_name") or "").strip()) if part)
+    channel = CHANNEL_LABELS.get(str(payload.get("channel") or ""), "")
+    days = payload.get("lead_days")
+    when = f"за {days} сут." if days not in (None, "") else ""
+    details = ", ".join(part for part in (channel, when) if part)
+    label = who or name
+    return f"{label} ({details})" if details else label
+
+
+def notification_addressees(
+    repository: PostgresMassBlastRepository,
+    economics_repository: EconomicsRepository | None,
+    organization_id: str,
+    project_id: str,
+) -> dict[str, Any]:
+    """Адресаты уведомления из справочника карьера: код, подпись, есть ли уже уведомление.
+
+    Подпись собирает сервер — интерфейс полей справочника не знает (CLAUDE.md).
+    """
+
+    project = repository.get_project(organization_id, project_id)
+    revision = _current_revision(repository, organization_id, project)
+    context = revision["context"]
+    snapshot = _snapshot(economics_repository, organization_id, context)
+    site_code = str((context.get("project") or {}).get("site_code") or "")
+    records = [] if snapshot is None else sorted(
+        (item for item in snapshot.active_items("blast_notifications")
+         if str(item.payload.get("site_code") or "") == site_code),
+        key=lambda item: item.code,
+    )
+    taken = {
+        str(layer["payload"].get("notification_code") or "")
+        for layer in repository.list_layers(organization_id, project_id)
+        if layer["kind"] == "NOTIFICATION"
+    } - {""}
+    return {
+        "registry": bool(records),
+        "items": [
+            {"code": item.code, "label": _addressee_label(item.name, item.payload), "taken": item.code in taken}
+            for item in records
+        ],
+    }

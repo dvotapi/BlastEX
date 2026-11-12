@@ -44,6 +44,8 @@ from design.mass_blast_repository import (
 
 
 DOCUMENT_TEMPLATE_VERSION = "mass-blast-standard-v1"
+# Ревизии v2 печатает рендер документов по форме ВМ.09.03 v0.11 (TASK-018, PR 3).
+DOCUMENT_TEMPLATE_VERSION_V2 = "vm0903-v0.11"
 
 
 @lru_cache(maxsize=4)
@@ -184,6 +186,61 @@ def create_project(
     return repository.create_project(organization_id, actor, stored)
 
 
+def create_new_project_v2(
+    repository: PostgresMassBlastRepository,
+    economics_repository: EconomicsRepository,
+    organization_id: str,
+    actor: str,
+    *,
+    design_ids: list[str],
+    blast_date: str,
+    blast_time: str = "",
+    site_code: str = "",
+) -> dict[str, Any]:
+    """Новый проект по форме ВМ.09.03 с предзаполнением (TASK-018, PR 6, В2–В3)."""
+
+    from api.services.mass_blast_prefill import new_project_payload
+
+    if not config.mass_blast_v2_enabled():
+        raise ValueError("Проект по форме ВМ.09.03 (контекст v2) недоступен: модуль выключен.")
+    designs = []
+    for design_id in dict.fromkeys(design_ids):
+        try:
+            designs.append(design_persistence.load_design(organization_id, design_id))
+        except design_persistence.DesignNotFoundError as exc:
+            raise ValueError(f"Технический паспорт БВР {design_id} не найден в организации.") from exc
+    data = new_project_payload(
+        repository, economics_repository, organization_id, designs,
+        blast_date=blast_date, blast_time=blast_time, site_code=site_code,
+    )
+    # Учётка из прошлого проекта, которой уже нет среди действующих, не переносится:
+    # роль останется без учётки, а не сломает создание проекта.
+    known = _active_emails(organization_id)
+    for item in data["responsibilities"]:
+        if normalize_account_email(item.get("account_email")) not in known:
+            item["account_email"] = ""
+    payload = MassBlastProjectInputSchema.model_validate(data)
+    return create_project(repository, economics_repository, organization_id, actor, payload)
+
+
+def project_hints(repository: PostgresMassBlastRepository, organization_id: str, project_id: str) -> dict[str, Any]:
+    """Подсказки окна проекта: № и дата прошлого проекта того же объекта (В4 — номер
+    не придумываем) и роли распорядка с подписями."""
+
+    from api.services.mass_blast_prefill import previous_v2_project
+    from design.mass_blast_schedule import PERSONNEL_ROLES
+
+    project = repository.get_project(organization_id, project_id)
+    previous = previous_v2_project(repository, organization_id, str(project.get("site_code") or ""), exclude=project_id)
+    requisites = (previous or {}).get("requisites") or {}
+    return {
+        "previous_project_no": str(requisites.get("project_no") or ""),
+        "previous_project_date": str(requisites.get("project_date") or ""),
+        "previous_project_name": str((previous or {}).get("name") or ""),
+        "personnel_roles": [{"code": code, "label": label} for code, label in PERSONNEL_ROLES.items()],
+    }
+
+
 def update_project(
     repository: PostgresMassBlastRepository,
     economics_repository: EconomicsRepository,
@@ -210,13 +267,51 @@ def _validate_v2(
     reference_revision_id: str | None,
     *,
     require_attachments: bool,
+    defaults_out: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[ValidationIssue], list[ProjectBlock]]:
+    from api.services.mass_blast_prefill import previous_v2_projects
+    from design.mass_blast_defaults import created_on
+
     _, blocks = _context_from_stored(project)
-    context, stale = context_v2(organization_id, project, blocks, economics_repository, reference_revision_id)
+    try:
+        previous = previous_v2_projects(
+            repository, organization_id, str(project.get("site_code") or ""), exclude=str(project.get("id") or ""),
+            before=str(project.get("created_at") or ""),
+        )
+    except Exception:  # noqa: BLE001 — прошлые проекты дают только умолчания
+        previous = []
+    context, stale = context_v2(
+        organization_id, project, blocks, economics_repository, reference_revision_id,
+        previous=previous, created_on=created_on(project.get("created_at")),
+        author=_account_name(organization_id, str(project.get("created_by") or "")), defaults_out=defaults_out,
+    )
     context["attachments"] = list(repository.list_draft_attachments(organization_id, project["id"]))
     issues = validate_project_context_v2(context, require_attachments=require_attachments)
     issues += [ValidationIssue("error", "stale_source", message, "blocks") for message in stale]
     return context, issues, blocks
+
+
+def _rememberable(economics_repository: EconomicsRepository, organization_id: str, project: dict[str, Any]) -> dict[str, Any]:
+    """Поля проекта, которые можно запомнить для объекта, и их значения в справочнике сейчас (В8)."""
+
+    from api.services.mass_blast_remember import rememberable
+    from api.services.mass_blast_v2 import _site_record
+
+    try:
+        snapshot = economics_repository.get_reference_snapshot(organization_id)
+    except Exception:  # noqa: BLE001 — без справочника запоминать некуда
+        return {}
+    return rememberable(_site_record(snapshot, "mass_blast_sites", str(project.get("site_code") or "")))
+
+
+def _account_name(organization_id: str, email: str) -> str:
+    """ФИО учётки (как в списке учёток организации); нет такой — пусто, почту не печатаем."""
+
+    wanted = normalize_account_email(email)
+    for item in organization_accounts(organization_id):
+        if normalize_account_email(item["email"]) == wanted and item["display_name"] != item["email"]:
+            return item["display_name"]
+    return ""
 
 
 def validate_project(
@@ -229,16 +324,22 @@ def validate_project(
 ) -> dict[str, Any]:
     project = repository.get_project(organization_id, project_id)
     if is_v2(project):
+        defaults: dict[str, Any] = {}
         try:
             context, issues, _ = _validate_v2(
                 repository, economics_repository or get_economics_repository(), organization_id, project,
-                project.get("reference_revision_id"), require_attachments=require_attachments,
+                project.get("reference_revision_id"), require_attachments=require_attachments, defaults_out=defaults,
             )
         except ValueError as exc:
             # Проект блока удалён: без него расчёта v2 нет — показываем снимок и ошибку.
             context, _ = _context_from_stored(project)
             issues = [ValidationIssue("error", "stale_source", str(exc), "blocks")]
-        return {"valid": not has_blocking_issues(issues), "issues": [issue.to_dict() for issue in issues], "context": context}
+        return {
+            "valid": not has_blocking_issues(issues), "issues": [issue.to_dict() for issue in issues],
+            "context": context, "defaults": defaults, "rememberable": _rememberable(
+                economics_repository or get_economics_repository(), organization_id, project,
+            ),
+        }
     context, blocks = _context_from_stored(project)
     context["attachments"] = list(repository.list_draft_attachments(organization_id, project_id))
     issues = validate_project_context(context, require_attachments=require_attachments)
@@ -278,7 +379,7 @@ def create_revision(
         return repository.create_revision(
             organization_id, actor, project_id, expected_version, reference_revision_id, context,
             [block.to_dict() for block in blocks], MASS_BLAST_CALC_VERSION,
-            DOCUMENT_TEMPLATE_VERSION, content_sha256(context),
+            DOCUMENT_TEMPLATE_VERSION_V2, content_sha256(context),
         )
     context, blocks = _context_from_stored(project)
     context["attachments"] = list(repository.list_draft_attachments(organization_id, project_id))
@@ -392,6 +493,11 @@ def generate_document(
     if project["lifecycle_status"] not in {"approved", "executed", "closed"}:
         raise MassBlastConflictError("Документы выпускаются только после утверждения ревизии.")
     context = revision["context"]
+    if int(context.get("document_context_version") or 1) >= 2:
+        raise MassBlastConflictError(
+            "Ревизия по форме ВМ.09.03 (контекст v2) печатается на лету: "
+            "GET …/revisions/{id}/documents/{документ}.pdf и …/package.zip."
+        )
     base = _safe_filename(f"{context.get('project', {}).get('site_code', 'site')}_{context.get('project', {}).get('blast_date', '')}_r{revision['revision_no']}_{kind.lower()}")
     if format == "PDF":
         content, suffix = render_pdf(context, kind), ".pdf"

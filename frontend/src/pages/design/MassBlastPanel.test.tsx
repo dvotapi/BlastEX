@@ -1,109 +1,98 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+const features = { intelligence: false, drill_passport: true, mass_blast_v2: true, loaded: true };
+vi.mock("../../app/useFeatures", () => ({ useFeatures: () => features }));
+vi.mock("./massBlast/LegacyPanel", () => ({ LegacyMassBlastPanel: () => <div>Прежняя панель</div> }));
+vi.mock("./massBlast/MassBlastDialog", () => ({ MassBlastDialog: () => <div>Окно проекта</div> }));
 vi.mock("../../api/endpoints", () => ({
   api: {
+    design: { listPlans: vi.fn() },
     massBlast: {
       list: vi.fn(),
-      get: vi.fn(),
-      accounts: vi.fn(),
-      create: vi.fn(),
-      documents: vi.fn(),
-      attachments: vi.fn(),
+      getV2: vi.fn(),
+      saveV2: vi.fn(),
+      newProject: vi.fn(),
+      packageUrl: (id: string) => `/package/${id}`,
     },
   },
 }));
 
 import { api } from "../../api/endpoints";
-import type { MassBlastProject, MassBlastProjectSummary } from "../../types/design";
 import { MassBlastPanel } from "./MassBlastPanel";
+import { installDialog, projectV2 } from "./massBlast/testFixtures";
 
+beforeAll(installDialog);
 afterEach(cleanup);
 
-const ACCOUNTS = [
-  { email: "manager@example.ru", display_name: "Иванов И. И." },
-  { email: "supervisor@example.ru", display_name: "Петров П. П." },
-];
-
-function project(): MassBlastProject {
-  return {
-    id: "project-1", name: "Массовый взрыв", site_code: "SITE-1", object_name: "Карьер", blast_date: "2026-10-10",
-    lifecycle_status: "draft", version: 1, current_revision_id: null, block_design_ids: ["design-1"],
-    updated_at: "", customer_code: "", blast_time: "", document_profile_code: "STANDARD", reference_revision_id: null,
-    blocks: [{ design_id: "design-1" }],
-    responsibilities: [
-      { role_code: "blast_manager", employee_code: "Иванов", employee_name: "Иванов", position_name: "Руководитель взрывных работ", account_email: "manager@example.ru" },
-      { role_code: "explosives_supervisor", employee_code: "Петров", employee_name: "Петров", position_name: "Ответственный за ВМ", account_email: "supervisor@example.ru" },
-    ],
-    safety_plan: {}, charging_schedule: [], signal_plan: {}, guard_posts: [], notifications: [],
-    created_at: "", created_by: "", updated_by: "",
-  } as MassBlastProject;
-}
-
-function summary(): MassBlastProjectSummary {
-  return { ...project(), block_design_ids: ["design-1"] };
-}
-
 beforeEach(() => {
+  features.mass_blast_v2 = true;
   vi.mocked(api.massBlast.list).mockReset().mockResolvedValue([]);
-  vi.mocked(api.massBlast.accounts).mockReset().mockResolvedValue(ACCOUNTS);
-  vi.mocked(api.massBlast.create).mockReset().mockResolvedValue(project());
-  vi.mocked(api.massBlast.documents).mockReset().mockResolvedValue([]);
-  vi.mocked(api.massBlast.attachments).mockReset().mockResolvedValue([]);
+  vi.mocked(api.massBlast.getV2).mockReset();
+  vi.mocked(api.design.listPlans).mockReset().mockResolvedValue({ items: [
+    { design_id: "d66", name: "Блок 66", updated_at: "", hole_count: 196 },
+    { design_id: "d67", name: "Блок 67", updated_at: "", hole_count: 150 },
+  ] } as never);
+  vi.mocked(api.massBlast.newProject).mockReset().mockResolvedValue(projectV2());
 });
 
-describe("MassBlastPanel — учётки ответственных", () => {
-  it("выбранная учётка уходит в черновике у своей роли", async () => {
-    render(<MassBlastPanel designId="design-1" designName="Блок 1" />);
-    await screen.findAllByRole("option", { name: "Иванов И. И." });
+const summary = { id: "p1", block_design_ids: ["d66"] } as never;
 
-    await userEvent.type(screen.getByLabelText("Руководитель ВР"), "Иванов");
-    await userEvent.selectOptions(screen.getByLabelText("Учётка руководителя ВР"), "manager@example.ru");
-    await userEvent.type(screen.getByLabelText("Ответственный за ВМ"), "Петров");
-    await userEvent.selectOptions(screen.getByLabelText("Учётка ответственного за ВМ"), "supervisor@example.ru");
-    await userEvent.click(screen.getByRole("button", { name: "Сохранить черновик" }));
-
-    await waitFor(() => expect(api.massBlast.create).toHaveBeenCalledTimes(1));
-    const sent = vi.mocked(api.massBlast.create).mock.calls[0][0];
-    expect(sent.responsibilities.map((item) => [item.role_code, item.account_email])).toEqual([
-      ["blast_manager", "manager@example.ru"],
-      ["explosives_supervisor", "supervisor@example.ru"],
-    ]);
+describe("панель «Проект МВ»", () => {
+  it("пока модули не прочитаны — ни прежней панели, ни новой", () => {
+    features.loaded = false;
+    const { container } = render(<MassBlastPanel designId="d66" designName="Блок 66" />);
+    expect(container.textContent).toBe("");
+    features.loaded = true;
   });
 
-  it("учётка без ФИО не теряется молча: черновик не уходит, есть подсказка", async () => {
-    render(<MassBlastPanel designId="design-1" designName="Блок 1" />);
-    await screen.findAllByRole("option", { name: "Иванов И. И." });
-
-    await userEvent.selectOptions(screen.getByLabelText("Учётка руководителя ВР"), "manager@example.ru");
-    await userEvent.click(screen.getByRole("button", { name: "Сохранить черновик" }));
-
-    expect(await screen.findByText(/Укажите ФИО: Руководитель ВР/)).toBeTruthy();
-    expect(api.massBlast.create).not.toHaveBeenCalled();
+  it("модуль выключен — прежняя панель", () => {
+    features.mass_blast_v2 = false;
+    render(<MassBlastPanel designId="d66" designName="Блок 66" />);
+    expect(screen.getByText("Прежняя панель")).toBeTruthy();
+    expect(api.massBlast.list).not.toHaveBeenCalled();
   });
 
-  it("сохранённый проект показывает назначенные учётки", async () => {
-    vi.mocked(api.massBlast.list).mockResolvedValue([summary()]);
-    vi.mocked(api.massBlast.get).mockReset().mockResolvedValue(project());
-    render(<MassBlastPanel designId="design-1" designName="Блок 1" />);
-
-    await waitFor(() =>
-      expect((screen.getByLabelText("Учётка ответственного за ВМ") as HTMLSelectElement).value).toBe("supervisor@example.ru"),
-    );
-    expect((screen.getByLabelText("Учётка руководителя ВР") as HTMLSelectElement).value).toBe("manager@example.ru");
+  it("новый проект: дата взрыва обязательна, блоки — галочками", async () => {
+    const user = userEvent.setup();
+    render(<MassBlastPanel designId="d66" designName="Блок 66" />);
+    await user.click(await screen.findByRole("button", { name: "Создать проект МВ" }));
+    await user.click(await screen.findByLabelText("Блок 67"));
+    await user.click(screen.getByRole("button", { name: "Создать проект" }));
+    expect(api.massBlast.newProject).not.toHaveBeenCalled();
+    await user.type(screen.getByLabelText("Дата взрыва"), "2026-11-20");
+    await user.click(screen.getByRole("button", { name: "Создать проект" }));
+    await waitFor(() => expect(api.massBlast.newProject).toHaveBeenCalledWith({
+      design_ids: ["d66", "d67"], blast_date: "2026-11-20", blast_time: "",
+    }));
+    expect(await screen.findByText("Окно проекта")).toBeTruthy();
   });
 
-  it("недействующая учётка не теряется при открытии проекта", async () => {
-    vi.mocked(api.massBlast.list).mockResolvedValue([summary()]);
-    vi.mocked(api.massBlast.get).mockReset().mockResolvedValue(project());
-    vi.mocked(api.massBlast.accounts).mockResolvedValue([ACCOUNTS[0]]);
-    render(<MassBlastPanel designId="design-1" designName="Блок 1" />);
+  it("черновик по прежней форме можно перевести на ВМ.09.03", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.mocked(api.massBlast.list).mockResolvedValue([summary]);
+    vi.mocked(api.massBlast.getV2).mockResolvedValueOnce(projectV2({ context_version: 1 }))
+      // Черновик сохранили в прежней панели — перевод берёт свежую версию с сервера.
+      .mockResolvedValueOnce(projectV2({ context_version: 1, version: 5 }))
+      .mockResolvedValue(projectV2());
+    vi.mocked(api.massBlast.saveV2).mockResolvedValue(projectV2());
+    render(<MassBlastPanel designId="d66" designName="Блок 66" />);
+    expect(await screen.findByText("Прежняя панель")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Перевести на форму ВМ.09.03" }));
+    await waitFor(() => expect(api.massBlast.saveV2).toHaveBeenCalled());
+    const [, input] = vi.mocked(api.massBlast.saveV2).mock.calls[0];
+    expect(input.context_version).toBe(2);
+    expect(input.expected_version).toBe(5);
+  });
 
-    await waitFor(() =>
-      expect((screen.getByLabelText("Учётка ответственного за ВМ") as HTMLSelectElement).value).toBe("supervisor@example.ru"),
-    );
-    expect(screen.getByRole("option", { name: "supervisor@example.ru (нет среди действующих)" })).toBeTruthy();
+  it("утверждённый проект: «Весь комплект» на панели", async () => {
+    vi.mocked(api.massBlast.list).mockResolvedValue([summary]);
+    vi.mocked(api.massBlast.getV2).mockResolvedValue(projectV2({ lifecycle_status: "approved", current_revision_id: "r1" }));
+    render(<MassBlastPanel designId="d66" designName="Блок 66" />);
+    expect(await screen.findByRole("button", { name: "Весь комплект" })).toBeTruthy();
+    expect(screen.getByText(/утверждён · ревизия выпущена/)).toBeTruthy();
   });
 });

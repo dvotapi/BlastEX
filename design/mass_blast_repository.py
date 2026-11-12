@@ -785,6 +785,34 @@ class PostgresMassBlastRepository:
             self._audit(session, organization_id, actor, "UPDATE_MASS_BLAST_LAYER", row.project_id, before, {"layer_id": layer_id, "refresh": seed is not None}, now)
         return self.get_layer(organization_id, layer_id)
 
+    def get_layer_revision(self, organization_id: str, revision_id: str) -> dict[str, Any]:
+        """Ревизия слоя (печать документа дня взрыва, PR 3) вместе с видом слоя."""
+
+        with self.session_factory() as session:
+            revision = session.get(MassBlastLayerRevisionRow, revision_id)
+            if revision is None:
+                raise MassBlastNotFoundError(f"Ревизия слоя {revision_id} не найдена.")
+            row = self._layer_row(session, organization_id, revision.layer_id)
+            return {**self._layer_revision(revision), "kind": row.kind, "project_id": row.project_id}
+
+    def latest_layer_revision(self, organization_id: str, layer_id: str, project_revision_id: str) -> dict[str, Any] | None:
+        """Последняя выпущенная ревизия слоя на заданной ревизии проекта (PACKAGE, PR 3)."""
+
+        with self.session_factory() as session:
+            row = self._layer_row(session, organization_id, layer_id)
+            revision = session.scalar(
+                select(MassBlastLayerRevisionRow)
+                .where(
+                    MassBlastLayerRevisionRow.layer_id == layer_id,
+                    MassBlastLayerRevisionRow.project_revision_id == project_revision_id,
+                )
+                .order_by(desc(MassBlastLayerRevisionRow.revision_no))
+                .limit(1)
+            )
+            if revision is None:
+                return None
+            return {**self._layer_revision(revision), "kind": row.kind, "project_id": row.project_id}
+
     def create_layer_revision(
         self, organization_id: str, actor: str, layer_id: str, *, expected_version: int,
         context: dict[str, Any], content_sha256: str,

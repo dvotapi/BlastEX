@@ -106,6 +106,47 @@ class MassBlastSitePayload(ReferencePayload):
         description="Графа уведомления о массовом взрыве (п. 154)",
         max_length=300,
     )
+    contract_no: str = Field(
+        default="", title="Договор подряда: №", description="Акт приёмки выполненных работ (TASK-018 §2)", max_length=80
+    )
+    contract_date: str = Field(
+        default="", title="Договор подряда: дата", description="ДД.ММ.ГГГГ — в шапке акта приёмки", max_length=10
+    )
+    acceptance_appendix_no: str = Field(
+        default="", title="Акт приёмки: № приложения к договору", description="«Приложение № … к договору»", max_length=20
+    )
+    customer_responsible: str = Field(
+        default="",
+        title="Заказчик: ответственное лицо по приёмке",
+        description="Должность, фамилия и инициалы — в комиссии акта приёмки выполненных работ",
+        max_length=300,
+    )
+    # Наряд-путёвка (TASK-018 PR 6, В7): постоянные для объекта поля выписки.
+    blasting_permit: str = Field(
+        default="",
+        title="Разрешение на ведение взрывных работ",
+        description="№ и дата разрешения — в шапке наряда-путёвки",
+        max_length=300,
+    )
+    warehouse: str = Field(
+        default="", title="Склад выдачи ВМ", description="Склад, с которого выдаются ВМ по наряду-путёвке", max_length=200
+    )
+    vehicle: str = Field(
+        default="", title="Спецавтомобиль", description="Марка и гос. номер автомобиля для перевозки ВМ", max_length=200
+    )
+    driver: str = Field(default="", title="Водитель", description="Фамилия, инициалы водителя спецавтомобиля", max_length=200)
+    # Постоянные места и средства распорядка (TASK-018 PR 6, В8).
+    station: str = Field(
+        default="", title="Место взрывной станции", description="Пункт 11 распорядка", max_length=300
+    )
+    shelter: str = Field(default="", title="Место укрытия", description="Где укрываются люди при взрыве", max_length=300)
+    gather: str = Field(default="", title="Место сбора", description="Место сбора людей после вывода из опасной зоны", max_length=300)
+    exit_route: str = Field(
+        default="", title="Куда удаляются люди", description="Направление вывода людей из опасной зоны", max_length=300
+    )
+    siren: str = Field(default="", title="Средство подачи сигналов", description="Сирена, громкоговоритель (п. 163)", max_length=200)
+    transport: str = Field(default="", title="Транспорт ВМ", description="Чем доставляются ВМ на блок", max_length=200)
+    cleaning: str = Field(default="", title="Средства очистки скважин", description="Чем очищаются скважины перед заряжанием", max_length=200)
     profile_code: str | None = RefField(
         "mass_blast_profiles",
         title="Профиль документов",
@@ -146,6 +187,20 @@ class MassBlastProfilePayload(ReferencePayload):
     )
     signal_clear: str = Field(
         default="", title="Сигнал отбоя", description="п. 163; пусто — «три коротких»", max_length=120
+    )
+    letterhead: str = Field(
+        default="",
+        title="Бланк Общества",
+        description="Строки шапки уведомления о массовом взрыве: полное наименование, ИНН и КПП, адрес, телефон, "
+        "почта — каждая с новой строки; пусто — только краткое наименование",
+        max_length=600,
+    )
+    acceptance_text: str = Field(
+        default="",
+        title="Текст акта приёмки по договору",
+        description="Абзацы между «составили настоящий акт» и «К оплате принимаются»; подстановки {блок}, "
+        "{горизонт}, {дата взрыва}; пусто — текст формы ВМ.09.03",
+        max_length=2000,
     )
     schedule_texts: list[ScheduleText] = Field(
         default_factory=list,

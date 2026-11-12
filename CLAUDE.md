@@ -630,6 +630,36 @@ v2 (`V2_PAYLOAD_KEYS`): пост — по коду `guard_posts`; без точ�
 (`design/mass_blast_posts.py`: посты на пересечениях дорог с границей зоны для
 людей). Подробности — `Docs/plans/2026-11-12-task-018-pr6.md`.
 
+## Наряд-путёвка ↔ MagEX (TASK-018, PR 7)
+
+Контракт — `MagEX/Docs/contracts/blastex/README.md` (копия фикстур и 19
+векторов — `tests/fixtures/magex/`); при расхождении действует контракт. Флаг
+`magex_integration` (`BLASTEX_MAGEX_INTEGRATION_ENABLED`) по умолчанию
+выключен; включён без `MAGEX_API_URL`, ключа или организации
+(`MAGEX_ORGANIZATIONS`) — «вне учёта MagEX» (`magex_settings.offline_reason`).
+Подпись — только `design/magex/jws.py` (raw DEFLATE до подписи, R‖S, `typ`,
+UTF-8 без `\uXXXX`; служебный токен тем же ключом), содержимое выписки —
+`design/magex/naryad_payload.py` (необязательное, которого нет, — опущено;
+кг → шт вверх до целого; одна позиция MagEX — одна строка), исполнение в
+графах после взрыва — `design/magex/execution.py` (MagEX главнее ручного и
+факта). Ключ: `BLASTEX_SIGNING_KEY/KID`, публикация — `/.well-known/jwks.json`
+(+ `BLASTEX_JWKS_EXTRA`), тестовый ключ — по отпечатку, только с
+`BLASTEX_ALLOW_TEST_KEY`. Сервис — `api/services/magex_naryad_service.py`:
+«Разрешить» — версия (`ver` + 1 под блокировкой слоя) → ревизия слоя со
+снимком `magex` → `PUT`; `200` — разрешена; `409/422/404/401/403` — ревизия
+убирается (`discard_layer_revision`); `503`/сеть — очередь (фоновая задача
+API, `process_due`). Наряд онлайн не выпускается обычным выпуском; печать — только
+последней принятой и не отменённой версии (QR — та же строка,
+`design/reporting/mass_blast/qr.py`, 40 мм, уровень L). После выдачи ВМ
+(`ISSUED_STATUSES`) склад, взрывник, дата, запас, № и допуски не меняются.
+Хранение — `mass_blast_magex_versions`, `mass_blast_magex_naryads` (миграция
+0015). Справочники: `materials.magex_material_id` (`x-options:
+magex.materials` — форма рисует список, `ExternalSelect`),
+`mass_blast_sites.magex_warehouse_id` и № / дата разрешения, марка / номер
+автомобиля, раздел «Взрывники» (`blasters`). Поля MagEX в payload наряда
+пишутся только когда заданы (`NARYAD_MAGEX_KEYS`). Подробности —
+`Docs/MAGEX_INTEGRATION.md`, `Docs/plans/2026-11-12-task-018-pr7.md`.
+
 ## Нумерация скважин
 
 `design/numbering.py::number_by_position`, зовёт `pattern._finish_pattern`.

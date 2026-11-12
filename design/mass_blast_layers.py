@@ -546,14 +546,23 @@ def acceptance_view(seed: Mapping[str, Any], payload: Mapping[str, Any]) -> tupl
 
 
 def naryad_after_blast(
-    seed: Mapping[str, Any], payload: Mapping[str, Any], lines: list[dict[str, Any]]
+    seed: Mapping[str, Any],
+    payload: Mapping[str, Any],
+    lines: list[dict[str, Any]],
+    magex: Mapping[str, Mapping[str, float | None]] | None = None,
+    magex_blocks: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, str]]]:
     """Графы наряда после взрыва (решение В9): строки ВМ и разд. 1 по блокам.
 
     Израсходовано — из факта (ВВ, ПД, НСИ скважинные), ручное главнее;
-    выдано — вручную (MagEX — PR 7); возвращено — выдано − израсходовано,
-    иначе вручную; у ВВ, изготавливаемых на месте, возврата нет.
+    выдано — вручную; возвращено — выдано − израсходовано, иначе вручную; у ВВ,
+    изготавливаемых на месте, возврата нет. Исполнение MagEX (`magex` — по
+    ключу строки, `magex_blocks` — по коду блока; TASK-018 PR 7, решение В7)
+    главнее ручного ввода и факта; расхождение с фактом — предупреждение.
     """
+
+    magex = magex or {}
+    magex_blocks = magex_blocks or {}
 
     fact = seed.get("fact") or {}
     vv_site = bool(payload.get("vv_site"))
@@ -610,7 +619,16 @@ def naryad_after_blast(
         unit_mass = line.get("unit_mass_kg")
         if unit_mass is None and fact_line is not None:
             unit_mass = fact_unit_mass(fact_line)
-        if key in consumed:
+        from_magex = magex.get(key) or {}
+        if from_magex.get("consumed") is not None:
+            spent, source = float(from_magex["consumed"]), "MAGEX"
+            if fact_line is not None and abs(float(fact_line.get("quantity") or 0.0) - spent) > 1e-6:
+                issues.append(_issue(
+                    "warning", "magex_fact_mismatch",
+                    f"«{line['name']}»: по MagEX израсходовано {spent:g}, по факту заряжания "
+                    f"{float(fact_line.get('quantity') or 0.0):g}.", f"lines.{key}",
+                ))
+        elif key in consumed:
             spent, source = float(consumed[key]), "MANUAL_OVERRIDE"
         elif fact_line is not None:
             spent, source = float(fact_line.get("quantity") or 0.0), "FACT"
@@ -619,7 +637,10 @@ def naryad_after_blast(
             spent, source = 0.0, "FACT"
         else:
             spent, source = None, ""
-        given = float(issued[key]) if key in issued else None
+        if from_magex.get("issued") is not None:
+            given = float(from_magex["issued"])
+        else:
+            given = float(issued[key]) if key in issued else None
         explosive = line.get("kind") == "explosive"
         if explosive and vv_site:
             back, back_source = None, "VV_SITE"
@@ -629,6 +650,8 @@ def naryad_after_blast(
                     f"«{line['name']}» изготавливается на месте: израсходовано {spent:g} ≠ выдано {given:g} "
                     "(остаток заряжается в крайние скважины).", f"payload.consumed.{key}",
                 ))
+        elif from_magex.get("returned") is not None:
+            back, back_source = float(from_magex["returned"]), "MAGEX"
         elif key in returned:
             back, back_source = float(returned[key]), "MANUAL_OVERRIDE"
             if given is not None and spent is not None and abs(given - spent - back) > 1e-6:
@@ -657,8 +680,10 @@ def naryad_after_blast(
                 and fact_line.get("mass_kg") is not None and line.get("unit") != "кг":
             # Израсходованные килограммы — по массе факта (ПД с записанной массой), а не по проектной.
             spent_kg = round(float(fact_line["mass_kg"]), 3)
+        extra_source = {"issued_source": "MAGEX"} if from_magex.get("issued") is not None else {}
         result.append({
             **line,
+            **extra_source,
             "unit_mass_kg": unit_mass,
             "issued_qty": given, "issued_kg": kg(given),
             "consumed_qty": None if spent is None else round(spent, 3), "consumed_kg": spent_kg, "consumed_source": source,
@@ -675,6 +700,11 @@ def naryad_after_blast(
             str(block.get("code")), str(block.get("horizon"))
         ):
             done = None
+        from_magex = magex_blocks.get(str(block.get("code") or ""))
+        if from_magex:
+            # Разд. 1 после взрыва — из MagEX (графы, внесённые складом).
+            blocks.append({"code": block.get("code", ""), **dict(from_magex), "source": "MAGEX"})
+            continue
         if done is None:
             blocks.append({"code": block.get("code", "")})
             continue

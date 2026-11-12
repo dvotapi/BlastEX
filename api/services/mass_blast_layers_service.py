@@ -14,7 +14,9 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from api.schemas.mass_blast import LAYER_PAYLOAD_SCHEMAS
+from api import config
+from api.schemas.mass_blast import LAYER_PAYLOAD_SCHEMAS, NARYAD_MAGEX_KEYS
+from api.services.magex_settings import magex_mode, offline_reason
 from cost.v2.repository import EconomicsRepository
 from design import persistence as design_persistence
 from design.lifecycle import designed_sha256
@@ -40,6 +42,7 @@ from design.mass_blast_layers import (
     seed_diff,
     talon_view,
 )
+from design.magex.execution import block_results, explosive_consumed_kg, values_by_line
 from design.mass_blast_repository import PostgresMassBlastRepository
 
 __all__ = [
@@ -54,6 +57,9 @@ __all__ = [
 ]
 
 LAYER_CONTEXT_VERSION = 1
+# Ключи вида слоя, которые показывает окно, но не хранит ревизия: умолчания, «запомнить»,
+# состояние MagEX (меняется со временем, в снимок не идёт).
+VIEW_STATE_KEYS = ("defaults", "rememberable", "magex")
 
 
 def _payload(kind: str, payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -61,6 +67,11 @@ def _payload(kind: str, payload: Mapping[str, Any]) -> dict[str, Any]:
 
     schema = LAYER_PAYLOAD_SCHEMAS[kind]
     data = schema.model_validate(dict(payload)).model_dump()
+    if kind == "NARYAD":
+        # Поля MagEX (PR 7) — только заданные: содержимое прежних нарядов не меняется.
+        for key in NARYAD_MAGEX_KEYS:
+            if data.get(key) in ("", False, None):
+                data.pop(key, None)
     if kind == "NOTIFICATION" and data["notification_code"] and any(
         str(data[key]).strip() for key in _MANUAL_RECIPIENT
     ):
@@ -166,15 +177,40 @@ def _with_view(
         view["lines"] = naryad_lines(seed, payload, _reserve_defaults(snapshot, context))
         view["totals"] = naryad_totals(seed, view["lines"])
         view["vv_site"] = bool(payload.get("vv_site"))
-        if seed.get("fact") or _after_blast(payload):
-            view["lines"], view["blocks_fact"], after_issues = naryad_after_blast(seed, payload, view["lines"])
+        # Исполнение MagEX — в графах после взрыва только у проекта со взрывом (решения В9 PR 5, В7 PR 7).
+        execution = state.get("magex_execution") if state.get("after_blast") else None
+        magex_values, magex_issues = (
+            values_by_line(execution, state.get("magex_lines") or [], view["lines"]) if execution else ({}, [])
+        )
+        if seed.get("fact") or _after_blast(payload) or magex_values:
+            view["lines"], view["blocks_fact"], after_issues = naryad_after_blast(
+                seed, payload, view["lines"], magex=magex_values,
+                magex_blocks=block_results(execution) if execution else None,
+            )
             view["after_blast"] = True
-            issues += after_issues
+            issues += after_issues + magex_issues
+        if "magex" in state:
+            view["magex"] = state["magex"]
     if layer["kind"] == "TALON":
         view.update(talon_view(seed, payload))
     if layer["kind"] == "ACCEPTANCE_ACT":
         view["fact"], fact_issues = acceptance_view(seed, payload)
         issues += fact_issues
+        magex_kg = state.get("magex_explosive_kg")
+        if magex_kg is not None and view["fact"].get("basis") == "FACT":
+            # Фактический расход ВВ — по MagEX, когда расход по нарядам внесён (решение В7 PR 7).
+            if abs(float(view["fact"].get("explosive_kg") or 0.0) - magex_kg) > 1e-6:
+                issues.append({
+                    "level": "warning", "code": "magex_fact_mismatch",
+                    "message": f"Расход ВВ по MagEX {magex_kg:g} кг, по факту заряжания "
+                               f"{float(view['fact'].get('explosive_kg') or 0.0):g} кг: в акте — по MagEX.",
+                    "path": "seed.fact",
+                })
+            volume = float(payload.get("accepted_volume_m3") or seed.get("volume_contour_m3") or 0.0)
+            view["fact"] = {
+                **view["fact"], "explosive_kg": magex_kg, "explosive_source": "MAGEX",
+                "q_kg_m3": round(magex_kg / volume, 2) if volume > 0 else None,
+            }
     if layer["kind"] == "EXECUTION":
         execution, fact_issues = execution_view(seed, payload)
         view.update(execution)
@@ -272,6 +308,12 @@ def _with_remember(
     except Exception:  # noqa: BLE001 — без справочника запоминать некуда
         current = None
     for layer in layers:
+        magex = layer["view"].get("magex")
+        if layer["kind"] == "NARYAD" and magex and magex.get("mode"):
+            # Взрывник наряда для MagEX — по текущему справочнику «Взрывники» (решение В2).
+            from api.services.magex_naryad_service import resolved_blaster
+
+            magex["blaster"] = resolved_blaster(current, organization_id, layer, effective_payload(layer))
         site_code = str(((layer.get("seed") or {}).get("project") or {}).get("site_code") or "")
         layer["view"]["rememberable"] = (
             {} if current is None
@@ -361,6 +403,48 @@ def _latest_execution(
     return None, None
 
 
+def _accepted_magex_lines(repository: PostgresMassBlastRepository, organization_id: str, layer_id: str) -> list[dict[str, Any]]:
+    """Строки выписки последней принятой MagEX версии наряда (позиция MagEX → ключи строк наряда)."""
+
+    accepted = [item for item in repository.list_magex_versions(organization_id, layer_id) if item["status"] == "ACCEPTED"]
+    if not accepted or not accepted[-1].get("layer_revision_id"):
+        return []
+    revision = repository.get_layer_revision(organization_id, accepted[-1]["layer_revision_id"])
+    return list(((revision.get("context") or {}).get("magex") or {}).get("lines") or [])
+
+
+def _magex_state(repository: PostgresMassBlastRepository, organization_id: str, layer: Mapping[str, Any]) -> dict[str, Any]:
+    """Что слой берёт из MagEX (TASK-018 PR 7): состояние наряда, исполнение для граф после взрыва,
+    у акта приёмки — израсходованное ВВ по нарядам проекта, когда расход внесён (решение В7)."""
+
+    from api.services import magex_naryad_service as magex
+
+    if layer["kind"] == "NARYAD":
+        state: dict[str, Any] = {"magex": magex.layer_state(repository, organization_id, layer["id"])}
+        execution = (state["magex"] or {}).get("execution")
+        if execution:
+            state["magex_execution"] = execution
+            state["magex_lines"] = _accepted_magex_lines(repository, organization_id, layer["id"])
+        return state
+    total = 0.0
+    found = False
+    for naryad in repository.list_layers(organization_id, layer["project_id"]):
+        if naryad["kind"] != "NARYAD":
+            continue
+        stored = repository.magex_execution(organization_id, naryad["id"])
+        if not stored:
+            continue
+        lines = _accepted_magex_lines(repository, organization_id, naryad["id"])
+        explosive_keys = {
+            str(line.get("key")) for line in naryad["seed"].get("materials") or [] if line.get("kind") == "explosive"
+        }
+        value = explosive_consumed_kg(stored["execution"], lines, explosive_keys)
+        if value is not None:
+            total += value
+            found = True
+    return {"magex_explosive_kg": round(total, 3)} if found else {}
+
+
 def _fact_state(
     repository: PostgresMassBlastRepository,
     organization_id: str,
@@ -381,6 +465,8 @@ def _fact_state(
             state["previous_naryad"] = _previous_naryad(repository, organization_id, project)
             if latest is not None:
                 latest["previous_naryad"] = state["previous_naryad"]  # type: ignore[assignment]
+    if config.magex_integration_enabled() and layer["kind"] in ("NARYAD", "ACCEPTANCE_ACT"):
+        state.update(_magex_state(repository, organization_id, layer))
     if layer["kind"] == "EXECUTION":
         try:
             hashes = [execution_sha256(design) for design in _block_designs(organization_id, context)]
@@ -509,6 +595,26 @@ def _check_after_blast(kind: str, project: Mapping[str, Any], data: Mapping[str,
         raise ValueError("Графы «выдано», «израсходовано», «возвращено» заполняются после взрыва (проект «выполнен»).")
 
 
+def _check_magex_lock(
+    repository: PostgresMassBlastRepository, organization_id: str, layer: Mapping[str, Any], data: Mapping[str, Any],
+) -> None:
+    """После выдачи ВМ по наряду (MagEX) склад, взрывник, дата выписки, запас, № и допуски не меняются (§7)."""
+
+    if layer["kind"] != "NARYAD" or not config.magex_integration_enabled():
+        return
+    from api.services.magex_naryad_service import ISSUED_STATUSES, LOCKED_PAYLOAD_KEYS
+
+    stored = repository.magex_execution(organization_id, layer["id"])
+    if not stored or stored["status"] not in ISSUED_STATUSES:
+        return
+    changed = [key for key in LOCKED_PAYLOAD_KEYS if (data.get(key) or None) != (layer["payload"].get(key) or None)]
+    if changed:
+        raise ValueError(
+            "ВМ по наряду-путёвке уже выданы: склад, взрывник, дата выписки, запас, № и допуски не меняются. "
+            "Если нужно больше ВМ — заведите новую наряд-путёвку."
+        )
+
+
 def update_layer(
     repository: PostgresMassBlastRepository,
     economics_repository: EconomicsRepository | None,
@@ -524,6 +630,7 @@ def update_layer(
         raise ValueError("Адресат уведомления не меняется: заведите отдельное уведомление на другого адресата.")
     project = repository.get_project(organization_id, layer["project_id"])
     _check_after_blast(layer["kind"], project, data, layer["payload"])
+    _check_magex_lock(repository, organization_id, layer, data)
     updated = repository.update_layer(organization_id, actor, layer_id, expected_version=expected_version, payload=data)
     context = repository.get_revision(organization_id, updated["project_revision_id"])["context"]
     return _with_remember([_with_view(
@@ -587,10 +694,20 @@ def issue_layer(
     actor: str,
     layer_id: str,
     expected_version: int,
+    *,
+    magex: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Неизменяемая ревизия слоя: перенесённое, введённое и вычисленное (строки наряда)."""
+    """Неизменяемая ревизия слоя: перенесённое, введённое и вычисленное (строки наряда).
+
+    Наряд при включённой интеграции с MagEX (TASK-018 PR 7): настроена — выпуск
+    только «Разрешить» (`magex` — версия выписки и строка JWS для QR); не
+    настроена — снимок помечается «вне учёта MagEX». Флаг выключен — ключа нет.
+    """
 
     layer = repository.get_layer(organization_id, layer_id)
+    mode = magex_mode(organization_id) if layer["kind"] == "NARYAD" else None
+    if mode == "ONLINE" and magex is None:
+        raise ValueError("Наряд-путёвка выпускается кнопкой «Разрешить»: печать — после того, как её примет MagEX.")
     if layer["stale"]:
         raise ValueError("Проект перевыпущен: перенесите данные проекта в слой заново, затем выпускайте.")
     context = repository.get_revision(organization_id, layer["project_revision_id"])["context"]
@@ -608,8 +725,12 @@ def issue_layer(
         "seed": layer["seed"],
         # Пустые поля — значениями по умолчанию: ревизия печатает то, что окно показывало.
         "payload": effective_payload(viewed),
-        "view": {key: value for key, value in viewed["view"].items() if key not in ("defaults", "rememberable")},
+        "view": {key: value for key, value in viewed["view"].items() if key not in VIEW_STATE_KEYS},
     }
+    if magex is not None:
+        snapshot["magex"] = dict(magex)
+    elif mode == "OFFLINE":
+        snapshot["magex"] = {"mode": "OFFLINE", "reason": offline_reason(organization_id)}
     return repository.create_layer_revision(
         organization_id, actor, layer_id, expected_version=expected_version, context=snapshot,
         content_sha256=content_sha256(snapshot),

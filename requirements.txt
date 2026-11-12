@@ -27,6 +27,8 @@ python-multipart>=0.0.20,<1
 SQLAlchemy>=2.0.36,<3
 alembic>=1.14.0,<2
 psycopg[binary]>=3.2.3,<4
+# Подпись наряд-путёвки и служебного токена для MagEX (ES256, TASK-018 PR 7).
+cryptography>=44,<47
 
 # starlette.testclient (тесты API) требует httpx2 — без него падает сбор тестов
 httpx2>=2.12.0,<3

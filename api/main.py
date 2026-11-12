@@ -21,6 +21,7 @@ from api import config
 from api.exceptions import BlastExError
 from api.routers import auth, blast, block_economics, cad, cost, calibration, datasets, design, drift, drilling_passport, economics, learning, mass_blast, optimization, outcomes, recommendation, references, registry, scenarios, spatial, workspace
 from api.security import require_internal_access
+from api.services import magex_settings
 
 API_PREFIX = "/api/v1"
 
@@ -33,7 +34,19 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     """
 
     config.database_url()
+    # Ключ подписи и набор для MagEX (TASK-018, PR 7): ошибка настройки — отказ старта.
+    magex_settings.reset_magex_settings()
+    magex_settings.magex_settings()
+    stop = None
+    if config.magex_integration_enabled() and config.mass_blast_v2_enabled():
+        # Очередь повтора версий наряда-путёвки (решение В9): фоновая задача процесса API.
+        from api.services.magex_naryad_service import start_worker
+        from api.services.mass_blast_service import get_mass_blast_repository
+
+        stop = start_worker(get_mass_blast_repository)
     yield
+    if stop is not None:
+        stop.set()
 
 
 app = FastAPI(
@@ -165,6 +178,21 @@ def features() -> dict[str, bool]:
     """Какие модули включены в этой установке."""
 
     return config.features()
+
+
+@app.get("/.well-known/jwks.json", tags=["system"], include_in_schema=False)
+def jwks() -> JSONResponse:
+    """Открытые ключи BlastEX для MagEX (TASK-018, PR 7): проверка строки наряд-путёвки и служебного токена.
+
+    Без входа (данные открытые); отдаётся, когда ключ задан, — и до включения
+    интеграции, чтобы MagEX увидел ключ раньше первой подписи (330 с).
+    """
+
+    keys = magex_settings.magex_settings().jwks
+    if not keys["keys"]:
+        return JSONResponse(status_code=404, content=_error_payload(
+            message="Ключи BlastEX не заданы.", error_type="not_found", status_code=404))
+    return JSONResponse(content=keys, headers={"Cache-Control": "public, max-age=300"})
 
 
 @app.get("/health", tags=["system"])

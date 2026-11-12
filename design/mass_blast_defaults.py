@@ -68,11 +68,23 @@ SITE_FIELDS: dict[str, str] = {
     "NARYAD:permit": "blasting_permit",
     "NARYAD:vehicle": "vehicle",
     "NARYAD:driver": "driver",
+    # MagEX (TASK-018 PR 7, решения В3, В4): № и дата разрешения, марка и номер — раздельно.
+    "NARYAD:permit_number": "blasting_permit_number",
+    "NARYAD:permit_date": "blasting_permit_date",
+    "NARYAD:vehicle_model": "vehicle_model",
+    "NARYAD:vehicle_plate": "vehicle_plate",
+    "NARYAD:magex_warehouse_id": "magex_warehouse_id",
     "ACCEPTANCE_ACT:contract_no": "contract_no",
     "ACCEPTANCE_ACT:contract_date": "contract_date",
     "ACCEPTANCE_ACT:appendix_no": "acceptance_appendix_no",
     "ACCEPTANCE_ACT:customer_person": "customer_responsible",
 }
+
+# Поля наряда-путёвки, у которых значение по умолчанию — реквизиты объекта.
+NARYAD_SITE_FIELDS = (
+    "warehouse", "permit", "vehicle", "driver",
+    "permit_number", "permit_date", "vehicle_model", "vehicle_plate", "magex_warehouse_id",
+)
 
 # Поля прошлого проекта, которые не зависят от места и дня взрыва (решение В3, В4 и В5).
 # Люди — целиком, человеком (`_PEOPLE`); q по ТП и его обоснование — только справочник
@@ -436,10 +448,11 @@ def layer_defaults(
     project = seed.get("project") or {}
     blast_date = str(project.get("blast_date") or "")
     if kind == "NARYAD":
-        for name in ("warehouse", "permit", "vehicle", "driver"):
-            _put(result, name, site.get(SITE_FIELDS[f"NARYAD:{name}"]), REFERENCE)
+        for name in NARYAD_SITE_FIELDS:
+            value = site.get(SITE_FIELDS[f"NARYAD:{name}"])
+            _put(result, name, iso_date(value) if name == "permit_date" else value, REFERENCE)
         naryads = [previous_naryad] if isinstance(previous_naryad, Mapping) else list(previous_naryad or [])
-        for name in ("warehouse", "permit", "vehicle", "driver", "blaster_index"):
+        for name in (*NARYAD_SITE_FIELDS, "blaster_index", "blaster_code"):
             for naryad in naryads:
                 _put(result, name, naryad.get(name), PREVIOUS)
         _put(result, "issue_date", blast_date, RULE)

@@ -20,7 +20,12 @@ from cost.v2.schemas.costs import (
     UnitFixedCostPayload,
 )
 from cost.v2.schemas.drill_profile import DrillPassportProfilePayload
-from cost.v2.schemas.mass_blast import BlastNotificationPayload, MassBlastProfilePayload, MassBlastSitePayload
+from cost.v2.schemas.mass_blast import (
+    BlasterPayload,
+    BlastNotificationPayload,
+    MassBlastProfilePayload,
+    MassBlastSitePayload,
+)
 from cost.v2.schemas.safety import BlastSafetyPayload
 from cost.v2.schemas.stakeout_profile import StakeoutProfilePayload
 from cost.v2.schemas.equipment import (
@@ -163,6 +168,9 @@ SECTION_FIELDSETS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
         ("Сигналы (п. 163)", ("signal_warning", "signal_combat", "signal_clear")),
         ("Распорядок", ("schedule_texts",)),
     ),
+    "blasters": (
+        ("Взрывник", ("blaster_index", "book_number", "employee_ref")),
+    ),
     "blast_notifications": (
         ("Адресат", ("site_code", "recipient_position", "recipient_name", "salutation")),
         ("Направление", ("channel", "lead_days", "basis", "signer")),
@@ -206,6 +214,7 @@ SECTION_SCHEMAS: dict[str, type[ReferencePayload]] = {
     "mass_blast_sites": MassBlastSitePayload,
     "mass_blast_profiles": MassBlastProfilePayload,
     "blast_notifications": BlastNotificationPayload,
+    "blasters": BlasterPayload,
     "bench_surface_conditions": BenchSurfaceConditionPayload,
     "stakeout_modes": StakeoutModePayload,
     "site_infrastructure": SiteInfrastructurePayload,

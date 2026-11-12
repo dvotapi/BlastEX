@@ -359,6 +359,12 @@ LayerKind = Literal["NARYAD", "NOTIFICATION", "READINESS_ACT", "TALON", "ACCEPTA
 
 _TIME_PATTERN = r"^$|^([01]\d|2[0-3]):[0-5]\d$"
 _DATE_PATTERN = r"^$|^\d{4}-\d{2}-\d{2}$"
+_UUID_PATTERN = r"^$|^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+# Поля наряда для MagEX: в слой пишутся, только когда отличаются от пустых.
+NARYAD_MAGEX_KEYS = (
+    "magex_warehouse_id", "blaster_code", "permit_number", "permit_date", "vehicle_model", "vehicle_plate",
+    "admissions_confirmed",
+)
 
 
 def _not_negative(name: str, value: dict[str, float]) -> dict[str, float]:
@@ -382,6 +388,17 @@ class NaryadPayloadSchema(BaseModel):
     driver: str = Field("", max_length=200)
     delivery: str = Field("", max_length=300)
     vv_site: bool = False
+    # MagEX (TASK-018 PR 7): склад выдачи в MagEX, взрывник из справочника «Взрывники»,
+    # № и дата разрешения на ВР, марка и гос. номер спецавтомобиля, подтверждение допусков.
+    # Пишутся в слой только когда заданы (`NARYAD_MAGEX_KEYS`): у прежних нарядов
+    # содержимое ревизий не меняется.
+    magex_warehouse_id: str = Field("", pattern=_UUID_PATTERN)
+    blaster_code: str = Field("", max_length=120)
+    permit_number: str = Field("", max_length=200)
+    permit_date: str = Field("", pattern=_DATE_PATTERN)
+    vehicle_model: str = Field("", max_length=200)
+    vehicle_plate: str = Field("", max_length=200)
+    admissions_confirmed: bool = False
     reserve: dict[str, float] = Field(default_factory=dict, max_length=60)
     # После взрыва (TASK-018, PR 5): выдано, израсходовано (главнее факта),
     # возвращено (главнее «выдано − израсходовано») — по ключу строки ВМ.

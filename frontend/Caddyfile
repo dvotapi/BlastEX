@@ -5,6 +5,11 @@
         reverse_proxy api:8000
     }
 
+    # Открытые ключи BlastEX для MagEX (TASK-018, PR 7).
+    handle /.well-known/jwks.json {
+        reverse_proxy api:8000
+    }
+
     handle /health {
         reverse_proxy api:8000
     }

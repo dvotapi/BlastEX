@@ -16,8 +16,10 @@ v0.11 по умолчанию (`design/mass_blast_schedule.py`).
 """
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from typing import Literal
+from uuid import UUID
 
 from pydantic import Field, model_validator
 
@@ -25,6 +27,7 @@ from cost.v2.schemas.base import RefField, ReferencePayload, UnitField, field_er
 
 __all__ = [
     "BlastNotificationPayload",
+    "BlasterPayload",
     "MassBlastProfilePayload",
     "MassBlastSitePayload",
     "ScheduleText",
@@ -135,6 +138,25 @@ class MassBlastSitePayload(ReferencePayload):
         default="", title="Спецавтомобиль", description="Марка и гос. номер автомобиля для перевозки ВМ", max_length=200
     )
     driver: str = Field(default="", title="Водитель", description="Фамилия, инициалы водителя спецавтомобиля", max_length=200)
+    # Наряд-путёвка ↔ MagEX (TASK-018 PR 7, решения В3, В4): № и дата разрешения,
+    # марка и гос. номер раздельно — так их ждёт выписка; строки выше — запасные для печати.
+    blasting_permit_number: str = Field(
+        default="", title="Разрешение на ВР: №", description="Номер разрешения на ведение взрывных работ", max_length=200
+    )
+    blasting_permit_date: date | None = Field(
+        default=None, title="Разрешение на ВР: дата", description="Дата выдачи разрешения на ведение взрывных работ"
+    )
+    vehicle_model: str = Field(
+        default="", title="Спецавтомобиль: марка", description="Марка и модель автомобиля для перевозки ВМ", max_length=200
+    )
+    vehicle_plate: str = Field(
+        default="", title="Спецавтомобиль: гос. номер", description="Государственный регистрационный номер", max_length=200
+    )
+    magex_warehouse_id: UUID | None = Field(
+        default=None,
+        title="Склад MagEX",
+        description="Идентификатор склада выдачи в MagEX (карточка склада в MagEX); по нему наряд-путёвка резервирует ВМ",
+    )
     # Постоянные места и средства распорядка (TASK-018 PR 6, В8).
     station: str = Field(
         default="", title="Место взрывной станции", description="Пункт 11 распорядка", max_length=300
@@ -249,3 +271,25 @@ class BlastNotificationPayload(ReferencePayload):
         if not self.recipient_position.strip():
             field_error(type(self), "recipient_position", "Укажите адресата уведомления", self.recipient_position)
         return self
+
+
+class BlasterPayload(ReferencePayload):
+    """Взрывник для наряда-путёвки (TASK-018 PR 7, решение В2): ФИО — наименование записи.
+
+    MagEX узнаёт взрывника по постоянному UUID (`blaster.ref`): сотрудник
+    SafetyMAIN, а пока его нет — UUID, который BlastEX выводит из организации
+    и индекса. После выдачи ВМ взрывник наряда не меняется.
+    """
+
+    blaster_index: str = Field(
+        title="Индивидуальный индекс",
+        description="Индекс взрывника по единой книжке взрывника — печатается в наряде-путёвке",
+        min_length=1,
+        max_length=200,
+    )
+    book_number: str = Field(default="", title="№ единой книжки взрывника", description="Номер книжки", max_length=80)
+    employee_ref: UUID | None = Field(
+        default=None,
+        title="Сотрудник SafetyMAIN",
+        description="Постоянный идентификатор сотрудника в SafetyMAIN; пусто — BlastEX присвоит постоянный по индексу",
+    )

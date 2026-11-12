@@ -18,6 +18,16 @@ DWG_EXPORT_ENABLED_ENV = "BLASTEX_DWG_EXPORT_ENABLED"
 # Проект массового взрыва по форме ВМ.09.03 (TASK-018) — за флагом до PR 6
 # (интерфейс). В PR 1 флаг прячет только раздел справочника `blast_safety`.
 MASS_BLAST_V2_ENABLED_ENV = "BLASTEX_MASS_BLAST_V2_ENABLED"
+# Наряд-путёвка ↔ MagEX (TASK-018, PR 7) — по умолчанию выключена: включает
+# владелец, когда ключ опубликован и MagEX его видит.
+MAGEX_INTEGRATION_ENABLED_ENV = "BLASTEX_MAGEX_INTEGRATION_ENABLED"
+MAGEX_API_URL_ENV = "MAGEX_API_URL"
+MAGEX_ORGANIZATIONS_ENV = "MAGEX_ORGANIZATIONS"
+SIGNING_KEY_ENV = "BLASTEX_SIGNING_KEY"
+SIGNING_KID_ENV = "BLASTEX_SIGNING_KID"
+JWKS_EXTRA_ENV = "BLASTEX_JWKS_EXTRA"
+ALLOW_TEST_KEY_ENV = "BLASTEX_ALLOW_TEST_KEY"
+MAGEX_JWS_MAX_LENGTH_ENV = "MAGEX_NARYAD_JWS_MAX_LENGTH"
 
 # Префиксы ML-слоя: роутеры регистрируются только при включённом флаге.
 INTELLIGENCE_PREFIXES: tuple[str, ...] = (
@@ -86,6 +96,55 @@ def mass_blast_v2_enabled() -> bool:
     return os.getenv(MASS_BLAST_V2_ENABLED_ENV, "").strip().lower() not in _FALSE_VALUES
 
 
+def magex_integration_enabled() -> bool:
+    """Включена ли интеграция наряд-путёвки с MagEX (TASK-018, PR 7). По умолчанию нет."""
+
+    return os.getenv(MAGEX_INTEGRATION_ENABLED_ENV, "").strip().lower() in _TRUE_VALUES
+
+
+def magex_api_url() -> str:
+    """Адрес MagEX до `/api/v1` включительно, без «/» в конце; пусто — не задан."""
+
+    return os.getenv(MAGEX_API_URL_ENV, "").strip().rstrip("/")
+
+
+def magex_organizations_raw() -> str:
+    """Соответствие организаций BlastEX → MagEX, JSON (разбирает `api/services/magex_settings.py`)."""
+
+    return os.getenv(MAGEX_ORGANIZATIONS_ENV, "").strip()
+
+
+def signing_key_pem() -> str:
+    # В переменной окружения PEM часто пишут в одну строку с «\n».
+    return os.getenv(SIGNING_KEY_ENV, "").strip().replace("\\n", "\n")
+
+
+def signing_kid() -> str:
+    return os.getenv(SIGNING_KID_ENV, "").strip()
+
+
+def jwks_extra_raw() -> str:
+    return os.getenv(JWKS_EXTRA_ENV, "").strip()
+
+
+def allow_test_key() -> bool:
+    """Разрешён ли тестовый ключ MagEX — только тесты и локальный стенд."""
+
+    return os.getenv(ALLOW_TEST_KEY_ENV, "").strip().lower() in _TRUE_VALUES
+
+
+def magex_jws_max_length() -> int:
+    """Предел длины строки наряд-путёвки: как `VM_NARYAD_JWS_MAX_LENGTH` у MagEX (500…2 953, по умолчанию 2 000)."""
+
+    raw = os.getenv(MAGEX_JWS_MAX_LENGTH_ENV, "").strip()
+    if not raw:
+        return 2000
+    value = int(raw)
+    if not 500 <= value <= 2953:
+        raise RuntimeError(f"{MAGEX_JWS_MAX_LENGTH_ENV}: допустимо 500…2 953, задано {value}")
+    return value
+
+
 def features() -> dict[str, bool]:
     """Состав включённых модулей — фронт скрывает разделы по этому ответу."""
 
@@ -93,4 +152,5 @@ def features() -> dict[str, bool]:
         "intelligence": intelligence_enabled(),
         "drill_passport": drill_passport_enabled(),
         "mass_blast_v2": mass_blast_v2_enabled(),
+        "magex_integration": magex_integration_enabled(),
     }

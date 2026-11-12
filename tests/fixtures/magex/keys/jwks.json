@@ -1,0 +1,13 @@
+{
+  "keys": [
+    {
+      "kty": "EC",
+      "crv": "P-256",
+      "x": "Irg4LzthgKldYIKKVCg1kOWPiVUBDXsIu-Esez_tCAQ",
+      "y": "bogBHIaT279JgKbHRu5Z4xEFW8L7zH84CASPie_3tcY",
+      "kid": "TEST-ONLY-magex-fixture",
+      "use": "sig",
+      "alg": "ES256"
+    }
+  ]
+}

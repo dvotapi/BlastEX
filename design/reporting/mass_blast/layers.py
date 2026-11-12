@@ -30,6 +30,7 @@ from design.reporting.mass_blast.common import (
     text,
 )
 from design.reporting.mass_blast.frame import HEADER_H, Margins, Part
+from design.reporting.mass_blast.qr import QrFlowable
 
 LAYER_DOCUMENTS = {
     "READINESS_ACT": ("Акт готовности блока", "Акт готовности блока к заряжанию (приложение № 13 к ФНП 494, п. 413)"),
@@ -475,19 +476,54 @@ NARYAD_NOTE = (
 )
 
 
-def naryad_story(revision: Mapping[str, Any], width: float) -> list:
+def _naryad_head(revision: Mapping[str, Any], width: float, *, offline: str = "") -> Table:
     seed, payload = _seed(revision), _payload(revision)
     _customer, contractor = _parties(seed)
     number = text(payload.get("number"))
+    form = [p("Форма 4", "body_r"), p("форма 4 приказа Общества (приложение № 18 к ФНП 494)", "small")]
+    if offline:
+        form.append(p(offline, "small"))
     head = Table([[
         [p(contractor, "bold"), p("Организация-исполнитель", "small")],
         [p(f"НАРЯД-ПУТЁВКА № {number}" if number else "НАРЯД-ПУТЁВКА № ______", "bold_c"),
          p("на производство взрывных работ взрывнику", "body_c")],
-        [p("Форма 4", "body_r"), p("форма 4 приказа Общества (приложение № 18 к ФНП 494)", "small")],
+        form,
     ]], colWidths=[width * 0.3, width * 0.4, width * 0.3])
     head.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
                               ("VALIGN", (0, 0), (-1, -1), "TOP")]))
-    story: list = [head, spacer(1.5), _info_grid(revision, width), spacer(2)]
+    return head
+
+
+def _qr_caption(revision: Mapping[str, Any]) -> str:
+    magex = revision.get("magex") or {}
+    warehouse = text(_payload(revision).get("warehouse")) or text(magex.get("wh"))[:8]
+    return f"№ {text(magex.get('num'))} / версия {magex.get('ver')} / {warehouse}"
+
+
+def _naryad_top(revision: Mapping[str, Any], width: float) -> list:
+    """Шапка и сведения формы 4; у наряда, принятого MagEX, справа — QR той же строки JWS
+    (TASK-018 PR 7, §6): 40 × 40 мм, уровень L, под ним «№ / версия / склад»."""
+
+    magex = revision.get("magex") or {}
+    if magex.get("mode") == "ONLINE" and magex.get("jws"):
+        code = QrFlowable(str(magex["jws"]))
+        side = code.width
+        left = width - side - 2 * mm
+        block = Table(
+            [[[_naryad_head(revision, left), spacer(1.5), _info_grid(revision, left)],
+              [code, p(_qr_caption(revision), "small_c")]]],
+            colWidths=[left + 2 * mm, side],
+        )
+        block.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                                   ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                                   ("VALIGN", (0, 0), (-1, -1), "TOP")]))
+        return [block, spacer(2)]
+    offline = "вне учёта MagEX" if magex.get("mode") == "OFFLINE" else ""
+    return [_naryad_head(revision, width, offline=offline), spacer(1.5), _info_grid(revision, width), spacer(2)]
+
+
+def naryad_story(revision: Mapping[str, Any], width: float) -> list:
+    story: list = _naryad_top(revision, width)
     story += _naryad_blocks(revision, width) + [spacer(2)]
     story += _naryad_materials(revision, width) + [spacer(2)]
     story += _naryad_signatures(revision, width) + [spacer(1.5), p(NARYAD_NOTE, "small")]
@@ -708,6 +744,8 @@ def layer_part(revision: Mapping[str, Any]) -> Part:
         story=lambda: STORIES[kind](revision, width), numbering="own", landscape=landscape,
         header_pages="none" if landscape else "first", margins=margins,
         draw_extra=_talon_extra if kind == "TALON" else None,
+        # QR наряда (PR 7) — в фактическом размере: просмотрщик не «вписывает» лист.
+        actual_size=kind == "NARYAD" and bool((revision.get("magex") or {}).get("jws")),
     )
 
 

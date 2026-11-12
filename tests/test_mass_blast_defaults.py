@@ -171,6 +171,9 @@ def test_rememberable_reports_reference_values():
     assert "NARYAD:warehouse" not in fields and "warehouse" not in fields
     assert rememberable({"warehouse": "Склад"}, layer_kind="NARYAD") == {
         "warehouse": "Склад", "permit": None, "vehicle": None, "driver": None,
+        # MagEX (TASK-018 PR 7): № и дата разрешения, марка и номер, склад MagEX — тоже поля объекта.
+        "permit_number": None, "permit_date": None, "vehicle_model": None, "vehicle_plate": None,
+        "magex_warehouse_id": None,
     }
 
 

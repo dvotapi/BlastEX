@@ -83,6 +83,10 @@ def _package_layers(
         if layer_revision is None:
             omitted.append({**entry, "reason": "выпущен по другой ревизии проекта"})
             continue
+        refusal = _magex_refusal(repository, organization_id, layer_revision)
+        if refusal:
+            omitted.append({**entry, "reason": refusal})
+            continue
         included.append({
             **entry, "revision_id": layer_revision["id"], "revision_no": layer_revision["revision_no"],
             "content_sha256": layer_revision["content_sha256"], "context": layer_revision["context"],
@@ -114,10 +118,28 @@ def project_package(
     return data, _file_name(context, revision, "package", ".zip")
 
 
+def _magex_refusal(repository: PostgresMassBlastRepository, organization_id: str, layer_revision: Mapping[str, Any]) -> str:
+    """Почему ревизию наряда нельзя печатать: строка JWS не принята MagEX (контракт, разд. 7 п. 1)."""
+
+    magex = (layer_revision.get("context") or {}).get("magex") or {}
+    if magex.get("mode") != "ONLINE":
+        return ""
+    version = repository.magex_version_for_revision(organization_id, layer_revision["id"])
+    if version is None or version["status"] != "ACCEPTED":
+        state = {"PENDING": "ожидает MagEX", "SENDING": "отправляется в MagEX"}.get(
+            str((version or {}).get("status") or ""), "не принята MagEX"
+        )
+        return f"наряд-путёвка {state}: печать — после того, как её примет MagEX"
+    return ""
+
+
 def layer_document(
     repository: PostgresMassBlastRepository, organization_id: str, layer_revision_id: str
 ) -> tuple[bytes, str]:
     revision = repository.get_layer_revision(organization_id, layer_revision_id)
+    refusal = _magex_refusal(repository, organization_id, revision)
+    if refusal:
+        raise MassBlastConflictError(refusal[0].upper() + refusal[1:] + ".")
     context = revision["context"]
     kind = str(context.get("kind") or revision.get("kind") or "layer").lower()
     return render_layer_document(context), f"{kind}_r{revision['revision_no']}.pdf"
@@ -162,6 +184,6 @@ def layer_preview(
         raise PreviewError("Предпросмотр недоступен: " + "; ".join(errors))
     revision = {
         "kind": layer["kind"], "seed": layer["seed"], "payload": layers_service.effective_payload(layer),
-        "view": {key: value for key, value in (layer.get("view") or {}).items() if key not in ("defaults", "rememberable")},
+        "view": {key: value for key, value in (layer.get("view") or {}).items() if key not in layers_service.VIEW_STATE_KEYS},
     }
     return render_layer_document(revision, draft=True)

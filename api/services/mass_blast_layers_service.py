@@ -22,6 +22,7 @@ from design.mass_blast import content_sha256
 from design.mass_blast_fact import block_fact, execution_sha256
 from design.mass_blast_layers import (
     AFTER_BLAST_STATUSES,
+    LAYER_KINDS,
     LAYER_LABELS,
     LAYER_OPEN_AFTER,
     MULTI_LAYER_KINDS,
@@ -39,7 +40,16 @@ from design.mass_blast_layers import (
 )
 from design.mass_blast_repository import PostgresMassBlastRepository
 
-__all__ = ["create_layer", "get_layer", "issue_layer", "list_layers", "refresh_layer", "update_layer"]
+__all__ = [
+    "available_layers",
+    "create_layer",
+    "get_layer",
+    "issue_layer",
+    "list_layers",
+    "notification_addressees",
+    "refresh_layer",
+    "update_layer",
+]
 
 LAYER_CONTEXT_VERSION = 1
 
@@ -531,3 +541,88 @@ def issue_layer(
         organization_id, actor, layer_id, expected_version=expected_version, context=snapshot,
         content_sha256=content_sha256(snapshot),
     )
+
+
+# --- Окно проекта (TASK-018, PR 6) ------------------------------------------
+
+# Способ направления уведомления — подписью для списка адресатов.
+CHANNEL_LABELS = {"LETTER": "письмо", "EMAIL": "эл. почта", "PHONEGRAM": "телефонограмма"}
+
+
+def available_layers(
+    repository: PostgresMassBlastRepository, organization_id: str, project_id: str
+) -> list[dict[str, Any]]:
+    """Какие слои можно открыть сейчас и почему нельзя (правило — `layer_open_issue`)."""
+
+    project = repository.get_project(organization_id, project_id)
+    status = str(project.get("lifecycle_status") or "")
+    context: Mapping[str, Any] = {}
+    if project.get("current_revision_id"):
+        context = repository.get_revision(organization_id, str(project["current_revision_id"]))["context"]
+    existing: dict[str, int] = {}
+    for layer in repository.list_layers(organization_id, project_id):
+        existing[layer["kind"]] = existing.get(layer["kind"], 0) + 1
+    result = []
+    for kind in LAYER_KINDS:
+        reason = (
+            layer_open_issue(kind, status, context) if context
+            else "У проекта нет выпущенной ревизии: слою не из чего брать данные."
+        )
+        multiple = kind in MULTI_LAYER_KINDS
+        if reason is None and existing.get(kind) and not multiple:
+            reason = "Слой уже открыт: у проекта он один."
+        result.append({
+            "kind": kind,
+            "label": LAYER_LABELS[kind],
+            "can_open": reason is None,
+            "reason": reason or "",
+            "multiple": multiple,
+            "count": existing.get(kind, 0),
+        })
+    return result
+
+
+def _addressee_label(name: str, payload: Mapping[str, Any]) -> str:
+    who = " ".join(part for part in (str(payload.get("recipient_position") or "").strip(),
+                                     str(payload.get("recipient_name") or "").strip()) if part)
+    channel = CHANNEL_LABELS.get(str(payload.get("channel") or ""), "")
+    days = payload.get("lead_days")
+    when = f"за {days} сут." if days not in (None, "") else ""
+    details = ", ".join(part for part in (channel, when) if part)
+    label = who or name
+    return f"{label} ({details})" if details else label
+
+
+def notification_addressees(
+    repository: PostgresMassBlastRepository,
+    economics_repository: EconomicsRepository | None,
+    organization_id: str,
+    project_id: str,
+) -> dict[str, Any]:
+    """Адресаты уведомления из справочника карьера: код, подпись, есть ли уже уведомление.
+
+    Подпись собирает сервер — интерфейс полей справочника не знает (CLAUDE.md).
+    """
+
+    project = repository.get_project(organization_id, project_id)
+    revision = _current_revision(repository, organization_id, project)
+    context = revision["context"]
+    snapshot = _snapshot(economics_repository, organization_id, context)
+    site_code = str((context.get("project") or {}).get("site_code") or "")
+    records = [] if snapshot is None else sorted(
+        (item for item in snapshot.active_items("blast_notifications")
+         if str(item.payload.get("site_code") or "") == site_code),
+        key=lambda item: item.code,
+    )
+    taken = {
+        str(layer["payload"].get("notification_code") or "")
+        for layer in repository.list_layers(organization_id, project_id)
+        if layer["kind"] == "NOTIFICATION"
+    } - {""}
+    return {
+        "registry": bool(records),
+        "items": [
+            {"code": item.code, "label": _addressee_label(item.name, item.payload), "taken": item.code in taken}
+            for item in records
+        ],
+    }

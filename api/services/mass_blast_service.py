@@ -186,6 +186,58 @@ def create_project(
     return repository.create_project(organization_id, actor, stored)
 
 
+def create_new_project_v2(
+    repository: PostgresMassBlastRepository,
+    economics_repository: EconomicsRepository,
+    organization_id: str,
+    actor: str,
+    *,
+    design_ids: list[str],
+    blast_date: str,
+    blast_time: str = "",
+    site_code: str = "",
+) -> dict[str, Any]:
+    """Новый проект по форме ВМ.09.03 с предзаполнением (TASK-018, PR 6, В2–В3)."""
+
+    from api.services.mass_blast_prefill import new_project_payload
+
+    if not config.mass_blast_v2_enabled():
+        raise ValueError("Проект по форме ВМ.09.03 (контекст v2) недоступен: модуль выключен.")
+    designs = []
+    for design_id in dict.fromkeys(design_ids):
+        try:
+            designs.append(design_persistence.load_design(organization_id, design_id))
+        except design_persistence.DesignNotFoundError as exc:
+            raise ValueError(f"Технический паспорт БВР {design_id} не найден в организации.") from exc
+    data = new_project_payload(
+        repository, economics_repository, organization_id, designs,
+        blast_date=blast_date, blast_time=blast_time, site_code=site_code,
+    )
+    # Учётка из прошлого проекта, которой уже нет среди действующих, не переносится:
+    # роль останется без учётки, а не сломает создание проекта.
+    known = _active_emails(organization_id)
+    for item in data["responsibilities"]:
+        if normalize_account_email(item.get("account_email")) not in known:
+            item["account_email"] = ""
+    payload = MassBlastProjectInputSchema.model_validate(data)
+    return create_project(repository, economics_repository, organization_id, actor, payload)
+
+
+def project_hints(repository: PostgresMassBlastRepository, organization_id: str, project_id: str) -> dict[str, str]:
+    """Подсказки окна проекта: № и дата прошлого проекта того же объекта (В4 — номер не придумываем)."""
+
+    from api.services.mass_blast_prefill import previous_v2_project
+
+    project = repository.get_project(organization_id, project_id)
+    previous = previous_v2_project(repository, organization_id, str(project.get("site_code") or ""), exclude=project_id)
+    requisites = (previous or {}).get("requisites") or {}
+    return {
+        "previous_project_no": str(requisites.get("project_no") or ""),
+        "previous_project_date": str(requisites.get("project_date") or ""),
+        "previous_project_name": str((previous or {}).get("name") or ""),
+    }
+
+
 def update_project(
     repository: PostgresMassBlastRepository,
     economics_repository: EconomicsRepository,

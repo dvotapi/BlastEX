@@ -11,6 +11,8 @@ from api.schemas.mass_blast import (
     MassBlastAttachmentSchema,
     MassBlastDocumentCreateSchema,
     MassBlastDocumentSchema,
+    MassBlastHintsSchema,
+    MassBlastLayerAvailabilitySchema,
     MassBlastLayerCreateSchema,
     MassBlastLayerIssueSchema,
     MassBlastLayerRefreshResponse,
@@ -19,11 +21,13 @@ from api.schemas.mass_blast import (
     MassBlastLayerSchema,
     MassBlastLayerUpdateSchema,
     MassBlastLifecycleSchema,
+    MassBlastNewProjectSchema,
     MassBlastProjectInputSchema,
     MassBlastProjectSchema,
     MassBlastProjectSummarySchema,
     MassBlastRevisionSchema,
     MassBlastValidationResponse,
+    NotificationAddresseesSchema,
     RevisionCreateSchema,
 )
 from api import config
@@ -34,6 +38,7 @@ from api.services.economics_service import get_economics_repository
 from api.services.mass_blast_service import (
     approve_revision,
     attachment_path,
+    create_new_project_v2,
     create_project,
     create_revision,
     delete_attachment,
@@ -41,6 +46,7 @@ from api.services.mass_blast_service import (
     generate_document,
     get_mass_blast_repository,
     organization_accounts,
+    project_hints,
     repository_error,
     transition_project,
     upload_attachment,
@@ -536,6 +542,82 @@ def post_layer_revision(
     try:
         return MassBlastLayerRevisionSchema.model_validate(layers_service.issue_layer(
             repository, economics_repository, organization_id, actor, layer_id, payload.expected_version,
+        ))
+    except Exception as exc:
+        raise _layer_errors(exc) from exc
+
+
+
+# --- Окно проекта МВ (TASK-018, PR 6) ----------------------------------------
+
+
+@router.post(
+    "/new", response_model=MassBlastProjectSchema, status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(_require_layers)],
+)
+def post_new_project(
+    payload: MassBlastNewProjectSchema,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
+    economics_repository: EconomicsRepository = Depends(get_economics_repository),
+) -> MassBlastProjectSchema:
+    """Новый проект по форме ВМ.09.03: дата, время и блоки — остальное заполняется само."""
+
+    organization_id, actor = _identity(session)
+    try:
+        return MassBlastProjectSchema.model_validate(create_new_project_v2(
+            repository, economics_repository, organization_id, actor,
+            design_ids=payload.design_ids, blast_date=payload.blast_date,
+            blast_time=payload.blast_time, site_code=payload.site_code,
+        ))
+    except Exception as exc:
+        raise _layer_errors(exc) from exc
+
+
+@router.get("/{project_id}/hints", response_model=MassBlastHintsSchema, dependencies=[Depends(_require_layers)])
+def get_hints(
+    project_id: str,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
+) -> MassBlastHintsSchema:
+    organization_id, _ = _identity(session)
+    try:
+        return MassBlastHintsSchema.model_validate(project_hints(repository, organization_id, project_id))
+    except Exception as exc:
+        raise _layer_errors(exc) from exc
+
+
+@router.get(
+    "/{project_id}/layers/available", response_model=list[MassBlastLayerAvailabilitySchema],
+    dependencies=[Depends(_require_layers)],
+)
+def get_available_layers(
+    project_id: str,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
+) -> list[MassBlastLayerAvailabilitySchema]:
+    organization_id, _ = _identity(session)
+    try:
+        return [MassBlastLayerAvailabilitySchema.model_validate(item)
+                for item in layers_service.available_layers(repository, organization_id, project_id)]
+    except Exception as exc:
+        raise _layer_errors(exc) from exc
+
+
+@router.get(
+    "/{project_id}/notification-addressees", response_model=NotificationAddresseesSchema,
+    dependencies=[Depends(_require_layers)],
+)
+def get_notification_addressees(
+    project_id: str,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
+    economics_repository: EconomicsRepository = Depends(get_economics_repository),
+) -> NotificationAddresseesSchema:
+    organization_id, _ = _identity(session)
+    try:
+        return NotificationAddresseesSchema.model_validate(layers_service.notification_addressees(
+            repository, economics_repository, organization_id, project_id,
         ))
     except Exception as exc:
         raise _layer_errors(exc) from exc

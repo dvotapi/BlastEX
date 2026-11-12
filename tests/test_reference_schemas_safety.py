@@ -161,7 +161,7 @@ def test_file_export_and_public_settings_hide_the_section_without_the_flag(monke
     from cost.v2.public_sync.settings import PublicSyncSettings
 
     settings = PublicSyncSettings(exchange_enabled=True, mirror_sections=frozenset())
-    monkeypatch.delenv("BLASTEX_MASS_BLAST_V2_ENABLED", raising=False)
+    monkeypatch.setenv("BLASTEX_MASS_BLAST_V2_ENABLED", "0")
     assert "blast_safety" not in public_settings_payload(settings)["mirror_sections"]
     monkeypatch.setenv("BLASTEX_MASS_BLAST_V2_ENABLED", "1")
     assert "blast_safety" in public_settings_payload(settings)["mirror_sections"]
@@ -192,7 +192,7 @@ def test_hidden_mirror_setting_survives_an_unrelated_save(monkeypatch) -> None:
     from api.services.public_sync_service import settings_from_request
     from cost.v2.public_sync.settings import PublicSyncSettings
 
-    monkeypatch.delenv("BLASTEX_MASS_BLAST_V2_ENABLED", raising=False)
+    monkeypatch.setenv("BLASTEX_MASS_BLAST_V2_ENABLED", "0")
     current = PublicSyncSettings(exchange_enabled=True, mirror_sections=frozenset({"blast_safety", "rocks"}))
     request = PublicSyncSettingsRequest(exchange_enabled=False, mirror_sections={"rocks": False})
     saved = settings_from_request(request, current)

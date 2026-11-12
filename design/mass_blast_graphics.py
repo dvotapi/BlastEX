@@ -220,7 +220,9 @@ def _network(design: BlastDesign, holes: Sequence[Hole]) -> tuple[dict[str, Any]
     surface_labels = not electronic and len(downholes) == 1
     for value in times.values():
         value["label_ms"] = value["surface_ms"] if surface_labels else value["time_ms"]
-    links = _surface_links(network, ids)
+    # У электронной системы времена — из каналов; соединители в сети — каркас
+    # построения волны, на Г.4 их нет (решение В7).
+    links = [] if electronic else _surface_links(network, ids)
     groups: dict[tuple[str, str, float], dict[str, Any]] = {}
     for link in links:
         key = (link["product"], link["kind"], link["delay_ms"])
@@ -245,8 +247,9 @@ def _network(design: BlastDesign, holes: Sequence[Hole]) -> tuple[dict[str, Any]
     starters = [item.hole_id for item in network.starter_items if item.hole_id in ids] or [
         hole_id for hole_id in network.starters if hole_id in ids
     ]
-    known = [value["time_ms"] for value in times.values() if value["time_ms"] is not None]
-    rounded = Counter(round(value, 1) for value in known)
+    # Статистика — по точным временам: округление до 0,1 мс сдвинуло бы границу окна 8 мс.
+    known = [float(value) for hole_id, value in result.times_ms.items() if hole_id in ids]
+    same = Counter(round(value, 6) for value in known)
     unconnected = sorted((hole_id for hole_id, value in times.items() if value["time_ms"] is None), key=_natural)
     issues: list[dict[str, str]] = []
     if not links and not cords and not electronic:
@@ -258,7 +261,7 @@ def _network(design: BlastDesign, holes: Sequence[Hole]) -> tuple[dict[str, Any]
                 "path": "graphics.network",
             }
         )
-    elif unconnected and known:
+    elif unconnected:
         issues.append(
             {
                 "level": "warning",
@@ -278,8 +281,8 @@ def _network(design: BlastDesign, holes: Sequence[Hole]) -> tuple[dict[str, Any]
         "downhole_ms": sorted(downholes)[0] if surface_labels else None,
         "label_mode": "surface" if surface_labels else "total",
         "unconnected": unconnected,
-        "block_ms": max(known) if known else None,
-        "same_time_max": max(rounded.values()) if rounded else 0,
+        "block_ms": _r(max(known), 1) if known else None,
+        "same_time_max": max(same.values()) if same else 0,
         "window_8ms_max": _window_max(known),
     }
     return data, times, issues
@@ -405,8 +408,13 @@ def _sections(
                 toe_station = crest_station - run
             source = "contour"
         else:
+            # ЛСПП меряется от оси скважины на уровне подошвы (`toe_line.floor_burdens`),
+            # а не от устья: у наклонной они расходятся.
             lspp = first.get("lspp_m") or 3.0
-            toe_station = first["station_m"] - float(lspp)
+            drop = first["collar_z"] - first["toe_z"]
+            share = min(1.0, max(0.0, height / drop)) if drop > 0 else 0.0
+            axis = first["station_m"] + (first["toe_station_m"] - first["station_m"]) * share
+            toe_station = axis - float(lspp)
             crest_station = toe_station + run
             source = "lspp"
         result.append(
@@ -638,7 +646,13 @@ def _rings(geometry) -> list[list[list[float]]]:
     return [[_xy(p) for p in list(poly.exterior.coords)[:-1]] for poly in polygons if poly.geom_type == "Polygon"]
 
 
-def _clipped_situation(layers: Sequence[Mapping[str, Any]], box) -> tuple[list[dict[str, Any]], float]:
+def _clipped_situation(layers: Sequence[Mapping[str, Any]], box) -> tuple[list[dict[str, Any]], float, bool]:
+    """Ситуация в рамке, упрощённая до бюджета вершин.
+
+    Допуск удваивается, пока вершин больше `SITUATION_MAX_POINTS`. Если
+    упрощение больше не сокращает их (россыпь отрезков по две точки) —
+    остаются самые длинные линии в пределах бюджета (`truncated`)."""
+
     shapes: list[tuple[str, str, list[Any]]] = []
     for layer in layers:
         parts = []
@@ -652,22 +666,40 @@ def _clipped_situation(layers: Sequence[Mapping[str, Any]], box) -> tuple[list[d
         if parts:
             shapes.append((str(layer.get("name") or ""), str(layer.get("kind") or ""), parts))
     tolerance = SITUATION_SIMPLIFY_M
+    previous = None
     while True:
-        result = []
-        total = 0
-        for name, kind, parts in shapes:
-            lines = []
+        lines: list[tuple[int, float, list[list[float]]]] = []
+        for index, (_name, _kind, parts) in enumerate(shapes):
             for part in parts:
                 simple = part.simplify(tolerance)
                 coords = [_xy(p) for p in simple.coords]
                 if len(coords) >= 2:
-                    lines.append(coords)
-                    total += len(coords)
-            if lines:
-                result.append({"name": name, "kind": kind, "lines": lines})
-        if total <= SITUATION_MAX_POINTS or tolerance > 1000:
-            return result, tolerance
+                    lines.append((index, float(simple.length), coords))
+        total = sum(len(coords) for _index, _length, coords in lines)
+        if total <= SITUATION_MAX_POINTS:
+            return _situation_layers(shapes, lines), tolerance, False
+        if previous is not None and total >= previous:
+            break
+        previous = total
         tolerance *= 2
+    kept: list[tuple[int, float, list[list[float]]]] = []
+    budget = SITUATION_MAX_POINTS
+    for item in sorted(lines, key=lambda item: -item[1]):
+        if len(item[2]) <= budget:
+            kept.append(item)
+            budget -= len(item[2])
+    return _situation_layers(shapes, kept), tolerance, True
+
+
+def _situation_layers(shapes, lines) -> list[dict[str, Any]]:
+    by_layer: dict[int, list[list[list[float]]]] = {}
+    for index, _length, coords in lines:
+        by_layer.setdefault(index, []).append(coords)
+    return [
+        {"name": name, "kind": kind, "lines": by_layer[index]}
+        for index, (name, kind, _parts) in enumerate(shapes)
+        if index in by_layer
+    ]
 
 
 def project_graphics(
@@ -704,7 +736,17 @@ def project_graphics(
     if geometry is not None and not geometry.is_empty and situation_layers:
         x0, y0, x1, y1 = geometry.bounds
         reach = people * (1 + SITUATION_MARGIN_SHARE) + SITUATION_MARGIN_M
-        situation, tolerance = _clipped_situation(situation_layers, (x0 - reach, y0 - reach, x1 + reach, y1 + reach))
+        situation, tolerance, truncated = _clipped_situation(situation_layers, (x0 - reach, y0 - reach, x1 + reach, y1 + reach))
+        if truncated:
+            issues.append(
+                {
+                    "level": "warning",
+                    "code": "graphics_situation_truncated",
+                    "message": f"Ситуация карьера слишком подробная для Г.5: на плане — самые длинные линии "
+                    f"(до {SITUATION_MAX_POINTS} вершин), мелкие отрезки не показаны.",
+                    "path": "graphics.situation",
+                }
+            )
     object_rows = []
     by_name: dict[str, list[Mapping[str, Any]]] = {}
     for layer in situation_layers:

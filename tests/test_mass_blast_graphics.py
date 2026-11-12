@@ -259,3 +259,74 @@ def test_canonical_deck_kinds_are_normalized():
     assert [_deck_kind(kind) for kind in ("air_deck", "air", "water_deck", "inert_deck", "bulk_explosive", "stemming", "primer")] == [
         "air", "air", "water", "inert", "explosive", "stemming", "other"
     ]
+
+
+def test_electronic_network_has_no_surface_arrows():
+    from design.models import ElectronicChannel
+
+    design = _trunk66()
+    design.network.system = "electronic"
+    design.network.electronic_channels = [
+        ElectronicChannel(id=f"ch-{hole.id}", hole_id=hole.id, time_ms=float(index * 9)) for index, hole in enumerate(design.holes)
+    ]
+    graphics, issues = block_graphics(design, [])
+    network = graphics["network"]
+    assert network["links"] == [] and network["groups"] == []
+    assert network["label_mode"] == "total" and graphics["holes"][1]["label_ms"] == 9.0
+    assert not any(issue["code"] == "graphics_network_missing" for issue in issues)
+
+
+def test_window_uses_exact_times():
+    from design.models import ElectronicChannel
+
+    design = _trunk66()
+    design.network.system = "electronic"
+    times = [0.0, 8.04] + [100.0 + 20 * n for n in range(len(design.holes) - 2)]
+    design.network.electronic_channels = [
+        ElectronicChannel(id=f"ch-{hole.id}", hole_id=hole.id, time_ms=time) for hole, time in zip(design.holes, times)
+    ]
+    graphics, _ = block_graphics(design, [])
+    # 0 и 8,04 мс — разница больше 8 мс: в окне одна скважина, хотя подписи округлены до 0,1.
+    assert graphics["network"]["window_8ms_max"] == 1
+
+
+def test_no_starter_reports_every_hole():
+    design = _trunk66()
+    design.network.starter_items = []
+    design.network.starters = []
+    graphics, issues = block_graphics(design, [])
+    assert len(graphics["network"]["unconnected"]) == 196
+    assert "graphics_unconnected_holes" in [issue["code"] for issue in issues]
+
+
+def test_fallback_burden_is_measured_from_axis_at_floor():
+    design = _trunk66()
+    design.contour = BlockContour()          # бровки нет — откос по ЛСПП
+    for hole in design.holes:                # наклон 2 м по горизонтали
+        hole.toe.x += 2.0
+    rows = [{"hole_id": hole.id, "lspp_m": 4.0, "first_row": True} for hole in design.holes]
+    graphics, _ = block_graphics(design, rows)
+    section = graphics["sections"][0]
+    first = section["holes"][0]
+    share = (first["collar_z"] - section["floor_z"]) / (first["collar_z"] - first["toe_z"])
+    axis = first["station_m"] + (first["toe_station_m"] - first["station_m"]) * share
+    assert section["slope_source"] == "lspp"
+    assert section["toe_station_m"] == pytest.approx(axis - 4.0, abs=0.02)
+
+
+def test_situation_vertex_budget_is_enforced():
+    from design import mass_blast_graphics as module
+
+    segments = [{"points": [[float(i), 50.0], [float(i), 50.5]], "closed": False} for i in range(-150, 150)]
+    long = {"points": [[-100.0, 80.0], [200.0, 80.0]], "closed": False}
+    layer = {"name": "рой", "kind": "road", "lines": [*segments, long]}
+    original = module.SITUATION_MAX_POINTS
+    module.SITUATION_MAX_POINTS = 100
+    try:
+        graphics, issues = _g5(situation_layers=[layer], has_situation=True)
+    finally:
+        module.SITUATION_MAX_POINTS = original
+    total = sum(len(line) for item in graphics["situation"] for line in item["lines"])
+    assert total <= 100
+    assert [[-100.0, 80.0], [200.0, 80.0]] in graphics["situation"][0]["lines"]     # длинные — остаются
+    assert "graphics_situation_truncated" in [issue["code"] for issue in issues]

@@ -268,23 +268,24 @@ def effective_payload(viewed: Mapping[str, Any]) -> dict[str, Any]:
 
 def _previous_naryad(
     repository: PostgresMassBlastRepository, organization_id: str, project: Mapping[str, Any]
-) -> dict[str, Any] | None:
-    """Ручной ввод последнего наряда прошлого проекта того же объекта (склад, разрешение, транспорт)."""
+) -> list[dict[str, Any]]:
+    """Ручной ввод нарядов прошлых проектов того же объекта, от последнего (склад, разрешение,
+    транспорт): поле, взятое прошлым нарядом по умолчанию, ищется у нарядов раньше."""
 
-    from api.services.mass_blast_prefill import previous_v2_project
+    from api.services.mass_blast_prefill import previous_v2_projects
 
+    payloads: list[dict[str, Any]] = []
     try:
-        previous = previous_v2_project(
+        for previous in previous_v2_projects(
             repository, organization_id, str(project.get("site_code") or ""), exclude=str(project.get("id") or ""),
             before=str(project.get("created_at") or ""),
-        )
-        if previous is None:
-            return None
-        naryads = [layer for layer in repository.list_layers(organization_id, previous["id"]) if layer["kind"] == "NARYAD"]
-    except Exception:  # noqa: BLE001 — прошлый наряд даёт только умолчания
-        return None
-    naryads.sort(key=lambda layer: str(layer.get("updated_at") or ""), reverse=True)
-    return dict(naryads[0]["payload"]) if naryads else None
+        ):
+            naryads = [layer for layer in repository.list_layers(organization_id, previous["id"]) if layer["kind"] == "NARYAD"]
+            naryads.sort(key=lambda layer: str(layer.get("updated_at") or ""), reverse=True)
+            payloads += [dict(layer["payload"]) for layer in naryads]
+    except Exception:  # noqa: BLE001 — прошлые наряды дают только умолчания
+        return payloads
+    return payloads
 
 
 def _load_design(organization_id: str, design_id: str):

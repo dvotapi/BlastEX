@@ -259,3 +259,15 @@ def test_station_leaves_every_zone_of_a_multi_block_project():
     for point in result["points"]:
         if point["kind"] in ("blast_station", "shelter"):
             assert not zone.covers(Point(point["x"], point["y"])), point
+
+
+def test_inherited_values_come_from_earlier_projects(design):
+    """A задал порядок заряжания, B взял его по умолчанию (в payload B пусто) — C получает его от A (Codex)."""
+
+    project_a = {"schedule": {"charging_order": "от бровки к тылу"}, "requisites": {"made_by": {"position": "инженер", "name": "Аов А. А."}}}
+    project_b = {"schedule": {"charging_order": ""}, "requisites": {"made_by": {"position": "", "name": ""}}}
+    defaults = project_defaults(_payload(), DefaultsInputs(designs=[design], previous=[project_b, project_a]))
+    assert defaults["schedule.charging_order"] == {"value": "от бровки к тылу", "source": "PREVIOUS"}
+    assert defaults["requisites.made_by.name"]["value"] == "Аов А. А."
+    naryad = layer_defaults("NARYAD", {"project": {}}, {}, previous_naryad=[{"vehicle": ""}, {"vehicle": "КамАЗ"}])
+    assert naryad["vehicle"]["value"] == "КамАЗ"

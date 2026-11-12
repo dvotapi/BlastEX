@@ -134,7 +134,8 @@ class DefaultsInputs:
     site: Mapping[str, Any] = field(default_factory=dict)  # запись «Проект МВ: реквизиты объекта»
     customer_name: str = ""  # заказчик объекта (контрагент справочника)
     drill_passports: Sequence[Mapping[str, Any] | None] = ()  # payload паспорта на бурение по блоку
-    previous: Mapping[str, Any] | None = None  # прошлый проект МВ v2 объекта
+    # Прошлые проекты МВ v2 объекта, от последнего созданного (или один проект).
+    previous: Sequence[Mapping[str, Any]] | Mapping[str, Any] | None = None
     organization: str = ""  # Общество — подрядчик
     created_on: str = ""  # дата создания проекта (ISO)
 
@@ -331,7 +332,7 @@ def project_defaults(payload: Mapping[str, Any], inputs: DefaultsInputs) -> dict
 
     result: dict[str, dict[str, Any]] = {}
     site = dict(inputs.site or {})
-    previous = inputs.previous or {}
+    history = [inputs.previous] if isinstance(inputs.previous, Mapping) else [item for item in inputs.previous or [] if item]
     designs = list(inputs.designs)
     passports = [dict(item or {}) for item in inputs.drill_passports]
     blast_date = str(payload.get("blast_date") or "")
@@ -344,7 +345,7 @@ def project_defaults(payload: Mapping[str, Any], inputs: DefaultsInputs) -> dict
                 "position": site.get(f"{site_key}_position"), "name": site.get(f"{site_key}_name"),
                 "authority": site.get(f"{site_key}_authority"), "is_head": site.get(f"{site_key}_is_head"),
             }, REFERENCE))
-        candidates.append((get_path(previous, prefix) or {}, PREVIOUS))
+        candidates += [(get_path(previous, prefix) or {}, PREVIOUS) for previous in history]
         if passport_key:
             candidates += [(passport.get(passport_key) or {}, DRILL_PASSPORT) for passport in passports]
         for person, source in candidates:
@@ -381,10 +382,14 @@ def project_defaults(payload: Mapping[str, Any], inputs: DefaultsInputs) -> dict
 
     # 4. Прошлый проект МВ объекта.
     for path in _FROM_PREVIOUS:
-        _put(result, path, get_path(previous, path), PREVIOUS)
-    first_block = (previous.get("blocks") or [{}])[0] if previous else {}
-    for index, _ in enumerate(designs):
-        _put(result, f"blocks[{index}].details.purpose", get_path(first_block, "details.purpose"), PREVIOUS)
+        # Первое заданное поле прошлых проектов: значение, которое прошлый проект
+        # сам взял по умолчанию (в его payload пусто), — у проектов раньше.
+        for previous in history:
+            _put(result, path, get_path(previous, path), PREVIOUS)
+    for previous in history:
+        first_block = (previous.get("blocks") or [{}])[0]
+        for index, _ in enumerate(designs):
+            _put(result, f"blocks[{index}].details.purpose", get_path(first_block, "details.purpose"), PREVIOUS)
 
     # 5. Правила.
     codes = [str(block.get("code") or "") for block in payload.get("blocks") or []]
@@ -411,7 +416,7 @@ def layer_defaults(
     payload: Mapping[str, Any],
     *,
     site: Mapping[str, Any] | None = None,
-    previous_naryad: Mapping[str, Any] | None = None,
+    previous_naryad: Sequence[Mapping[str, Any]] | Mapping[str, Any] | None = None,
     view: Mapping[str, Any] | None = None,
     created_on: str = "",
 ) -> dict[str, dict[str, Any]]:
@@ -425,8 +430,10 @@ def layer_defaults(
     if kind == "NARYAD":
         for name in ("warehouse", "permit", "vehicle", "driver"):
             _put(result, name, site.get(SITE_FIELDS[f"NARYAD:{name}"]), REFERENCE)
+        naryads = [previous_naryad] if isinstance(previous_naryad, Mapping) else list(previous_naryad or [])
         for name in ("warehouse", "permit", "vehicle", "driver", "blaster_index"):
-            _put(result, name, (previous_naryad or {}).get(name), PREVIOUS)
+            for naryad in naryads:
+                _put(result, name, naryad.get(name), PREVIOUS)
         _put(result, "issue_date", blast_date, RULE)
     elif kind == "NOTIFICATION":
         _put(result, "out_date", created_on, RULE)

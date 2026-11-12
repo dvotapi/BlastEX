@@ -10,13 +10,15 @@ import { errorText, Field, Issues, ruNum, TextInput } from "./ui";
 
 const KIND_LABEL = Object.fromEntries(POINT_KINDS.map((item) => [item.code, item.label])) as Record<LayoutPointKind, string>;
 
-export function PostsTab({ form, edit, editable, errors, issues, context, projectId, ensureSaved }: TabProps & {
+export function PostsTab({ form, edit, editable: canEdit, errors, issues, context, projectId, ensureSaved }: TabProps & {
   projectId: string;
   /** Несохранённые правки (например, ручная зона) сначала сохраняются: посты — по текущим зонам. */
   ensureSaved: () => Promise<unknown>;
 }) {
   const [suggesting, setSuggesting] = useState(false);
   const [note, setNote] = useState<{ text: string; error: boolean } | null>(null);
+  // Пока ждём предложение, посты и точки не правятся: ответ заменит их целиком.
+  const editable = canEdit && !suggesting;
 
   /** «Предложить посты» (В6): посты на пересечениях дорог с границей зоны, станция и укрытие за зоной. */
   async function suggest() {
@@ -99,7 +101,7 @@ export function PostsTab({ form, edit, editable, errors, issues, context, projec
           </div>
         ))}
         {errors.guard_posts && <small className="form-error">{errors.guard_posts}</small>}
-        {editable && context?.graphics?.has_situation && (
+        {canEdit && context?.graphics?.has_situation && (
           <button type="button" className="secondary-button" disabled={suggesting} onClick={() => void suggest()}
             title="Посты — где дороги пересекают границу зоны для людей, станция и укрытие — за зоной">
             Предложить посты

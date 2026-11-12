@@ -138,7 +138,7 @@ def defaults_v2(
     designs: Sequence[BlastDesign],
     snapshot: Any,
     *,
-    previous: Mapping[str, Any] | None = None,
+    previous: Sequence[Mapping[str, Any]] = (),
     created_on: str = "",
     author: str = "",
 ) -> dict[str, dict[str, Any]]:
@@ -169,7 +169,7 @@ def context_v2(
     economics_repository: EconomicsRepository,
     reference_revision_id: str | None,
     *,
-    previous: Mapping[str, Any] | None = None,
+    previous: Sequence[Mapping[str, Any]] = (),
     created_on: str = "",
     author: str = "",
     defaults_out: dict[str, Any] | None = None,

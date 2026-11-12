@@ -269,17 +269,17 @@ def _validate_v2(
     require_attachments: bool,
     defaults_out: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[ValidationIssue], list[ProjectBlock]]:
-    from api.services.mass_blast_prefill import previous_v2_project
+    from api.services.mass_blast_prefill import previous_v2_projects
     from design.mass_blast_defaults import created_on
 
     _, blocks = _context_from_stored(project)
     try:
-        previous = previous_v2_project(
+        previous = previous_v2_projects(
             repository, organization_id, str(project.get("site_code") or ""), exclude=str(project.get("id") or ""),
             before=str(project.get("created_at") or ""),
         )
-    except Exception:  # noqa: BLE001 — прошлый проект даёт только умолчания
-        previous = None
+    except Exception:  # noqa: BLE001 — прошлые проекты дают только умолчания
+        previous = []
     context, stale = context_v2(
         organization_id, project, blocks, economics_repository, reference_revision_id,
         previous=previous, created_on=created_on(project.get("created_at")),

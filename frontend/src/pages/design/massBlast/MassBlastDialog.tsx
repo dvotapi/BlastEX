@@ -153,8 +153,9 @@ export function MassBlastDialog({
     }
   }
 
-  async function save(): Promise<MassBlastProjectV2 | null> {
-    if (!dirty) return project;
+  /** `force` — сохранить и без правок: сервер заново снимет проекты блоков (ошибка `stale_source`). */
+  async function save(force = false): Promise<MassBlastProjectV2 | null> {
+    if (!dirty && !force) return project;
     if (Object.keys(errors).length) {
       setMessage({ text: "Исправьте поля, отмеченные в форме.", error: true });
       return null;
@@ -194,6 +195,11 @@ export function MassBlastDialog({
   const onSave = () => run(async () => {
     if (await save()) setMessage({ text: "Проект сохранён.", error: false });
   }, "Не удалось сохранить проект.");
+
+  const staleBlocks = project.lifecycle_status === "draft" && issues.some((issue) => issue.code === "stale_source");
+  const onRefreshBlocks = () => run(async () => {
+    if (await save(true)) setMessage({ text: "Снимок блоков обновлён по сохранённым проектам блоков.", error: false });
+  }, "Не удалось обновить снимок блоков.");
 
   const onCheck = () => run(async () => {
     const saved = await save();
@@ -326,6 +332,12 @@ export function MassBlastDialog({
         </button>
         {message && <small className={message.error ? "form-error" : "drill-message"}>{message.text}</small>}
         <span className="mb-footer-actions">
+          {staleBlocks && (
+            <button type="button" className="secondary-button" disabled={busy} onClick={() => void onRefreshBlocks()}
+              title="Проект блока изменился после добавления в проект МВ: снять его заново">
+              Обновить снимок блоков
+            </button>
+          )}
           {project.lifecycle_status === "draft" && (
             <button type="button" className="secondary-button" disabled={busy || !dirty} onClick={() => void onSave()}>Сохранить</button>
           )}

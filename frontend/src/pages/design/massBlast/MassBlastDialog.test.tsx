@@ -146,6 +146,18 @@ describe("окно проекта МВ", () => {
     await waitFor(() => expect((screen.getByLabelText("№ проекта") as HTMLInputElement).disabled).toBe(false));
   });
 
+  it("изменившийся проект блока снимается заново без правок формы", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.massBlast.validateV2).mockResolvedValueOnce(validation({
+      valid: false,
+      issues: [{ level: "error", code: "stale_source", message: "Источник блока «66» изменился после добавления в проект.", path: "blocks" }],
+    }));
+    render(<MassBlastDialog project={projectV2()} onClose={() => {}} onChange={() => {}} />);
+    await user.click(await screen.findByRole("button", { name: "Обновить снимок блоков" }));
+    await waitFor(() => expect(api.massBlast.saveV2).toHaveBeenCalledWith("p1", expect.objectContaining({ expected_version: 3 })));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Обновить снимок блоков" })).toBeNull());
+  });
+
   it("ручные коэффициенты подписаны по схеме справочника, с источником значения", async () => {
     const user = userEvent.setup();
     render(<MassBlastDialog project={projectV2()} onClose={() => {}} onChange={() => {}} />);

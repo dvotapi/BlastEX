@@ -377,8 +377,12 @@ def project_defaults(payload: Mapping[str, Any], inputs: DefaultsInputs) -> dict
     bit = next((value for value in bits if value), None)
     if bit:
         _put(result, "explosives.bit_mm", bit, DRILL_PASSPORT)
-        k = next((reaming_k(design, bits[i] or bit) for i, design in enumerate(designs) if reaming_k(design, bits[i] or bit)), None)
-        _put(result, "explosives.reaming_k", k, DRILL_PASSPORT)
+    # k — по тому долоту, что пойдёт в документ: заданному в проекте, иначе паспортному.
+    own_bit = _number(get_path(payload, "explosives.bit_mm"))
+    effective_bit = own_bit or bit
+    if effective_bit:
+        k = next((reaming_k(design, effective_bit) for design in designs if reaming_k(design, effective_bit)), None)
+        _put(result, "explosives.reaming_k", k, DESIGN if own_bit else DRILL_PASSPORT)
 
     # 4. Прошлый проект МВ объекта.
     for path in _FROM_PREVIOUS:

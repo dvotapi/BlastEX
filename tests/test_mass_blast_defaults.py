@@ -271,3 +271,8 @@ def test_inherited_values_come_from_earlier_projects(design):
     assert defaults["requisites.made_by.name"]["value"] == "Аов А. А."
     naryad = layer_defaults("NARYAD", {"project": {}}, {}, previous_naryad=[{"vehicle": ""}, {"vehicle": "КамАЗ"}])
     assert naryad["vehicle"]["value"] == "КамАЗ"
+
+
+def test_reaming_k_uses_the_bit_entered_in_the_project(design):
+    defaults = project_defaults(_payload(explosives={"bit_mm": 120}), DefaultsInputs(designs=[design], drill_passports=[{"bit_diameter_mm": 140}]))
+    assert defaults["explosives.reaming_k"]["value"] == round(144 / 120, 2)

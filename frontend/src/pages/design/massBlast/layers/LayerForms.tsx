@@ -205,7 +205,14 @@ export function NotificationForm({ layer, draft, set, disabled, remember }: Form
       <div className="drill-grid">
         <Text {...common} name="out_no" label="Исх. №" max={40} />
         <Text {...common} name="out_date" label="Дата" type="date" />
-        <Text {...common} name="signer" label="Подписывает" max={200} />
+        {/* Подписант из справочника уведомлений печатается всегда — поле только для показа. */}
+        {fromRegistry && str(registry.signer) ? (
+          <Field label="Подписывает" hint="из справочника уведомлений карьера">
+            {(id) => <input id={id} value={str(registry.signer)} disabled readOnly />}
+          </Field>
+        ) : (
+          <Text {...common} name="signer" label="Подписывает" max={200} />
+        )}
       </div>
     </>
   );

@@ -40,6 +40,7 @@ from design.models import (
     AsDrilledHole,
     BlastDesign,
     Deck,
+    DownholeConnector,
     Hole,
     HoleLoad,
     Point3,
@@ -101,16 +102,23 @@ def fact_subdrill_m(designed: Hole, drilled: AsDrilledHole) -> float | None:
 def _actual_toe(designed: Hole, drilled: AsDrilledHole) -> Point3:
     """Забой по факту на фактической длине (`AsDrilledHole.length_m`).
 
-    Направление — по записанным устью и забою; забоя нет (совпадает с
-    устьем) — по проектной оси. Длина — записанная: глубину правят после
-    копии проекта, а забой остаётся проектным — тогда он сдвигается по оси,
-    иначе перебур (по длине) и точка подошвы (по забою) разошлись бы.
+    Снятый забой (инклинометрия или введённая точка) — как есть. Забой не
+    записан (совпадает с устьем) — по проектной оси на записанной длине.
+    Забой остался проектным после копии, а глубину поправили — он
+    сдвигается по оси на записанную длину, иначе перебур (по длине) и точка
+    подошвы (по забою) разошлись бы.
     """
 
     collar, toe = drilled.actual_collar, drilled.actual_toe
     axis = (toe.x - collar.x, toe.y - collar.y, toe.z - collar.z)
+    surveyed = any(point.has_xyz for point in drilled.survey_points)
+    copied = math.dist((toe.x, toe.y, toe.z), (designed.toe.x, designed.toe.y, designed.toe.z)) <= 0.01
     if math.hypot(*axis) <= 0.01:
         axis = (designed.toe.x - designed.collar.x, designed.toe.y - designed.collar.y, designed.toe.z - designed.collar.z)
+    elif surveyed or not copied:
+        # Забой снят (последняя точка инклинометрии или введён сам) — он и есть забой:
+        # длина по стволу у кривой скважины больше хорды, продлевать её нельзя.
+        return toe
     norm = math.hypot(*axis)
     length = drilled.length_m
     if norm <= 1e-9 or length <= 0:
@@ -192,27 +200,37 @@ def _fact_load(item: AsChargedHole, fallback_product: str) -> HoleLoad:
 def _overlay_fired_detonators(design: BlastDesign, enabled: Mapping[str, Hole]) -> None:
     """Скважинные инициаторы по факту взрывания (`as_fired`) — поверх проектной сети копии.
 
-    Записанный детонатор с маркой заменяет проектные назначения скважины
-    (детонаторы и скважинные соединители): расход НСИ и электронных — по
-    факту. Запись без марки (заготовка без проектного детонатора) сеть не трогает.
+    Записанный детонатор с маркой становится скважинным соединителем того же
+    охвата (ПД, дека или вся скважина; соединитель главнее детонатора при
+    подборе марки): запись на ПД заменяет назначение только этого ПД, запись
+    на скважину — все назначения скважины. Запись без марки (заготовка без
+    проектного детонатора) сеть не трогает.
     """
 
-    fired = {
-        item.design_hole_id: normalize_as_fired(deepcopy(item))
-        for item in design.as_fired_holes
-        if item.design_hole_id in enabled and str(item.detonator.product or "").strip()
-    }
-    if not fired:
-        return
     network = design.network
-    network.detonators = [item for item in network.detonators if item.hole_id not in fired]
-    network.downhole_connectors = [item for item in network.downhole_connectors if item.hole_id not in fired]
-    for hole_id, item in fired.items():
-        detonator = item.detonator
-        detonator.hole_id = hole_id
-        detonator.deck_index = None
-        detonator.primer_index = None
-        network.detonators.append(detonator)
+    for item in design.as_fired_holes:
+        if item.design_hole_id not in enabled or not str(item.detonator.product or "").strip():
+            continue
+        fired = normalize_as_fired(deepcopy(item))
+        detonator = fired.detonator
+        hole_id = fired.design_hole_id
+        scope = (detonator.deck_index, detonator.primer_index)
+
+        def same(assignment: Any) -> bool:
+            if assignment.hole_id != hole_id:
+                return False
+            return scope == (None, None) or (assignment.deck_index, assignment.primer_index) == scope
+
+        network.detonators = [assignment for assignment in network.detonators if not same(assignment)]
+        network.downhole_connectors = [assignment for assignment in network.downhole_connectors if not same(assignment)]
+        kind = detonator.kind if detonator.kind in ("electronic", "detonating_cord") else "downhole_nsi"
+        network.downhole_connectors.append(
+            DownholeConnector(
+                id=f"fact-{hole_id}-{len(network.downhole_connectors)}", hole_id=hole_id,
+                delay_ms=float(detonator.delay_ms or 0.0), kind=kind, deck_index=detonator.deck_index,
+                primer_index=detonator.primer_index, product=detonator.product,
+            )
+        )
 
 
 def _fact_stemming(item: AsChargedHole) -> float:

@@ -207,3 +207,35 @@ def test_edited_product_and_stemming_of_a_copied_charge(base):
     assert row["stemming_fact_m"] == 4.2
     names = {line["name"]: line["quantity"] for line in fact["consumption"] if line["kind"] == "explosive"}
     assert names["ACTUAL_NEW_PRODUCT"] == pytest.approx(item.charge_mass_kg)
+
+
+def test_surveyed_curved_toe_is_kept():
+    from design.mass_blast_fact import _actual_toe
+    from design.models import Hole, SurveyPoint
+
+    hole = Hole(id="1", row=0, col=0, collar=Point3(0, 0, 100), toe=Point3(0, 0, 90), diameter_mm=144)
+    drilled = AsDrilledHole(design_hole_id="1", actual_collar=Point3(0, 0, 100), actual_toe=Point3(3, 0, 92),
+                            actual_depth=9.243, survey_points=[SurveyPoint(depth_m=9.243, x=3, y=0, z=92)])
+    toe = _actual_toe(hole, drilled)
+    assert (toe.x, toe.y, toe.z) == (3, 0, 92)
+
+
+def test_primer_scoped_fired_detonator_replaces_only_its_primer(base):
+    from design.as_fired import as_fired_from_design_hole
+    from design.mass_blast_fact import _overlay_fired_detonators
+    from design.models import Detonator
+
+    design, _table = base
+    design = copy.deepcopy(design)
+    hole = next(h for h in design.holes if h.enabled)
+    design.network.detonators = [d for d in design.network.detonators if d.hole_id != hole.id] + [
+        Detonator(id="a", hole_id=hole.id, product="A", kind="electronic", primer_index=0),
+        Detonator(id="b", hole_id=hole.id, product="B", kind="electronic", primer_index=1),
+    ]
+    fired = as_fired_from_design_hole(design, hole)
+    fired.detonator = Detonator(id="a", hole_id=hole.id, product="A2", kind="electronic", primer_index=0)
+    design.as_fired_holes = [fired]
+    _overlay_fired_detonators(design, {hole.id: hole})
+    products = {d.product for d in design.network.detonators if d.hole_id == hole.id}
+    connectors = [(c.product, c.primer_index) for c in design.network.downhole_connectors if c.hole_id == hole.id]
+    assert "B" in products and "A" not in products and ("A2", 0) in connectors

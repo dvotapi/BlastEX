@@ -244,3 +244,16 @@ def test_layer_changes_are_described_in_words():
     row = describe_change({"path": "drilled_by", "before": "CUSTOMER", "after": "CONTRACTOR"})
     assert (row["before_text"], row["after_text"]) == ("заказчик", "Общество")
     assert describe_change({"path": "something.odd", "before": 1, "after": 2})["label"] == "Прочие данные проекта"
+
+
+def test_fact_summary_change_has_no_service_ids():
+    from design.mass_blast_layer_diff import describe_change
+
+    fact = {"execution_revision_id": "dc570e01-3a00-4c23-8d6b-a019a36ce344", "blast_date": "2026-11-20", "blast_time": "13:05",
+            "blocks": [{"code": "66", "holes": 196, "charged": 190, "charged_kg": 31500.0}], "consumption": []}
+    row = describe_change({"path": "fact", "before": None, "after": fact})
+    assert row["label"] == "Сводка выпущенного слоя «Факт»" and row["before_text"] == "—"
+    assert row["after_text"] == "взрыв 20.11.2026 13:05; блок 66: заряжено 190 из 196 скв., 31 500 кг"
+    row = describe_change({"path": "fact.execution_revision_id", "before": "a" * 8 + "-0000-0000-0000-" + "b" * 12, "after": fact["execution_revision_id"]})
+    assert (row["label"], row["before_text"], row["after_text"]) == ("Сводка выпущенного слоя «Факт» — ревизия", "прежняя", "новая")
+    assert "dc570e01" not in describe_change({"path": "something", "before": None, "after": fact["execution_revision_id"]})["after_text"]

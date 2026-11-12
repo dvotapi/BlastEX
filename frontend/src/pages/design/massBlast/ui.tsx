@@ -106,11 +106,20 @@ export function fromReference(own: string, computed: unknown, source = "из с�
   return value ? `${source}: ${value}` : undefined;
 }
 
-/** PDF в новой вкладке. Вкладка открывается сразу (иначе браузер её заблокирует), адрес — после ответа. */
-export async function openPdf(url: string): Promise<void> {
+/**
+ * PDF в новой вкладке. Вкладка открывается сразу, в обработчике щелчка (после
+ * `await` браузер заблокировал бы её как всплывающее окно); адрес — когда
+ * `url()` сохранит правки и вернёт адрес документа. `null` — вкладка закрывается.
+ */
+export async function openPdf(url: () => Promise<string | null>): Promise<void> {
   const tab = window.open("", "_blank");
   try {
-    const blob = await fetchBlob(url);
+    const target = await url();
+    if (!target) {
+      tab?.close();
+      return;
+    }
+    const blob = await fetchBlob(target);
     const href = URL.createObjectURL(blob);
     if (tab) tab.location.href = href;
     else window.open(href, "_blank");

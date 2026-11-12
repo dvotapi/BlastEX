@@ -32,3 +32,4 @@
   .mb-content { overflow:visible; }
   .drill-post { grid-template-columns:1fr; }
 }
+.mb-content fieldset > button, .mb-content fieldset > .drill-object > button { justify-self:start; }

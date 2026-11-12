@@ -80,9 +80,10 @@ export function ProjectDocuments({
     setWorking(true);
     setNote(null);
     try {
-      const saved = await ensureSaved();
-      if (!saved) return;
-      await openPdf(api.massBlast.previewUrl(saved.id, document));
+      await openPdf(async () => {
+        const saved = await ensureSaved();
+        return saved ? api.massBlast.previewUrl(saved.id, document) : null;
+      });
     } catch (reason) {
       setNote({ text: errorText(reason, "Предпросмотр недоступен."), error: true });
     } finally {

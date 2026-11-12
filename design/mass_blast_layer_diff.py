@@ -78,6 +78,15 @@ _FACT_COLUMNS = {
 }
 _DRILLED_BY = {"CUSTOMER": "заказчик", "CONTRACTOR": "Общество", "": "—"}
 _BLOCK_FACT = re.compile(r"^blocks_fact\[(\d+)\](?:\.(.+))?$")
+_DATE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
+_UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+_FACT = {
+    "execution_revision_id": "ревизия",
+    "blast_date": "дата взрыва по факту",
+    "blast_time": "время взрыва по факту",
+    "blocks": "заряжание по блокам",
+    "consumption": "расход ВМ по факту",
+}
 
 
 def _number(value: float) -> str:
@@ -85,11 +94,35 @@ def _number(value: float) -> str:
     return text or "0"
 
 
+def _fact_blocks(blocks: Any) -> str:
+    rows = [
+        f"блок {item.get('code', '')}: заряжено {item.get('charged', 0)} из {item.get('holes', 0)} скв., "
+        f"{_number(float(item.get('charged_kg') or 0.0))} кг"
+        for item in blocks or [] if isinstance(item, Mapping)
+    ]
+    return "; ".join(rows) if rows else "—"
+
+
+def _fact_summary(value: Any) -> str:
+    """Сводка выпущенного «Факта» словами: дата взрыва и заряжание по блокам, без служебного номера."""
+
+    if not isinstance(value, Mapping) or not value:
+        return "—"
+    when = " ".join(_text(value.get(key)) for key in ("blast_date", "blast_time") if value.get(key)).strip()
+    blocks = _fact_blocks(value.get("blocks"))
+    return "; ".join(part for part in (f"взрыв {when}" if when else "", blocks if blocks != "—" else "") if part) or "выпущен"
+
+
 def _text(value: Any) -> str:
     """Значение для таблицы: число по-русски, список — перечнем, без JSON."""
 
     if value is None or value == "" or value == [] or value == {}:
         return "—"
+    if isinstance(value, str) and _UUID.match(value):
+        return "есть"
+    if isinstance(value, str) and _DATE.match(value):
+        year, month, day = _DATE.match(value).groups()
+        return f"{day}.{month}.{year}"
     if isinstance(value, bool):
         return "да" if value else "нет"
     if isinstance(value, (int, float)):
@@ -142,6 +175,8 @@ def _label(path: str) -> str:
         return f"{label} — {_PERSON[part]}" if part in _PERSON else label
     if head == "contract":
         return f"Договор подряда — {_CONTRACT.get(rest, 'реквизиты')}"
+    if head == "fact":
+        return f"{_GROUPS['fact']} — {_FACT[rest]}" if rest in _FACT else _GROUPS["fact"]
     if head in _GROUPS:
         part = rest.rpartition(".")[2]
         return f"{_GROUPS[head]} — {_PERSON[part]}" if part in _PERSON else _GROUPS[head]
@@ -159,6 +194,12 @@ def describe_change(change: Mapping[str, Any]) -> dict[str, Any]:
         before, after = _DRILLED_BY.get(str(before or ""), before), _DRILLED_BY.get(str(after or ""), after)
     if path == "project_revision_id":
         before_text, after_text = "прежняя", "текущая"
+    elif path == "fact.execution_revision_id":
+        before_text, after_text = ("прежняя" if before else "—"), ("новая" if after else "—")
+    elif path == "fact":
+        before_text, after_text = _fact_summary(before), _fact_summary(after)
+    elif path == "fact.blocks":
+        before_text, after_text = _fact_blocks(before), _fact_blocks(after)
     else:
         before_text, after_text = _text(before), _text(after)
     return {**change, "label": _label(path), "before_text": before_text, "after_text": after_text}

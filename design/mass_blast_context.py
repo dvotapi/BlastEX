@@ -492,13 +492,23 @@ def _object_zones(results: Sequence[SafetyResult], zones: Mapping[str, Mapping[s
     )
 
 
+# Проверки v1, которых у проекта по форме ВМ.09.03 нет (см. `validate_project_context_v2`).
+V1_CODES_NOT_IN_V2 = frozenset({"danger_zone", "signal_profile", "notification"})
+
+
 def validate_project_context_v2(context: Mapping[str, Any], *, require_attachments: bool = False) -> list[ValidationIssue]:
-    """Проверки v1 (кроме ручного радиуса опасной зоны — в v2 он расчётный) и замечания расчёта v2."""
+    """Проверки v1 и замечания расчёта v2.
+
+    Из проверок v1 не берутся те, что в форме ВМ.09.03 решены иначе: ручной
+    радиус опасной зоны (в v2 он расчётный), профиль сигналов (сигналы — из
+    профиля документов, п. 163) и получатель уведомления (уведомления — слои
+    дня взрыва, по одному на адресата; TASK-018 PR 6).
+    """
 
     issues = [
         issue
         for issue in validate_project_context(dict(context), require_attachments=require_attachments)
-        if issue.code != "danger_zone"
+        if issue.code not in V1_CODES_NOT_IN_V2
     ]
     if not (context.get("zones") or {}).get("people", {}).get("value"):
         issues.append(

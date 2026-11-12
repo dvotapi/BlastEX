@@ -85,8 +85,10 @@ function LayerCard({
   }, "Не удалось сохранить слой.");
 
   const onPreview = () => run(async () => {
-    const saved = await save();
-    if (saved) await openPdf(api.massBlast.layerPreviewUrl(saved.id));
+    await openPdf(async () => {
+      const saved = await save();
+      return saved ? api.massBlast.layerPreviewUrl(saved.id) : null;
+    });
   }, "Предпросмотр недоступен.");
 
   const onIssue = () => run(async () => {
@@ -167,6 +169,16 @@ function LayerCard({
   );
 }
 
+/** Подпись карточки: у уведомления — адресат, у нескольких нарядов — номер. */
+function cardLabel(layer: MassBlastLayer, label: string, number: number): string {
+  if (layer.kind === "NOTIFICATION") {
+    const addressee = (layer.view.addressee ?? layer.seed.addressee ?? {}) as Record<string, unknown>;
+    const who = [addressee.recipient_position, addressee.recipient_name].filter(Boolean).join(" ");
+    if (who) return `${label}: ${who}`;
+  }
+  return number ? `${label} № ${number}` : label;
+}
+
 export function DayTab({ project }: { project: MassBlastProjectV2 }) {
   const [layers, setLayers] = useState<MassBlastLayer[]>([]);
   const [available, setAvailable] = useState<LayerAvailability[]>([]);
@@ -234,7 +246,7 @@ export function DayTab({ project }: { project: MassBlastProjectV2 }) {
           <section key={kind} className="mb-layer-group" aria-label={label}>
             {own.map((layer, index) => (
               <LayerCard key={layer.id} layer={layer} projectStatus={project.lifecycle_status} onChange={replace}
-                label={own.length > 1 ? `${label} № ${index + 1}` : label} />
+                label={cardLabel(layer, label, own.length > 1 ? index + 1 : 0)} />
             ))}
             {info && !info.can_open && own.length === 0 && (
               <fieldset className="mb-layer">
@@ -272,7 +284,7 @@ export function DayTab({ project }: { project: MassBlastProjectV2 }) {
             {info?.can_open && !(kind === "NOTIFICATION" && addressees?.registry) && (own.length === 0 || info.multiple) && (
               <div className="plans-actions">
                 <button type="button" className={own.length ? "secondary-button" : "calculate-button"} disabled={busy} onClick={() => void open(kind)}>
-                  {own.length === 0 ? `Открыть: ${label.toLowerCase()}` : kind === "NARYAD" ? "Ещё наряд-путёвка" : `Ещё: ${label.toLowerCase()}`}
+                  {own.length === 0 ? `Открыть «${label}»` : kind === "NARYAD" ? "Ещё наряд-путёвка" : `Ещё «${label}»`}
                 </button>
               </div>
             )}

@@ -1,0 +1,285 @@
+// Вкладка «День взрыва» окна проекта МВ (TASK-018, PR 6, §6): слои —
+// документы дня взрыва. Какие слои можно открыть — решает сервер
+// (`GET …/layers/available`); перенос заново показывает расхождение до
+// подтверждения; выпуск — неизменяемая ревизия слоя.
+import { useCallback, useEffect, useState } from "react";
+import { api } from "../../../../api/endpoints";
+import type {
+  LayerAvailability,
+  LayerChange,
+  LayerKind,
+  MassBlastLayer,
+  MassBlastProjectV2,
+  NotificationAddressees,
+} from "../../../../types/massBlast";
+import { download, errorText, Issues, openPdf } from "../ui";
+import { draftFromPayload, LAYER_FORMS, payloadFromDraft, type LayerDraft } from "./LayerForms";
+
+const ORDER: LayerKind[] = ["NARYAD", "NOTIFICATION", "READINESS_ACT", "TALON", "ACCEPTANCE_ACT", "EXECUTION"];
+const REFRESH_CODES = new Set(["layer_stale", "fact_changed", "fact_layer_stale"]);
+const AFTER_BLAST = new Set(["executed", "closed"]);
+const isConflict = (reason: unknown) => (reason as { status?: number } | null)?.status === 409;
+
+function LayerCard({
+  layer,
+  label,
+  projectStatus,
+  onChange,
+}: {
+  layer: MassBlastLayer;
+  label: string;
+  projectStatus: MassBlastProjectV2["lifecycle_status"];
+  onChange: (layer: MassBlastLayer) => void;
+}) {
+  const [draft, setDraft] = useState<LayerDraft>(() => draftFromPayload(layer));
+  const [dirty, setDirty] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
+  const [changes, setChanges] = useState<LayerChange[] | null>(null);
+  const [revisionNo, setRevisionNo] = useState<number | null>(null);
+  const { payload, errors } = payloadFromDraft(layer.kind, draft);
+  const hasInputErrors = Object.keys(errors).length > 0;
+  const needsRefresh = layer.stale || layer.issues.some((issue) => REFRESH_CODES.has(issue.code));
+  const blocking = layer.issues.some((issue) => issue.level === "error");
+  const Form = LAYER_FORMS[layer.kind];
+
+  useEffect(() => {
+    // Слой, перечитанный снаружи (перенос, выпуск), — новая основа формы.
+    setDraft(draftFromPayload(layer));
+    setDirty(false);
+  }, [layer]);
+
+  function set(key: string, value: unknown) {
+    setDraft((current) => ({ ...current, [key]: value }));
+    setDirty(true);
+  }
+
+  async function save(): Promise<MassBlastLayer | null> {
+    if (!dirty) return layer;
+    if (hasInputErrors) {
+      setMessage({ text: "Исправьте числа в форме слоя.", error: true });
+      return null;
+    }
+    const saved = await api.massBlast.saveLayer(layer.id, { payload, expected_version: layer.version });
+    onChange(saved);
+    return saved;
+  }
+
+  async function run(action: () => Promise<void>, fallback: string) {
+    setBusy(true);
+    setMessage(null);
+    try {
+      await action();
+    } catch (reason) {
+      setMessage({
+        text: isConflict(reason) ? "Слой изменён в другом окне. Закройте и откройте проект заново." : errorText(reason, fallback),
+        error: true,
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const onSave = () => run(async () => {
+    if (await save()) setMessage({ text: "Сохранено.", error: false });
+  }, "Не удалось сохранить слой.");
+
+  const onPreview = () => run(async () => {
+    const saved = await save();
+    if (saved) await openPdf(api.massBlast.layerPreviewUrl(saved.id));
+  }, "Предпросмотр недоступен.");
+
+  const onIssue = () => run(async () => {
+    const saved = await save();
+    if (!saved) return;
+    const revision = await api.massBlast.issueLayer(saved.id, { expected_version: saved.version });
+    setRevisionNo(revision.revision_no);
+    onChange(await api.massBlast.layers(saved.project_id).then((items) => items.find((item) => item.id === saved.id) ?? saved));
+    setMessage({ text: `Выпущена ревизия слоя № ${revision.revision_no}.`, error: false });
+  }, "Не удалось выпустить ревизию слоя.");
+
+  const onDownload = () => run(async () => {
+    if (!layer.current_revision_id) return;
+    const warning = await download(api.massBlast.layerDocumentUrl(layer.current_revision_id), `${layer.kind.toLowerCase()}.pdf`);
+    if (warning) setMessage({ text: warning, error: false });
+  }, "Не удалось скачать документ слоя.");
+
+  const onRefresh = () => run(async () => {
+    const saved = await save();
+    if (!saved) return;
+    const result = await api.massBlast.refreshLayer(saved.id, { expected_version: saved.version, confirm: false });
+    setChanges(result.changes);
+    if (!result.changes.length) setMessage({ text: "Данные проекта не изменились — переносить нечего.", error: false });
+  }, "Не удалось получить расхождение.");
+
+  const onConfirm = () => run(async () => {
+    const result = await api.massBlast.refreshLayer(layer.id, { expected_version: layer.version, confirm: true });
+    setChanges(null);
+    onChange(result.layer);
+    setMessage({ text: "Данные проекта перенесены заново; введённое вручную сохранено.", error: false });
+  }, "Не удалось перенести данные.");
+
+  return (
+    <fieldset className="mb-layer">
+      <legend>{label}</legend>
+      <small className="drill-hint">
+        {layer.status === "issued" ? `Выпущен${revisionNo ? `, ревизия № ${revisionNo}` : ""}` : "Черновик"}
+        {layer.stale ? " · устарел: проект перевыпущен" : ""}
+        {dirty ? " · есть несохранённые правки" : ""}
+      </small>
+      <Form layer={layer} draft={draft} set={set} disabled={busy} errors={errors} afterBlast={AFTER_BLAST.has(projectStatus)} />
+      <Issues issues={layer.issues} />
+      {changes && changes.length > 0 && (
+        <div className="mb-diff">
+          <b>Что изменится при переносе</b>
+          <table className="drill-check" aria-label="Расхождение переноса">
+            <thead><tr><th>Что</th><th>Было</th><th>Станет</th></tr></thead>
+            <tbody>
+              {changes.map((change, index) => (
+                <tr key={index}>
+                  <th scope="row">{change.label}</th>
+                  <td>{change.before_text}</td>
+                  <td>{change.after_text}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <small className="drill-hint">Введённое вручную (запас, номера, время, подписанты, адресат) сохранится.</small>
+          <div className="plans-actions">
+            <button type="button" className="calculate-button" disabled={busy} onClick={() => void onConfirm()}>Подтвердить перенос</button>
+            <button type="button" className="secondary-button" disabled={busy} onClick={() => setChanges(null)}>Отмена</button>
+          </div>
+        </div>
+      )}
+      <div className="plans-actions">
+        <button type="button" className="secondary-button" disabled={busy || !dirty} onClick={() => void onSave()}>Сохранить</button>
+        <button type="button" className="secondary-button" disabled={busy || (!dirty && blocking)} onClick={() => void onPreview()}>Предпросмотр</button>
+        <button type="button" className="calculate-button" disabled={busy || (!dirty && blocking)} onClick={() => void onIssue()}>Выпустить ревизию</button>
+        {layer.current_revision_id && (
+          <button type="button" className="secondary-button" disabled={busy} onClick={() => void onDownload()}>Скачать PDF</button>
+        )}
+        {needsRefresh && (
+          <button type="button" className="secondary-button" disabled={busy} onClick={() => void onRefresh()}>Перенести данные заново</button>
+        )}
+      </div>
+      {message && <small className={message.error ? "form-error" : "drill-message"}>{message.text}</small>}
+    </fieldset>
+  );
+}
+
+export function DayTab({ project }: { project: MassBlastProjectV2 }) {
+  const [layers, setLayers] = useState<MassBlastLayer[]>([]);
+  const [available, setAvailable] = useState<LayerAvailability[]>([]);
+  const [addressees, setAddressees] = useState<NotificationAddressees | null>(null);
+  const [addressee, setAddressee] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const reload = useCallback(async () => {
+    const [items, kinds] = await Promise.all([api.massBlast.layers(project.id), api.massBlast.layersAvailable(project.id)]);
+    setLayers(items);
+    setAvailable(kinds);
+    if (kinds.some((item) => item.kind === "NOTIFICATION" && (item.can_open || item.count > 0))) {
+      setAddressees(await api.massBlast.addressees(project.id).catch(() => null));
+    }
+  }, [project.id]);
+
+  useEffect(() => {
+    setMessage("");
+    void reload().catch((reason) => setMessage(errorText(reason, "Не удалось прочитать слои проекта.")));
+  }, [reload, project.lifecycle_status, project.current_revision_id]);
+
+  async function open(kind: LayerKind, payload: Record<string, unknown> = {}) {
+    setBusy(true);
+    setMessage("");
+    try {
+      await api.massBlast.createLayer(project.id, { kind, payload });
+      await reload();
+    } catch (reason) {
+      setMessage(errorText(reason, "Не удалось открыть слой."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function notifyAll() {
+    setBusy(true);
+    setMessage("");
+    try {
+      for (const item of addressees?.items ?? []) {
+        if (!item.taken) await api.massBlast.createLayer(project.id, { kind: "NOTIFICATION", payload: { notification_code: item.code } });
+      }
+      await reload();
+    } catch (reason) {
+      setMessage(errorText(reason, "Не удалось создать уведомления."));
+      await reload().catch(() => undefined);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function replace(next: MassBlastLayer) {
+    setLayers((current) => current.map((item) => (item.id === next.id ? next : item)));
+    void api.massBlast.layersAvailable(project.id).then(setAvailable).catch(() => undefined);
+  }
+
+  return (
+    <>
+      {ORDER.map((kind) => {
+        const info = available.find((item) => item.kind === kind);
+        const own = layers.filter((layer) => layer.kind === kind);
+        const label = info?.label ?? kind;
+        const free = (addressees?.items ?? []).filter((item) => !item.taken);
+        return (
+          <section key={kind} className="mb-layer-group" aria-label={label}>
+            {own.map((layer, index) => (
+              <LayerCard key={layer.id} layer={layer} projectStatus={project.lifecycle_status} onChange={replace}
+                label={own.length > 1 ? `${label} № ${index + 1}` : label} />
+            ))}
+            {info && !info.can_open && own.length === 0 && (
+              <fieldset className="mb-layer">
+                <legend>{label}</legend>
+                <small className="drill-hint">{info.reason}</small>
+              </fieldset>
+            )}
+            {info?.can_open && kind === "NOTIFICATION" && addressees?.registry && (
+              <fieldset className="mb-layer">
+                <legend>{own.length ? "Ещё уведомление" : label}</legend>
+                {free.length ? (
+                  <div className="drill-downloads">
+                    <label>
+                      Адресат из справочника карьера
+                      <select value={addressee} onChange={(event) => setAddressee(event.target.value)} disabled={busy}>
+                        <option value="">— выберите —</option>
+                        {free.map((item) => <option key={item.code} value={item.code}>{item.label}</option>)}
+                      </select>
+                    </label>
+                    <button type="button" className="secondary-button" disabled={busy || !addressee}
+                      onClick={() => void open("NOTIFICATION", { notification_code: addressee }).then(() => setAddressee(""))}>
+                      Создать уведомление
+                    </button>
+                    {free.length > 1 && (
+                      <button type="button" className="secondary-button" disabled={busy} onClick={() => void notifyAll()}>
+                        Уведомления всем адресатам
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <small className="drill-hint">Уведомления всем адресатам справочника уже созданы.</small>
+                )}
+              </fieldset>
+            )}
+            {info?.can_open && !(kind === "NOTIFICATION" && addressees?.registry) && (own.length === 0 || info.multiple) && (
+              <div className="plans-actions">
+                <button type="button" className={own.length ? "secondary-button" : "calculate-button"} disabled={busy} onClick={() => void open(kind)}>
+                  {own.length === 0 ? `Открыть: ${label.toLowerCase()}` : kind === "NARYAD" ? "Ещё наряд-путёвка" : `Ещё: ${label.toLowerCase()}`}
+                </button>
+              </div>
+            )}
+          </section>
+        );
+      })}
+      {message && <small className="form-error">{message}</small>}
+    </>
+  );
+}

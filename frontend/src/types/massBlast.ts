@@ -158,14 +158,16 @@ export type ParameterRow = { hole_id: string; first_row: boolean; note: string; 
 export type TechSection = { number: string; title: string; items?: MassBlastValue[] };
 
 export type ProtectedObjectRow = {
-  key?: string;
+  key: string;
   name: string;
   kind: string;
+  kind_label?: string;
   source: string;
   distance_m: number | null;
   required_m: number | null;
   factor?: string;
-  in_zone: boolean;
+  /** «В ЗОНЕ» или «вне зоны» (`design/safety/objects.py`). */
+  position: string;
   measures?: string;
   sensitive?: boolean;
   k_ground?: number | null;
@@ -272,7 +274,8 @@ export type MassBlastLayer = {
   updated_at: string;
 };
 
-export type LayerChange = { path?: string; field?: string; label?: string; old?: unknown; new?: unknown; before?: unknown; after?: unknown };
+/** Изменение переноса: подпись и тексты «было / станет» собирает сервер (`design/mass_blast_layer_diff.py`). */
+export type LayerChange = { path: string; label: string; before_text: string; after_text: string };
 
 export type LayerRefreshResponse = { applied: boolean; changes: LayerChange[]; layer: MassBlastLayer };
 

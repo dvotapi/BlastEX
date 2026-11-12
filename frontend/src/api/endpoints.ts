@@ -158,6 +158,19 @@ import type {
 } from "../types/blockEconomics";
 import type { ReferenceSchemaCatalog } from "../types/referenceSchema";
 import type {
+  LayerAvailability,
+  LayerKind,
+  LayerRefreshResponse,
+  LayerRevision,
+  MassBlastHints,
+  MassBlastLayer,
+  MassBlastProjectInputV2,
+  MassBlastProjectV2,
+  MassBlastValidationV2,
+  NotificationAddressees,
+  ProjectDocument,
+} from "../types/massBlast";
+import type {
   CadAreaBasis,
   CadAreaBasisResponse,
   CadContourLines,
@@ -184,6 +197,7 @@ import type {
 
 const V1 = "/api/v1";
 const DRILL = `${V1}/design/drilling-passports`;
+const MB = `${V1}/design/mass-blast-projects`;
 
 /** Порода, ВВ и уступ листа — общая часть запросов подбора q и подбора C(A). */
 type BlastSheetInput = {
@@ -217,7 +231,7 @@ function blastSheetPayload(input: BlastSheetInput) {
 
 export const api = {
   /** Какие модули включены в этой установке (ML-слой за фича-флагом). */
-  features: () => get<{ intelligence: boolean; drill_passport?: boolean }>(`${V1}/features`),
+  features: () => get<{ intelligence: boolean; drill_passport?: boolean; mass_blast_v2?: boolean }>(`${V1}/features`),
   // --- auth ---
   me: () => get<User>(`${V1}/auth/me`),
   login: (email: string, password: string) =>
@@ -1047,6 +1061,32 @@ export const api = {
     generateDocument: (id: string, payload: { revision_id: string; kind: "PROJECT" | "ORDER" | "SCHEDULE" | "PACKAGE"; format: "PDF" | "XLSX" | "ZIP" }) =>
       post<MassBlastDocument>(`${V1}/design/mass-blast-projects/${id}/documents`, payload),
     documentUrl: (documentId: string) => `${V1}/design/mass-blast-projects/documents/${documentId}/download`,
+    // --- форма ВМ.09.03, контекст v2 (TASK-018, PR 6) ---
+    newProject: (payload: { design_ids: string[]; blast_date: string; blast_time: string; site_code?: string }) =>
+      post<MassBlastProjectV2>(`${MB}/new`, payload),
+    getV2: (id: string) => get<MassBlastProjectV2>(`${MB}/${encodeURIComponent(id)}`),
+    revision: (revisionId: string) => get<MassBlastRevision>(`${MB}/revisions/${encodeURIComponent(revisionId)}`),
+    saveV2: (id: string, payload: MassBlastProjectInputV2) => put<MassBlastProjectV2>(`${MB}/${encodeURIComponent(id)}`, payload),
+    validateV2: (id: string) => post<MassBlastValidationV2>(`${MB}/${encodeURIComponent(id)}/validate`, {}),
+    hints: (id: string) => get<MassBlastHints>(`${MB}/${encodeURIComponent(id)}/hints`),
+    previewUrl: (id: string, document: ProjectDocument) => `${MB}/${encodeURIComponent(id)}/preview/${document}.pdf`,
+    revisionDocumentUrl: (revisionId: string, document: ProjectDocument) =>
+      `${MB}/revisions/${encodeURIComponent(revisionId)}/documents/${document}.pdf`,
+    packageUrl: (revisionId: string) => `${MB}/revisions/${encodeURIComponent(revisionId)}/package.zip`,
+    layersAvailable: (id: string) => get<LayerAvailability[]>(`${MB}/${encodeURIComponent(id)}/layers/available`),
+    addressees: (id: string) => get<NotificationAddressees>(`${MB}/${encodeURIComponent(id)}/notification-addressees`),
+    layers: (id: string) => get<MassBlastLayer[]>(`${MB}/${encodeURIComponent(id)}/layers`),
+    createLayer: (id: string, payload: { kind: LayerKind; payload?: Record<string, unknown> }) =>
+      post<MassBlastLayer>(`${MB}/${encodeURIComponent(id)}/layers`, payload),
+    saveLayer: (layerId: string, payload: { payload: Record<string, unknown>; expected_version: number }) =>
+      put<MassBlastLayer>(`${MB}/layers/${encodeURIComponent(layerId)}`, payload),
+    refreshLayer: (layerId: string, payload: { expected_version: number; confirm: boolean }) =>
+      post<LayerRefreshResponse>(`${MB}/layers/${encodeURIComponent(layerId)}/refresh`, payload),
+    issueLayer: (layerId: string, payload: { expected_version: number }) =>
+      post<LayerRevision>(`${MB}/layers/${encodeURIComponent(layerId)}/revisions`, payload),
+    layerPreviewUrl: (layerId: string) => `${MB}/layers/${encodeURIComponent(layerId)}/preview.pdf`,
+    layerDocumentUrl: (layerRevisionId: string) =>
+      `${MB}/layers/revisions/${encodeURIComponent(layerRevisionId)}/document.pdf`,
   },
 
   // --- паспорт на бурение (TASK-015) ---

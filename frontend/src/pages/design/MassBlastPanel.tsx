@@ -1,296 +1,169 @@
-import { useEffect, useMemo, useState } from "react";
+// Панель «Проект МВ» в этапе «Отчёт» «Проектирования» (TASK-018, PR 6).
+// При включённом модуле `mass_blast_v2` — проект по форме ВМ.09.03: коротко
+// статус и кнопки, форма — в окне `MassBlastDialog`. Проект по прежней форме
+// (контекст v1) и выключенный модуль — прежняя панель без изменений; черновик
+// v1 можно перевести на форму ВМ.09.03 (только вперёд).
+import { useEffect, useRef, useState } from "react";
 import { api } from "../../api/endpoints";
-import type { MassBlastAccount, MassBlastAttachment, MassBlastDocument, MassBlastProject, MassBlastProjectInput, MassBlastValidation } from "../../types/design";
+import { useFeatures } from "../../app/useFeatures";
+import { ruDate } from "../../lib/format";
+import type { MassBlastProjectInputV2, MassBlastProjectV2 } from "../../types/massBlast";
+import { CreateProjectDialog } from "./massBlast/CreateProjectDialog";
+import { LegacyMassBlastPanel } from "./massBlast/LegacyPanel";
+import { MassBlastDialog } from "./massBlast/MassBlastDialog";
+import { STATUS_LABELS } from "./massBlast/ProjectDocuments";
+import { download, errorText } from "./massBlast/ui";
 
-const today = () => new Date().toISOString().slice(0, 10);
+type Found = { project: MassBlastProjectV2 | null; legacy: boolean };
 
-// Учётка, которой одной разрешено согласовать роль. Назначенная ранее, но
-// уже не действующая учётка остаётся в списке, чтобы сохранение её не стёрло.
-function AccountSelect({ label, value, accounts, onChange, disabled }: {
-  label: string; value: string; accounts: MassBlastAccount[]; onChange: (value: string) => void; disabled: boolean;
-}) {
-  const missing = value && !accounts.some((account) => account.email === value);
-  return (
-    <label>{label}
-      <select value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled}>
-        <option value="">— не назначена —</option>
-        {accounts.map((account) => <option key={account.email} value={account.email}>{account.display_name}</option>)}
-        {missing && <option value={value}>{value} (нет среди действующих)</option>}
-      </select>
-    </label>
-  );
+/** Перевод черновика v1 на форму ВМ.09.03: payload проекта + `context_version: 2`. */
+function convertInput(project: MassBlastProjectV2): MassBlastProjectInputV2 {
+  return {
+    name: project.name,
+    site_code: project.site_code,
+    object_name: project.object_name,
+    customer_code: project.customer_code ?? "",
+    blast_date: project.blast_date,
+    blast_time: project.blast_time ?? "",
+    document_profile_code: project.document_profile_code || "STANDARD",
+    reference_revision_id: project.reference_revision_id ?? null,
+    blocks: (project.blocks ?? []).map((block) => ({
+      design_id: String(block.design_id ?? ""),
+      technical_passport_id: (block.technical_passport_id as string | null | undefined) ?? null,
+      code: String(block.code ?? ""),
+      horizon: String(block.horizon ?? ""),
+    })),
+    responsibilities: project.responsibilities ?? [],
+    safety_plan: project.safety_plan ?? {},
+    charging_schedule: project.charging_schedule ?? [],
+    signal_plan: project.signal_plan ?? {},
+    guard_posts: project.guard_posts ?? [],
+    notifications: project.notifications ?? [],
+    context_version: 2,
+    expected_version: project.version,
+  } as unknown as MassBlastProjectInputV2;
 }
 
 export function MassBlastPanel({ designId, designName }: { designId: string; designName: string }) {
-  const [project, setProject] = useState<MassBlastProject | null>(null);
-  const [documents, setDocuments] = useState<MassBlastDocument[]>([]);
-  const [attachments, setAttachments] = useState<MassBlastAttachment[]>([]);
-  const [attachmentKind, setAttachmentKind] = useState("PLAN");
-  const [validation, setValidation] = useState<MassBlastValidation | null>(null);
+  const { mass_blast_v2: enabled } = useFeatures();
+  const [found, setFound] = useState<Found | null>(null);
+  const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
-  const [siteCode, setSiteCode] = useState("");
-  const [objectName, setObjectName] = useState(designName || "");
-  const [projectName, setProjectName] = useState(`Массовый взрыв — ${designName || "новый проект"}`);
-  const [blastDate, setBlastDate] = useState(today());
-  const [blastTime, setBlastTime] = useState("");
-  const [dangerZone, setDangerZone] = useState("0");
-  const [signalProfile, setSignalProfile] = useState("THREE_SIGNALS");
-  const [blastManager, setBlastManager] = useState("");
-  const [explosivesSupervisor, setExplosivesSupervisor] = useState("");
-  const [blastManagerAccount, setBlastManagerAccount] = useState("");
-  const [explosivesSupervisorAccount, setExplosivesSupervisorAccount] = useState("");
-  const [accounts, setAccounts] = useState<MassBlastAccount[]>([]);
-  const [guardLocation, setGuardLocation] = useState("");
-  const [additionalDesignIds, setAdditionalDesignIds] = useState("");
-
-  const payload = useMemo<MassBlastProjectInput>(() => ({
-    name: projectName.trim(),
-    site_code: siteCode.trim(),
-    object_name: objectName.trim(),
-    customer_code: "",
-    blast_date: blastDate,
-    blast_time: blastTime.trim(),
-    document_profile_code: "STANDARD",
-    blocks: Array.from(new Set([designId, ...additionalDesignIds.split(/[\s,;]+/).map((item) => item.trim()).filter(Boolean)])).filter(Boolean)
-      .map((id, index) => ({ design_id: id, code: id === designId ? (designName || "Блок") : `Блок ${index + 1}`, horizon: "" })),
-    responsibilities: [
-      { role_code: "blast_manager", employee_code: blastManager.trim(), employee_name: blastManager.trim(), position_name: "Руководитель взрывных работ", account_email: blastManagerAccount },
-      { role_code: "explosives_supervisor", employee_code: explosivesSupervisor.trim(), employee_name: explosivesSupervisor.trim(), position_name: "Ответственный за ВМ", account_email: explosivesSupervisorAccount },
-    ].filter((item) => item.employee_code),
-    safety_plan: { danger_zone_radius_m: Number(dangerZone) || 0 },
-    charging_schedule: [],
-    signal_plan: { profile_code: signalProfile.trim() },
-    guard_posts: guardLocation.trim() ? [{ code: "POST-1", location: guardLocation.trim(), responsible_employee_code: "", notes: "" }] : [],
-    notifications: [],
-  }), [additionalDesignIds, blastDate, blastManager, blastManagerAccount, blastTime, dangerZone, designId, designName, explosivesSupervisor, explosivesSupervisorAccount, guardLocation, objectName, projectName, signalProfile, siteCode]);
-
-  async function refreshDocuments(id: string) {
-    setDocuments(await api.massBlast.documents(id));
-  }
-  async function refreshAttachments(id: string) {
-    setAttachments(await api.massBlast.attachments(id));
-  }
+  const [open, setOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [reload, setReload] = useState(0);
+  const shownFor = useRef(designId);
 
   useEffect(() => {
-    let active = true;
-    api.massBlast.accounts().then((items) => { if (active) setAccounts(items); }).catch(() => undefined);
-    return () => { active = false; };
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-    api.massBlast.list().then((items) => {
-      const candidate = items.find((item) => item.block_design_ids.includes(designId));
-      if (!active || !candidate) return;
-      return api.massBlast.get(candidate.id).then((full) => {
-        if (!active) return;
-        setProject(full);
-        setSiteCode(full.site_code);
-        setObjectName(full.object_name);
-        setProjectName(full.name);
-        setBlastDate(full.blast_date);
-        setBlastTime(full.blast_time);
-        setDangerZone(String(full.safety_plan?.danger_zone_radius_m ?? 0));
-        setSignalProfile(String(full.signal_plan?.profile_code ?? "THREE_SIGNALS"));
-        setBlastManager(full.responsibilities.find((item) => item.role_code === "blast_manager")?.employee_name || "");
-        setExplosivesSupervisor(full.responsibilities.find((item) => item.role_code === "explosives_supervisor")?.employee_name || "");
-        setBlastManagerAccount(full.responsibilities.find((item) => item.role_code === "blast_manager")?.account_email || "");
-        setExplosivesSupervisorAccount(full.responsibilities.find((item) => item.role_code === "explosives_supervisor")?.account_email || "");
-        setGuardLocation(full.guard_posts[0]?.location || "");
-        setAdditionalDesignIds((full.blocks || []).map((block) => String(block.design_id || "")).filter((id) => id && id !== designId).join(", "));
-        void refreshDocuments(full.id).catch(() => undefined);
-        void refreshAttachments(full.id).catch(() => undefined);
-      });
-    }).catch(() => undefined);
-    return () => { active = false; };
-  }, [designId]);
-
-  async function saveDraft() {
-    if (!designId) {
-      setMessage("Сначала сохраните технический паспорт БВР, чтобы зафиксировать источник блока.");
-      return;
+    if (!enabled) return;
+    if (shownFor.current !== designId) {
+      shownFor.current = designId;
+      setOpen(false);
+      setCreating(false);
     }
-    // Роль без ФИО в черновик не попадает — вместе с ней пропала бы и учётка.
-    const unnamed = [
-      [blastManager, blastManagerAccount, "Руководитель ВР"],
-      [explosivesSupervisor, explosivesSupervisorAccount, "Ответственный за ВМ"],
-    ].filter(([name, account]) => account && !name.trim()).map(([, , label]) => label);
-    if (unnamed.length) {
-      setMessage(`Укажите ФИО: ${unnamed.join(", ")} — учётка назначается конкретному человеку.`);
-      return;
-    }
-    setBusy(true); setMessage("");
-    try {
-      const saved = project
-        ? await api.massBlast.save(project.id, { ...payload, expected_version: project.version })
-        : await api.massBlast.create(payload);
-      setProject(saved);
-      setValidation(null);
-      setMessage("Черновик проекта массового взрыва сохранён в project1.");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Не удалось сохранить черновик.");
-    } finally { setBusy(false); }
+    setFound(null);
+    setError("");
+    if (!designId) return;
+    let alive = true;
+    api.massBlast
+      .list()
+      .then(async (items) => {
+        const candidate = items.find((item) => item.block_design_ids.includes(designId));
+        if (!candidate) return { project: null, legacy: false };
+        const project = await api.massBlast.getV2(candidate.id);
+        return { project, legacy: Number(project.context_version ?? 1) < 2 };
+      })
+      .then((value) => alive && setFound(value))
+      .catch((reason) => alive && setError(errorText(reason, "Не удалось прочитать проект массового взрыва.")));
+    return () => {
+      alive = false;
+    };
+  }, [designId, enabled, reload]);
+
+  if (!enabled) return <LegacyMassBlastPanel designId={designId} designName={designName} />;
+
+  if (found?.legacy && found.project) {
+    const draft = found.project.lifecycle_status === "draft";
+    return (
+      <>
+        {draft && (
+          <section className="panel">
+            <header><b>Форма ВМ.09.03</b><span>проект создан по прежней форме</span></header>
+            <div className="panel-body">
+              <small>Черновик можно перевести на форму ВМ.09.03: расчёт зон, техрасчёт, распорядок, графика и слои дня взрыва. Обратно перевести нельзя.</small>
+              <div className="plans-actions">
+                <button type="button" className="calculate-button" disabled={busy} onClick={() => {
+                  if (!window.confirm("Перевести черновик на форму ВМ.09.03? Обратно на прежнюю форму перевести нельзя.")) return;
+                  setBusy(true);
+                  setError("");
+                  api.massBlast
+                    .saveV2(found.project!.id, convertInput(found.project!))
+                    .then(() => setReload((value) => value + 1))
+                    .catch((reason) => setError(errorText(reason, "Не удалось перевести проект.")))
+                    .finally(() => setBusy(false));
+                }}>
+                  Перевести на форму ВМ.09.03
+                </button>
+              </div>
+              {error && <small className="form-error">{error}</small>}
+            </div>
+          </section>
+        )}
+        <LegacyMassBlastPanel designId={designId} designName={designName} />
+      </>
+    );
   }
 
-  async function runValidation() {
-    if (!project) { setMessage("Сначала сохраните черновик."); return; }
-    setBusy(true); setMessage("");
-    try { setValidation(await api.massBlast.validate(project.id, true)); }
-    catch (error) { setMessage(error instanceof Error ? error.message : "Не удалось проверить проект."); }
-    finally { setBusy(false); }
-  }
-
-  async function releaseRevision() {
-    if (!project) { setMessage("Сначала сохраните черновик."); return; }
-    setBusy(true); setMessage("");
-    try {
-      const revision = await api.massBlast.createRevision(project.id, { expected_version: project.version, require_attachments: true });
-      const updated = await api.massBlast.get(project.id);
-      setProject(updated);
-      setMessage(`Ревизия №${revision.revision_no} создана. Теперь её можно согласовать и выпустить.`);
-    } catch (error) { setMessage(error instanceof Error ? error.message : "Не удалось выпустить ревизию."); }
-    finally { setBusy(false); }
-  }
-
-  async function generate(format: "PDF" | "XLSX" | "ZIP") {
-    if (!project?.current_revision_id) { setMessage("Сначала создайте ревизию проекта."); return; }
-    setBusy(true); setMessage("");
-    try {
-      const document = await api.massBlast.generateDocument(project.id, {
-        revision_id: project.current_revision_id, kind: format === "ZIP" ? "PACKAGE" : "PROJECT", format,
-      });
-      await refreshDocuments(project.id);
-      setMessage(`Сформирован файл «${document.filename}».`);
-    } catch (error) { setMessage(error instanceof Error ? error.message : "Не удалось сформировать документ."); }
-    finally { setBusy(false); }
-  }
-
-  async function approve(roleCode: string) {
-    if (!project?.current_revision_id) return;
-    setBusy(true); setMessage("");
-    try {
-      await api.massBlast.approveRevision(project.current_revision_id, { role_code: roleCode, decision: "approved" });
-      setMessage(`Согласование по роли «${roleCode}» записано для текущей контрольной суммы.`);
-    } catch (error) { setMessage(error instanceof Error ? error.message : "Не удалось записать согласование."); }
-    finally { setBusy(false); }
-  }
-
-  async function approveProject() {
-    if (!project) return;
-    setBusy(true); setMessage("");
-    try {
-      const updated = await api.massBlast.transition(project.id, { to_status: "approved", expected_version: project.version, confirm: true });
-      setProject(updated);
-      setMessage("Проект утверждён после обязательных согласований.");
-    } catch (error) { setMessage(error instanceof Error ? error.message : "Не удалось утвердить проект."); }
-    finally { setBusy(false); }
-  }
-
-  async function returnToDraft() {
-    if (!project) return;
-    setBusy(true); setMessage("");
-    try {
-      const updated = await api.massBlast.transition(project.id, { to_status: "draft", expected_version: project.version, confirm: true, note: "Доработка проекта" });
-      setProject(updated);
-      setMessage("Проект возвращён в черновик. Изменение создаст следующую ревизию.");
-    } catch (error) { setMessage(error instanceof Error ? error.message : "Не удалось вернуть проект в черновик."); }
-    finally { setBusy(false); }
-  }
-
-  async function uploadAttachment(file: File | undefined) {
-    if (!file || !project) return;
-    setBusy(true); setMessage("");
-    try {
-      await api.massBlast.uploadAttachment(project.id, attachmentKind, file);
-      await refreshAttachments(project.id);
-      setMessage(`Приложение «${file.name}» загружено.`);
-    } catch (error) { setMessage(error instanceof Error ? error.message : "Не удалось загрузить приложение."); }
-    finally { setBusy(false); }
-  }
-
-  async function removeAttachment(attachmentId: string) {
-    if (!project) return;
-    setBusy(true); setMessage("");
-    try {
-      await api.massBlast.deleteAttachment(project.id, attachmentId);
-      await refreshAttachments(project.id);
-    } catch (error) { setMessage(error instanceof Error ? error.message : "Не удалось удалить приложение."); }
-    finally { setBusy(false); }
-  }
-
+  const project = found?.project ?? null;
+  const approved = project ? ["approved", "executed", "closed"].includes(project.lifecycle_status) : false;
   return (
     <section className="panel">
-      <header><b>Проект массового взрыва</b><span>контур документации</span></header>
+      <header><b>Проект массового взрыва</b><span>ВМ.09.03</span></header>
       <div className="panel-body">
-        <small>
-          Технические параметры берутся из текущего паспорта БВР и фиксируются в ревизии. Себестоимость и рыночная цена в официальный комплект не попадают.
-        </small>
-        <div className="form-grid compact-form" style={{ marginTop: 12 }}>
-          <label>Объект, код<input value={siteCode} onChange={(event) => setSiteCode(event.target.value)} placeholder="SITE-001" disabled={busy || project?.lifecycle_status !== "draft" && !!project} /></label>
-          <label>Наименование объекта<input value={objectName} onChange={(event) => setObjectName(event.target.value)} disabled={busy || project?.lifecycle_status !== "draft" && !!project} /></label>
-          <label>Наименование проекта<input value={projectName} onChange={(event) => setProjectName(event.target.value)} disabled={busy || project?.lifecycle_status !== "draft" && !!project} /></label>
-          <label>Дата взрыва<input type="date" value={blastDate} onChange={(event) => setBlastDate(event.target.value)} disabled={busy || project?.lifecycle_status !== "draft" && !!project} /></label>
-          <label>Время<input type="time" value={blastTime} onChange={(event) => setBlastTime(event.target.value)} disabled={busy || project?.lifecycle_status !== "draft" && !!project} /></label>
-          <label>Опасная зона, м<input type="number" min="0" value={dangerZone} onChange={(event) => setDangerZone(event.target.value)} disabled={busy || project?.lifecycle_status !== "draft" && !!project} /></label>
-          <label>Профиль сигналов<input value={signalProfile} onChange={(event) => setSignalProfile(event.target.value)} disabled={busy || project?.lifecycle_status !== "draft" && !!project} /></label>
-          <label>Руководитель ВР<input value={blastManager} onChange={(event) => setBlastManager(event.target.value)} disabled={busy || project?.lifecycle_status !== "draft" && !!project} /></label>
-          <AccountSelect label="Учётка руководителя ВР" value={blastManagerAccount} accounts={accounts} onChange={setBlastManagerAccount} disabled={busy || project?.lifecycle_status !== "draft" && !!project} />
-          <label>Ответственный за ВМ<input value={explosivesSupervisor} onChange={(event) => setExplosivesSupervisor(event.target.value)} disabled={busy || project?.lifecycle_status !== "draft" && !!project} /></label>
-          <AccountSelect label="Учётка ответственного за ВМ" value={explosivesSupervisorAccount} accounts={accounts} onChange={setExplosivesSupervisorAccount} disabled={busy || project?.lifecycle_status !== "draft" && !!project} />
-          <label>Пост охраны<input value={guardLocation} onChange={(event) => setGuardLocation(event.target.value)} disabled={busy || project?.lifecycle_status !== "draft" && !!project} /></label>
-          <label>Дополнительные паспорта БВР (ID через запятую)<input value={additionalDesignIds} onChange={(event) => setAdditionalDesignIds(event.target.value)} placeholder="design-a, design-b" disabled={busy || project?.lifecycle_status !== "draft" && !!project} /></label>
-        </div>
-        <small>Источник блока: {designId ? `${designName || designId} (${designId})` : "сначала сохраните паспорт"}.</small>
-        <div className="plans-actions">
-          <button className="secondary-button" onClick={saveDraft} disabled={busy || (!!project && project.lifecycle_status !== "draft")}>Сохранить черновик</button>
-          <button className="secondary-button" onClick={runValidation} disabled={busy || !project}>Проверить</button>
-          <button className="calculate-button" onClick={releaseRevision} disabled={busy || !project || project.lifecycle_status !== "draft"}>Создать ревизию</button>
-        </div>
-        {project?.lifecycle_status === "draft" && <div className="form-grid compact-form" style={{ marginTop: 10 }}>
-          <label>Вид приложения
-            <select value={attachmentKind} onChange={(event) => setAttachmentKind(event.target.value)} disabled={busy}>
-              <option value="PLAN">План скважин</option>
-              <option value="CHARGING_SCHEME">Схема заряжания</option>
-              <option value="DANGER_ZONE">Опасная зона</option>
-              <option value="GUARD_POSTS">Посты охраны</option>
-              <option value="SHOTPLUS_XLSX">Выгрузка SHOTPlus XLSX</option>
-              <option value="OTHER">Другое</option>
-            </select>
-          </label>
-          <label>Графическое приложение / выгрузка
-            <input type="file" accept=".pdf,.xlsx,.dxf,.dwg,.png,.jpg,.jpeg" onChange={(event) => void uploadAttachment(event.target.files?.[0])} disabled={busy} />
-          </label>
-        </div>}
-        {project?.current_revision_id && <div className="plans-actions">
-          {project.lifecycle_status === "in_review" && <>
-            <button className="secondary-button" onClick={() => approve("blast_manager")} disabled={busy}>Согласовать: руководитель ВР</button>
-            <button className="secondary-button" onClick={() => approve("explosives_supervisor")} disabled={busy}>Согласовать: ответственный за ВМ</button>
-            <button className="calculate-button" onClick={approveProject} disabled={busy}>Утвердить проект</button>
-            <button className="secondary-button" onClick={returnToDraft} disabled={busy}>Вернуть в черновик</button>
-          </>}
-          {project.lifecycle_status !== "draft" && project.lifecycle_status !== "in_review" && <>
-            <button className="secondary-button" onClick={() => generate("PDF")} disabled={busy}>PDF проекта</button>
-            <button className="secondary-button" onClick={() => generate("XLSX")} disabled={busy}>XLSX ведомость</button>
-            <button className="calculate-button" onClick={() => generate("ZIP")} disabled={busy}>Скачать комплект</button>
-          </>}
-        </div>}
-        {project && <small>Статус: {project.lifecycle_status} · версия черновика: {project.version}{project.current_revision_id ? " · ревизия выпущена" : ""}.</small>}
-        {message && <small className="frag-warnings">{message}</small>}
-        {validation && <div className="validation-list">
-          <b>{validation.valid ? "Проверка пройдена" : "Требуется исправление"}</b>
-          {validation.issues.map((issue) => <small key={`${issue.level}:${issue.code}:${issue.path}`} className={issue.level === "error" ? "form-error" : "frag-warnings"}>{issue.level === "error" ? "Ошибка" : "Предупреждение"}: {issue.message}</small>)}
-        </div>}
-        {attachments.length > 0 && <div className="validation-list"><b>Приложения</b>
-          {attachments.map((item) => <div key={item.id}>
-            <a href={project ? api.massBlast.attachmentUrl(project.id, item.id) : undefined}>{item.kind}: {item.filename}</a>
-            {item.revision_id ? <small> · выпущено в ревизии</small> : project?.lifecycle_status === "draft" && <button className="link-button" onClick={() => void removeAttachment(item.id)} disabled={busy}>Удалить</button>}
-          </div>)}
-        </div>}
-        {documents.length > 0 && <div className="validation-list"><b>Сформированные документы</b>
-          {documents.map((item) => <a key={item.id} href={api.massBlast.documentUrl(item.id)}>{item.format}: {item.filename}</a>)}
-        </div>}
+        {!designId && <small>Сначала сохраните проект блока: проект МВ строится по сохранённому проекту блока.</small>}
+        {designId && !found && !error && <small>Ищем проект массового взрыва блока…</small>}
+        {designId && found && !project && (
+          <div className="plans-actions">
+            <button type="button" className="calculate-button" onClick={() => setCreating(true)}>Создать проект МВ</button>
+          </div>
+        )}
+        {project && (
+          <>
+            <small>
+              {project.requisites?.project_no ? `№ ${project.requisites.project_no} · ` : ""}
+              взрыв {ruDate(project.blast_date)}{project.blast_time ? ` в ${project.blast_time}` : ""} · {STATUS_LABELS[project.lifecycle_status]}
+              {project.current_revision_id ? " · ревизия выпущена" : ""}
+            </small>
+            <div className="plans-actions">
+              <button type="button" className="secondary-button" onClick={() => setOpen(true)}>Открыть проект</button>
+              {approved && project.current_revision_id && (
+                <button type="button" className="calculate-button" disabled={busy} onClick={() => {
+                  setBusy(true);
+                  setError("");
+                  download(api.massBlast.packageUrl(project.current_revision_id!), "package.zip")
+                    .catch((reason) => setError(errorText(reason, "Не удалось скачать комплект.")))
+                    .finally(() => setBusy(false));
+                }}>
+                  Весь комплект
+                </button>
+              )}
+            </div>
+          </>
+        )}
+        {error && <small className="form-error">{error}</small>}
       </div>
+      {creating && (
+        <CreateProjectDialog designId={designId} designName={designName} onClose={() => setCreating(false)}
+          onCreated={(created) => {
+            setCreating(false);
+            setFound({ project: created, legacy: false });
+            setOpen(true);
+          }} />
+      )}
+      {open && project && (
+        <MassBlastDialog project={project} onClose={() => { setOpen(false); setReload((value) => value + 1); }}
+          onChange={(next) => setFound((current) => (current?.project?.id === next.id ? { ...current, project: next } : current))} />
+      )}
     </section>
   );
 }

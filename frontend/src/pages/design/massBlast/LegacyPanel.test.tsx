@@ -3,7 +3,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../../api/endpoints", () => ({
+vi.mock("../../../api/endpoints", () => ({
   api: {
     massBlast: {
       list: vi.fn(),
@@ -16,9 +16,9 @@ vi.mock("../../api/endpoints", () => ({
   },
 }));
 
-import { api } from "../../api/endpoints";
-import type { MassBlastProject, MassBlastProjectSummary } from "../../types/design";
-import { MassBlastPanel } from "./MassBlastPanel";
+import { api } from "../../../api/endpoints";
+import type { MassBlastProject, MassBlastProjectSummary } from "../../../types/design";
+import { LegacyMassBlastPanel as MassBlastPanel } from "./LegacyPanel";
 
 afterEach(cleanup);
 

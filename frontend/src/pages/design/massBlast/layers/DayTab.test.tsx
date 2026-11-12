@@ -133,8 +133,11 @@ describe("слои дня взрыва", () => {
     expect(within(table).getByText("Время взрыва")).toBeTruthy();
     expect(within(table).getByText("14:00")).toBeTruthy();
     expect(api.massBlast.refreshLayer).toHaveBeenCalledWith("l1", { expected_version: 2, confirm: false });
+    // Правка, сделанная при открытом расхождении, сохраняется до переноса.
+    await user.type(screen.getByLabelText("Запас: ВВ"), "7");
     await user.click(screen.getByRole("button", { name: "Подтвердить перенос" }));
-    await waitFor(() => expect(api.massBlast.refreshLayer).toHaveBeenLastCalledWith("l1", { expected_version: 2, confirm: true }));
+    await waitFor(() => expect(api.massBlast.refreshLayer).toHaveBeenLastCalledWith("l1", { expected_version: 3, confirm: true }));
+    expect(vi.mocked(api.massBlast.saveLayer).mock.calls[0][1].payload.reserve).toEqual({ "explosive:ВВ:": 7 });
     expect(await screen.findByText(/перенесены заново; введённое вручную сохранено/)).toBeTruthy();
   });
 });

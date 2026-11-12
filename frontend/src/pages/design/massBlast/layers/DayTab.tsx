@@ -131,7 +131,11 @@ function LayerCard({
   }, "Не удалось получить расхождение.");
 
   const onConfirm = () => run(async () => {
-    const result = await api.massBlast.refreshLayer(layer.id, { expected_version: layer.version, confirm: true });
+    // Правки, сделанные, пока было открыто расхождение, сначала сохраняются:
+    // перенос меняет версию слоя, и несохранённая форма иначе пропала бы.
+    const saved = await save();
+    if (!saved) return;
+    const result = await api.massBlast.refreshLayer(saved.id, { expected_version: saved.version, confirm: true });
     setChanges(null);
     onChange(result.layer);
     setMessage({ text: "Данные проекта перенесены заново; введённое вручную сохранено.", error: false });

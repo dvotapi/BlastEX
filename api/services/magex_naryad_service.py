@@ -506,6 +506,22 @@ def refresh_execution(repository: Any, organization_id: str, layer_id: str, *, t
     return state
 
 
+def _material_names(repository: Any, organization_id: str, accepted: Mapping[str, Any] | None) -> dict[str, str]:
+    """Позиция MagEX → наименования строк наряда (для таблицы исполнения в окне)."""
+
+    if not accepted or not accepted.get("layer_revision_id"):
+        return {}
+    try:
+        context = repository.get_layer_revision(organization_id, accepted["layer_revision_id"]).get("context") or {}
+    except Exception:  # noqa: BLE001 — без имён таблица покажет позицию MagEX
+        return {}
+    names = {str(line.get("key")): str(line.get("name") or "") for line in (context.get("view") or {}).get("lines") or []}
+    return {
+        str(row.get("material_id")): ", ".join(names.get(str(key), str(key)) for key in row.get("keys") or [])
+        for row in (context.get("magex") or {}).get("lines") or []
+    }
+
+
 def layer_state(repository: Any, organization_id: str, layer_id: str) -> dict[str, Any]:
     """Состояние наряда в MagEX для окна: версии, последнее исполнение, режим."""
 
@@ -525,6 +541,7 @@ def layer_state(repository: Any, organization_id: str, layer_id: str) -> dict[st
     state["latest"] = state["versions"][-1] if latest else None
     accepted = _accepted(versions)
     state["accepted_ver"] = accepted["ver"] if accepted else None
+    state["material_names"] = _material_names(repository, organization_id, accepted)
     stored = repository.magex_execution(organization_id, layer_id)
     if stored:
         execution = stored["execution"]

@@ -130,6 +130,17 @@ def _magex_refusal(repository: PostgresMassBlastRepository, organization_id: str
             str((version or {}).get("status") or ""), "не принята MagEX"
         )
         return f"наряд-путёвка {state}: печать — после того, как её примет MagEX"
+    layer_id = str(layer_revision.get("layer_id") or "")
+    newest = max(
+        (item["ver"] for item in repository.list_magex_versions(organization_id, layer_id) if item["status"] == "ACCEPTED"),
+        default=version["ver"],
+    )
+    if version["ver"] != newest:
+        # QR старой версии склад не примет: печатается только последняя принятая.
+        return f"MagEX принял более новую версию наряда-путёвки ({newest}): печатайте её ревизию"
+    stored = repository.magex_execution(organization_id, layer_id)
+    if stored and stored.get("status") == "cancelled":
+        return "наряд-путёвка отменена в MagEX: печатать нечего"
     return ""
 
 

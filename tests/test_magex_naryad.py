@@ -221,6 +221,17 @@ def test_new_content_is_new_version_and_supersedes_pending():
     assert fake.naryads[LAYER_ID]["payload"]["ver"] == 2
 
 
+def test_only_newest_accepted_version_prints():
+    repository, fake = MemoryRepository(), FakeMagex()
+    _approve(repository, fake)
+    first = repository.versions[0]["layer_revision_id"]
+    repository.layer["payload"] = {**repository.layer["payload"], "reserve": {"primer:ПД Сферит-ДП 1000 г:": 5}}
+    _approve(repository, fake)
+    with pytest.raises(MassBlastConflictError, match="более новую версию"):
+        documents.layer_document(repository, ORG, first)
+    documents.layer_document(repository, ORG, repository.versions[1]["layer_revision_id"])
+
+
 def test_never_read_catalog_and_no_network_is_an_error():
     repository, fake = MemoryRepository(), FakeMagex()
     fake.down = True
@@ -262,6 +273,9 @@ def test_cancel_before_issue_and_refused_after():
     _approve(repository, fake)
     state = magex.cancel(repository, ORG, "a", LAYER_ID, "Взрыв перенесён", transport=fake)
     assert state["execution"]["status"] == "cancelled" and state["execution"]["status_label"] == "отменена"
+    # Отменённую наряд-путёвку не печатают (QR склад уже не примет).
+    with pytest.raises(MassBlastConflictError, match="отменена"):
+        documents.layer_document(repository, ORG, repository.versions[0]["layer_revision_id"])
     repository2, fake2 = MemoryRepository(), FakeMagex()
     _approve(repository2, fake2)
     fake2.naryads[LAYER_ID]["status"] = "issued"

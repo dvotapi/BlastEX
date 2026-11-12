@@ -111,17 +111,18 @@ def test_table_pages_split_63_73():
 def test_project_documents_and_blank_versos(context):
     parts = project_parts(context)
     counts = [frame.count_pages(part) for part in parts]
-    assert [part.key for part in parts] == ["title", "techcalc:0", "table:0", "schedule"]
-    # Как эталон v0.11: титул + «Состав проекта» 2, техрасчёт 2, таблица 3 (+ пустой оборот), распорядок 2.
-    assert counts == [2, 2, 3, 2]
+    assert [part.key for part in parts] == ["title", "techcalc:0", "table:0", "schedule", "graphics"]
+    # Как эталон v0.11: титул + «Состав проекта» 2, техрасчёт 2, таблица 3 (+ пустой оборот), распорядок 2,
+    # «Графика» Г.1–Г.5 — 5 листов (+ пустой оборот, эталон: стр. 15–20).
+    assert counts == [2, 2, 3, 2, 5]
     slots = frame.plan_pages(parts, counts, duplex=True)
-    assert len(slots) == 10
+    assert len(slots) == 16
     blanks = [index for index, slot in enumerate(slots) if slot.page is None]
-    assert blanks == [7]
+    assert blanks == [7, 15]
     # Каждый документ начинается с лицевой (нечётной) страницы.
     starts = [index for index, slot in enumerate(slots) if slot.page == 0]
     assert all(index % 2 == 0 for index in starts)
-    assert [slot.number for slot in slots] == [f"Стр. {n} из 10" for n in range(1, 11)]
+    assert [slot.number for slot in slots] == [f"Стр. {n} из 16" for n in range(1, 17)]
 
 
 def test_layer_numbering_is_own_and_blank_has_no_number(context):
@@ -133,7 +134,7 @@ def test_layer_numbering_is_own_and_blank_has_no_number(context):
 
 def test_project_pdf_pages_and_texts(project_pdf):
     pages = _pages(project_pdf)
-    assert len(pages) == 10
+    assert len(pages) == 16
     texts = [_text(page) for page in pages]
     assert "ПРОЕКТ МАССОВОГО ВЗРЫВА" in texts[0] and "№ 66-26" in texts[0]
     assert "Состав проекта" in texts[1] and "Г.5" in texts[1]
@@ -158,6 +159,9 @@ def test_project_pdf_pages_and_texts(project_pdf):
         assert marker in schedule, marker
     for point in ("35.", "36.", "37."):
         assert point in schedule
+    for index, code in zip(range(10, 15), ("Г.1", "Г.2", "Г.3", "Г.4", "Г.5")):
+        assert f"Приложение {code}." in texts[index], code
+    assert "Страница оставлена пустой" in texts[15]
     # Лист «Реквизиты» формы не печатается.
     assert not any("Реквизиты" in text for text in texts)
 
@@ -165,9 +169,21 @@ def test_project_pdf_pages_and_texts(project_pdf):
 def test_composition_counts_sheets(project_pdf):
     text = _text(_pages(project_pdf)[1])
     assert "Технический расчёт" in text and "Таблица параметров взрывных работ" in text
-    # Листов: техрасчёт 2, таблица 3, распорядок 2; графика (PR 4) — «—».
-    tokens = text.split()
-    assert tokens.count("—") >= 5
+    # Листов: техрасчёт 2, таблица 3, распорядок 2; Г.1–Г.5 — по листу (PR 4), «—» нет.
+    rows = [line for line in text.splitlines() if line.strip()]
+    assert not any(line.strip().endswith("—") for line in rows)
+    for code in ("Г.1", "Г.2", "Г.3", "Г.4", "Г.5"):
+        assert code in text
+
+
+def test_composition_without_graphics_prints_dash(context):
+    # Ревизия v2, выпущенная до PR 4, данных графики не имеет: «Листов» у Г.1–Г.5 — «—».
+    data = copy.deepcopy(context)
+    del data["graphics"]
+    parts = project_parts(data)
+    assert [part.key for part in parts] == ["title", "techcalc:0", "table:0", "schedule"]
+    text = _text(_pages(render_project_document(data, "title"))[1])
+    assert text.split().count("—") >= 5
 
 
 def test_common_entry_prints_diameter_once_per_page(project_pdf):
@@ -185,8 +201,15 @@ def test_single_documents_have_own_numbering(context):
     pages = _pages(pdf)
     assert len(pages) == 3
     assert "Стр. 3 из 3" in _text(pages[2])
+    graphics = _pages(render_project_document(context, "graphics"))
+    assert len(graphics) == 5
+    assert "Стр. 5 из 5" in _text(graphics[4])
+    data = copy.deepcopy(context)
+    del data["blocks_v2"][0]["graphics"]
     with pytest.raises(ValueError):
-        render_project_document(context, "graphics")
+        render_project_document(data, "graphics")
+    with pytest.raises(ValueError):
+        render_project_document(context, "drawings")
 
 
 def test_draft_mark_on_every_page(context):
@@ -284,17 +307,17 @@ def test_package_order_and_manifest(context):
     names = archive.namelist()
     assert names == [
         "00_Комплект.pdf", "01_Титул.pdf", "02_Технический_расчёт.pdf", "03_Таблица_параметров.pdf",
-        "04_Распорядок.pdf", "06_Акт_готовности_блока.pdf", "07_Уведомление.pdf", "08_Наряд-путёвка.pdf",
+        "04_Распорядок.pdf", "05_Графика.pdf", "06_Акт_готовности_блока.pdf", "07_Уведомление.pdf", "08_Наряд-путёвка.pdf",
         "09_Талон-допуск.pdf", "10_Акт_приёмки_работ.pdf", "manifest.json",
     ]
     manifest = json.loads(archive.read("manifest.json"))
     assert manifest["revision_id"] == "rev-1"
     assert [item["name"] for item in manifest["files"]] == names[:-1]
     combined = _pages(archive.read("00_Комплект.pdf"))
-    # Проект 10 страниц + 5 слоёв по одной странице и пустому обороту.
-    assert len(combined) == 20
-    assert "Стр. 10 из 10" in _text(combined[9])
-    assert "Стр. 1 из 1" in _text(combined[10])
+    # Проект 16 страниц (с «Графикой») + 5 слоёв по одной странице и пустому обороту.
+    assert len(combined) == 26
+    assert "Стр. 16 из 16" in _text(combined[15])
+    assert "Стр. 1 из 1" in _text(combined[16])
     assert render_package(context, layers, manifest={"revision_id": "rev-1"}) == data
 
 

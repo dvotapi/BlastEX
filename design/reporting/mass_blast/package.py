@@ -1,7 +1,7 @@
 """PACKAGE проекта МВ v2: ZIP с документами комплекта и общим PDF (TASK-018 §2).
 
 Порядок — таблица документов TASK-018 §2: титул, техрасчёт, таблица
-параметров, распорядок (графика Г.1–Г.5 — PR 4), акт готовности, уведомления,
+параметров, распорядок, «Графика» Г.1–Г.5 (PR 4), акт готовности, уведомления,
 наряд-путёвки, талон-допуск, акт приёмки. `00_Комплект.pdf` — всё подряд,
 двусторонне (пустые обороты, сквозная нумерация проекта, своя — у слоёв);
 рядом — каждый документ отдельно (без пустых оборотов) и `manifest.json`.
@@ -21,7 +21,7 @@ from design.reporting.mass_blast.project import project_parts
 # Порядок слоёв в комплекте (TASK-018 §2, документы 6–10) и номера файлов.
 LAYER_ORDER = ("READINESS_ACT", "NOTIFICATION", "NARYAD", "TALON", "ACCEPTANCE_ACT")
 LAYER_NUMBERS = {"READINESS_ACT": "06", "NOTIFICATION": "07", "NARYAD": "08", "TALON": "09", "ACCEPTANCE_ACT": "10"}
-PROJECT_NUMBERS = {"title": "01", "techcalc": "02", "table": "03", "schedule": "04"}
+PROJECT_NUMBERS = {"title": "01", "techcalc": "02", "table": "03", "schedule": "04", "graphics": "05"}
 
 
 def _file_name(number: str, label: str, suffix: str = "") -> str:

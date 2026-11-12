@@ -32,6 +32,7 @@ V2_PAYLOAD_KEYS = (
     "personnel",
     "protected_objects",
     "safety_overrides",
+    "layout_points",
 )
 
 

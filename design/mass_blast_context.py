@@ -24,6 +24,7 @@ from design.mass_blast import (
     validate_project_context,
 )
 from design.mass_blast_calc import MASS_BLAST_CALC_VERSION, explosives_consumption
+from design.mass_blast_graphics import block_graphics, project_graphics
 from design.mass_blast_objects import ObjectZones, assess_project_objects, situation_candidates
 from design.mass_blast_schedule import PERSONNEL_ROLES, build_schedule
 from design.mass_blast_table import DEFAULT_CHARGE_ROUND_KG, parameter_table
@@ -339,6 +340,14 @@ def build_document_context_v2(
             volume_m3=item["volume"],
         )
         issues += [{**issue, "path": issue.get("path") or f"blocks[{index}].technical_calculation"} for issue in calc_issues]
+        # Графика Г.1–Г.4 (PR 4): всё, что определяет содержание листа, — в ревизии.
+        graphics, graphics_issues = block_graphics(
+            item["design"],
+            item["table"].rows,
+            situation_layers=references.situation_layers,
+            szm_start_flank=_text(schedule_payload.get("szm_start_flank")) or "left",
+        )
+        issues += [{**issue, "path": f"blocks[{index}].{issue['path']}"} for issue in graphics_issues]
         blocks_v2.append(
             {
                 "design_id": block.design_id,
@@ -349,6 +358,7 @@ def build_document_context_v2(
                 "consumption": [line.to_dict() for line in item["consumption"]],
                 "technical_calculation": sections,
                 "parameter_table": item["table"].to_dict(),
+                "graphics": graphics,
             }
         )
 
@@ -380,6 +390,20 @@ def build_document_context_v2(
         profile_texts={_text(row.get("point")): row for row in profile.get("schedule_texts") or []},
     )
     issues += schedule_issues
+
+    # Ситуационный план Г.5 (PR 4): зоны, ситуация, объекты, точки постов и станции.
+    graphics, graphics_issues = project_graphics(
+        geometry,
+        zones=zones,
+        objects=objects,
+        situation_layers=references.situation_layers,
+        has_situation=references.has_situation_refs,
+        layout_points=list(payload.get("layout_points") or []),
+        guard_posts=list(payload.get("guard_posts") or []),
+    )
+    issues += graphics_issues
+    context["graphics"] = graphics
+    context["layout_points"] = list(payload.get("layout_points") or [])
 
     context["safety_plan"] = {
         **dict(context.get("safety_plan") or {}),

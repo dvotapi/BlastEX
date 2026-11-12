@@ -72,6 +72,9 @@ class Part:
     page_titles: tuple[str, ...] | None = None    # название листа по страницам (иначе `title`)
     page_headers: tuple[str, ...] | None = None   # шапка по страницам (иначе `header`)
     draw_extra: Callable | None = None   # (canvas, part, logo, page_index) — поверх страницы
+    # Чертёж в масштабе (графика Г.1–Г.5): PDF просит просмотрщик печатать в
+    # фактическом размере (`/PrintScaling /None`), а не «вписать в страницу».
+    actual_size: bool = False
 
     @property
     def pagesize(self) -> tuple[float, float]:
@@ -221,7 +224,11 @@ def render(parts: Sequence[Part], *, title: str, duplex: bool, draft: bool = Fal
     slots = plan_pages(parts, counts, duplex=duplex)
     logo = _logo()
 
+    actual_size = any(part.actual_size for part in parts)
+
     def on_page(canvas, _doc) -> None:
+        if actual_size and canvas.getPageNumber() == 1:
+            canvas.setViewerPreference("PrintScaling", "None")
         slot = slots[canvas.getPageNumber() - 1]
         part = parts[slot.part]
         canvas.saveState()

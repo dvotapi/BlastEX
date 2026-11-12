@@ -281,7 +281,11 @@ def test_revision_documents_print(monkeypatch, design, print_context, document):
 
 def test_revision_document_errors(monkeypatch, design, print_context):
     client = _client(monkeypatch, _PrintRepository(print_context), design)
-    assert client.get(f"{BASE}/revisions/rev-1/documents/graphics.pdf").status_code == 422
+    assert client.get(f"{BASE}/revisions/rev-1/documents/drawings.pdf").status_code == 422
+    graphics = client.get(f"{BASE}/revisions/rev-1/documents/graphics.pdf")
+    assert graphics.status_code == 200 and graphics.content.startswith(b"%PDF")
+    # Чертёж — в фактическом размере: просмотрщик не «вписывает в страницу».
+    assert b"/PrintScaling /None" in graphics.content
     assert client.get(f"{BASE}/revisions/rev-0/documents/title.pdf").status_code == 404
     draft = _client(monkeypatch, _PrintRepository(print_context, status="in_review"), design)
     response = draft.get(f"{BASE}/revisions/rev-1/documents/title.pdf")
@@ -330,6 +334,27 @@ def test_package_takes_issued_layers_of_this_revision(monkeypatch, design, print
     assert {item["layer_id"]: item["reason"] for item in manifest["omitted_layers"]} == {
         "l2": "выпущен по другой ревизии проекта", "l3": "слой не выпущен",
     }
+    assert "05_Графика.pdf" in archive.namelist() and "omitted_documents" not in manifest
+
+
+def test_revision_before_graphics(monkeypatch, design, print_context):
+    """Ревизия v2 без данных графики (выпущена до PR 4): графика — 409, в PACKAGE её нет, причина — в manifest."""
+    import copy
+    import io
+    import zipfile
+
+    context = copy.deepcopy(print_context)
+    del context["graphics"]
+    for block in context["blocks_v2"]:
+        del block["graphics"]
+    client = _client(monkeypatch, _PrintRepository(context), design)
+    assert client.get(f"{BASE}/revisions/rev-1/documents/graphics.pdf").status_code == 409
+    project = client.get(f"{BASE}/revisions/rev-1/documents/project.pdf")
+    assert project.status_code == 200 and b"/PrintScaling" not in project.content
+    archive = zipfile.ZipFile(io.BytesIO(client.get(f"{BASE}/revisions/rev-1/package.zip").content))
+    assert "05_Графика.pdf" not in archive.namelist()
+    manifest = json.loads(archive.read("manifest.json"))
+    assert [item["document"] for item in manifest["omitted_documents"]] == ["graphics"]
 
 
 def test_layer_revision_document_prints(monkeypatch, design, print_context):

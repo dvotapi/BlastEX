@@ -48,6 +48,18 @@ class GuardPostSchema(BaseModel):
     notes: str = Field("", max_length=1000)
 
 
+class LayoutPointSchema(BaseModel):
+    """Точка на ситуационном плане Г.5 в СК объекта: пост (по коду), взрывная станция, укрытие, место сбора."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["guard_post", "blast_station", "shelter", "gather"]
+    ref: str = Field("", max_length=80)
+    x: float = Field(..., allow_inf_nan=False)
+    y: float = Field(..., allow_inf_nan=False)
+    label: str = Field("", max_length=300)
+
+
 class NotificationSchema(BaseModel):
     recipient: str = Field(..., min_length=1, max_length=300)
     channel: str = Field("", max_length=80)
@@ -118,6 +130,8 @@ class ScheduleInputSchema(BaseModel):
     transport: str = Field("", max_length=200)
     cleaning: str = Field("", max_length=200)
     briefing_date: str = Field("", max_length=10)
+    # С какого фланга нумеровать заходки СЗМ на Г.3, если смотреть с откоса вглубь.
+    szm_start_flank: Literal["", "left", "right"] = ""
 
 
 PersonnelRole = Literal[
@@ -177,6 +191,7 @@ class MassBlastProjectInputSchema(BaseModel):
     personnel: list[PersonnelSchema] = Field(default_factory=list, max_length=40)
     protected_objects: list[ProtectedObjectSchema] = Field(default_factory=list, max_length=200)
     safety_overrides: dict[str, float | bool | None] = Field(default_factory=dict, max_length=40)
+    layout_points: list[LayoutPointSchema] = Field(default_factory=list, max_length=100)
     expected_version: int | None = Field(None, ge=1)
 
 
@@ -212,6 +227,7 @@ class MassBlastProjectSchema(MassBlastProjectSummarySchema):
     personnel: list[dict[str, Any]] = Field(default_factory=list)
     protected_objects: list[dict[str, Any]] = Field(default_factory=list)
     safety_overrides: dict[str, Any] = Field(default_factory=dict)
+    layout_points: list[dict[str, Any]] = Field(default_factory=list)
     created_at: str
     created_by: str
     updated_by: str

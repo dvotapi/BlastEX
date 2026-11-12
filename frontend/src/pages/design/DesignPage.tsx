@@ -142,6 +142,7 @@ import {
   volumeSourceLabel,
 } from "./workflowStatus";
 import { PlansMenu } from "./PlansMenu";
+import { FrozenBanner } from "./FrozenBanner";
 import { SectionView, sectionRowKey } from "./SectionView";
 import { SummaryPanel, volumeDetails } from "./SummaryPanel";
 import { useHoleRecompute } from "./useHoleRecompute";
@@ -2677,7 +2678,7 @@ export function DesignPage({
   return (
     <div className="design-workstation">
       <header className="design-chrome">
-        <PlansMenu plans={plans} currentDesignId={document.design_id} onOpen={openPlan} onDelete={deletePlan} onNew={newPlan} busy={saveBusy} />
+        <PlansMenu plans={plans} currentDesignId={document.design_id} unsaved={unsavedChanges} onOpen={openPlan} onDelete={deletePlan} onNew={newPlan} busy={saveBusy} />
         <input
           className="design-name-input"
           value={document.name}
@@ -2712,18 +2713,8 @@ export function DesignPage({
         </div>
       )}
       {designedLocked && (
-        <div className="lifecycle-banner compact" role="status">
-          {recordFrozen
-            ? "Паспорт закрыт. Создайте ревизию, чтобы править дальше."
-            : `Паспорт ${statusLabel(document.lifecycle_status)}: проект не правится. Чтобы править, создайте ревизию — она откроется черновиком.`}{" "}
-          {/* Панели «Жизненный цикл» нет (решение владельца 12.11.2026): статус старых паспортов
-              не меняется, править их можно только копией-ревизией. */}
-          {document.design_id && (
-            <button type="button" className="secondary-button" onClick={() => void forkPlan()} disabled={saveBusy || unsavedChanges}>
-              Создать ревизию
-            </button>
-          )}
-        </div>
+        <FrozenBanner status={document.lifecycle_status} saved={Boolean(document.design_id)} unsaved={unsavedChanges}
+          busy={saveBusy} onFork={() => void forkPlan()} />
       )}
       <div className="design-map-stage">
         <div className="map-chrome-row">

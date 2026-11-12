@@ -8,6 +8,7 @@ import type { DesignSummary } from "../../types/design";
 export function PlansMenu({
   plans,
   currentDesignId,
+  unsaved,
   onOpen,
   onDelete,
   onNew,
@@ -15,6 +16,8 @@ export function PlansMenu({
 }: {
   plans: DesignSummary[];
   currentDesignId: string;
+  /** Несохранённые правки открытого проекта: открыть другой или новый — только с подтверждением. */
+  unsaved: boolean;
   onOpen: (id: string) => void;
   onDelete: (id: string) => void;
   onNew: () => void;
@@ -39,21 +42,28 @@ export function PlansMenu({
     };
   }, [open]);
 
+  /** Сменить открытый проект: правки, которых нет на сервере, пропадут — спрашиваем. */
+  function leave(action: () => void) {
+    if (unsaved && !window.confirm("Есть несохранённые правки — они пропадут. Продолжить?")) return;
+    setOpen(false);
+    action();
+  }
+
   return (
     <div className="plans-menu" ref={root}>
-      <button type="button" className="plans-menu-toggle" aria-expanded={open} aria-haspopup="true" onClick={() => setOpen((value) => !value)}>
+      <button type="button" className="plans-menu-toggle" aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen((value) => !value)}>
         Проекты ▾
       </button>
       {open && (
-        <div className="plans-menu-popover" role="menu" aria-label="Проекты блока">
-          <button type="button" className="secondary-button" disabled={busy} onClick={() => { setOpen(false); onNew(); }}>
+        <div className="plans-menu-popover" role="dialog" aria-label="Проекты блока">
+          <button type="button" className="secondary-button" disabled={busy} onClick={() => leave(onNew)}>
             Новый проект
           </button>
           {plans.length ? (
             <ul className="plans-list">
               {plans.map((plan) => (
                 <li key={plan.design_id} className={plan.design_id === currentDesignId ? "active" : ""}>
-                  <button type="button" className="plans-list-open" disabled={busy} onClick={() => { setOpen(false); onOpen(plan.design_id); }}>
+                  <button type="button" className="plans-list-open" disabled={busy} onClick={() => leave(() => onOpen(plan.design_id))}>
                     <b>{plan.name}</b>
                     <small>
                       {statusLabel(plan.lifecycle_status)} · {plan.hole_count} скв. · {new Date(plan.updated_at).toLocaleString("ru-RU")}

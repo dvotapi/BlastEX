@@ -84,7 +84,6 @@ import {
   type SpatialSummary,
   type MovementPredictResponse,
   type BlastDesign,
-  type DesignLifecycleStatus,
 } from "../../types/design";
 import { emptyHoleGeology, emptySurfaces } from "../../types/design";
 import {
@@ -100,7 +99,6 @@ import {
   type WorkflowStageId,
 } from "../../lib/lifecycle";
 import { RoleBadge } from "./RoleBadge";
-import { LifecyclePanel } from "./LifecyclePanel";
 import { WorkflowNav } from "./WorkflowNav";
 import { useFeatures } from "../../app/useFeatures";
 import { ChargePanel } from "./ChargePanel";
@@ -223,8 +221,6 @@ export function DesignPage({
   const [mapCursor, setMapCursor] = useState<Vec2 | null>(null);
   const [zoomRequest, setZoomRequest] = useState<{ kind: "fit" | "selection"; tick: number } | null>(null);
   const [toolRequest, setToolRequest] = useState<{ tool: "measure"; tick: number } | null>(null);
-  const [lifecycleConfirm, setLifecycleConfirm] = useState(false);
-  const [lifecycleNote, setLifecycleNote] = useState("");
   const designedLocked = !canEditDesigned(document.lifecycle_status);
   const executionLocked = !canEditExecution(document.lifecycle_status);
   const measuredLocked = !canEditMeasured(document.lifecycle_status);
@@ -2443,43 +2439,6 @@ export function DesignPage({
     setCurrentMs(ms);
   }
 
-  async function transitionLifecycle(toStatus: DesignLifecycleStatus) {
-    if (!document.design_id) {
-      setError("Сначала сохраните паспорт.");
-      return;
-    }
-    if (unsavedChanges) {
-      setError("Есть несохранённые правки: статус меняется у сохранённой версии паспорта. Сначала сохраните паспорт.");
-      return;
-    }
-    if (!lifecycleConfirm) {
-      setError("Смена статуса требует явного подтверждения.");
-      return;
-    }
-    const base = state.saved;
-    setSaveBusy(true);
-    setError("");
-    try {
-      await api.design.transitionPlan(document.design_id, {
-        to_status: toStatus,
-        confirm: true,
-        note: lifecycleNote,
-      });
-      const design = await api.design.getPlan(document.design_id);
-      if (savedRef.current === base) {
-        dispatch({ type: "LOAD", design, base });
-        syncDesignParams(design);
-      }
-      setLifecycleConfirm(false);
-      setLifecycleNote("");
-      await refreshPlans();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Не удалось сменить статус паспорта.");
-    } finally {
-      setSaveBusy(false);
-    }
-  }
-
   async function forkPlan() {
     if (!document.design_id) {
       setError("Сначала сохраните паспорт.");
@@ -2498,8 +2457,6 @@ export function DesignPage({
         dispatch({ type: "LOAD", design: forked, base });
         syncDesignParams(forked);
       }
-      setLifecycleConfirm(false);
-      setLifecycleNote("");
       setWorkflowStage("survey");
       setMode("contour");
       await refreshPlans();
@@ -2758,7 +2715,14 @@ export function DesignPage({
         <div className="lifecycle-banner compact" role="status">
           {recordFrozen
             ? "Паспорт закрыт. Создайте ревизию, чтобы править дальше."
-            : "Слой DESIGNED заморожен. Исполнение и замер — отдельно, сценарии остаются оверлеями."}
+            : `Паспорт ${statusLabel(document.lifecycle_status)}: проект не правится. Чтобы править, создайте ревизию — она откроется черновиком.`}{" "}
+          {/* Панели «Жизненный цикл» нет (решение владельца 12.11.2026): статус старых паспортов
+              не меняется, править их можно только копией-ревизией. */}
+          {document.design_id && (
+            <button type="button" className="secondary-button" onClick={() => void forkPlan()} disabled={saveBusy || unsavedChanges}>
+              Создать ревизию
+            </button>
+          )}
         </div>
       )}
       <div className="design-map-stage">
@@ -2849,22 +2813,6 @@ export function DesignPage({
           {inspectorOpen && (
             <StageInspector title={stageTitle} onClose={() => setInspectorOpen(false)}>
         <div className="design-sidebar">
-          {workflowStage === "report" && <LifecyclePanel
-            designId={document.design_id}
-            status={document.lifecycle_status}
-            revision={document.revision}
-            parentDesignId={document.parent_design_id}
-            designedSha256={document.designed_sha256}
-            events={document.lifecycle_events}
-            busy={saveBusy}
-            unsaved={unsavedChanges}
-            confirm={lifecycleConfirm}
-            note={lifecycleNote}
-            onConfirmChange={setLifecycleConfirm}
-            onNoteChange={setLifecycleNote}
-            onTransition={transitionLifecycle}
-            onFork={forkPlan}
-          />}
           {workflowStage === "survey" && (
             <fieldset className="workstation-lock" disabled={designedLocked}>
               <SurfacePanel

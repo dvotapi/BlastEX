@@ -13,11 +13,6 @@
 .lifecycle-pill.status-executed { background:#eef2ff; color:#2a3a7a; }
 .lifecycle-pill.status-closed { background:#fdecea; color:#7a2a22; }
 .lifecycle-banner { margin:0 0 14px; padding:10px 12px; border-radius:10px; background:#fde8d4; color:#5a3d12; font-size:12px; font-weight:var(--font-weight-strong); }
-.lifecycle-freeze { color:#8a3b12; background:#fde8d4; border-radius:6px; padding:6px 8px; font-weight:var(--font-weight-strong); }
-.lifecycle-meta { display:flex; flex-wrap:wrap; gap:8px; font-size:10px; color:#5c6a63; }
-.lifecycle-log { list-style:none; margin:0; padding:0; display:grid; gap:4px; }
-.lifecycle-log li { display:grid; gap:2px; padding:6px 8px; border-radius:8px; background:#f6f8f7; font-size:11px; }
-.lifecycle-log small { color:#7b8982; }
 
 .workflow-nav { display:flex; gap:5px; margin:0 0 12px; overflow-x:auto; padding-bottom:2px; scrollbar-width:thin; }
 .workflow-nav button { display:flex; align-items:center; gap:5px; white-space:nowrap; padding:7px 9px; border:1px solid #ced9d3; border-radius:8px; background:#fff; color:#3b4b43; font-size:11px; font-weight:var(--font-weight-strong); }
@@ -45,6 +40,7 @@
 .crs-warning { padding:4px 10px; border-radius:999px; background:#fff3d6; color:#6a4a28; font-size:11px; font-weight:var(--font-weight-strong); white-space:nowrap; }
 .crs-banner { padding:8px 10px; border-radius:8px; background:#fff3d6; color:#6a4a28; font-size:12px; font-weight:var(--font-weight-strong); line-height:1.35; }
 .lifecycle-banner.compact { margin:0; padding:6px 10px; }
+.lifecycle-banner .secondary-button { margin-left:6px; padding:3px 10px; font-size:12px; }
 .design-chrome .history-controls { margin-left:auto; }
 .design-chrome .history-controls button { padding:6px 10px; }
 

@@ -33,6 +33,8 @@ __all__ = [
     "OBJECT_SOURCE_MANUAL",
     "OBJECT_SOURCE_SITUATION",
     "ObjectRow",
+    "layer_geometry",
+    "project_geometry",
     "ObjectZones",
     "assess_project_objects",
     "situation_candidates",
@@ -125,6 +127,19 @@ def _layer_geometry(lines: Iterable[Mapping[str, Any]]):
         elif points:
             parts.append(Point(points[0]))
     return shapely.union_all([part if part.is_valid else part.buffer(0) for part in parts]) if parts else None
+
+
+def project_geometry(blocks: Sequence[tuple[Sequence[tuple[float, float]], Sequence[tuple[float, float]]]]):
+    """Блоки проекта одной геометрией (контур, у блока без контура — устья): от неё
+    меряются расстояния до охраняемых объектов и строятся зоны на Г.5 (PR 4)."""
+
+    return _block_geometry(blocks)
+
+
+def layer_geometry(lines: Iterable[Mapping[str, Any]]):
+    """Слой ситуации одной геометрией (замкнутые линии — полигоны)."""
+
+    return _layer_geometry(lines)
 
 
 def situation_candidates(

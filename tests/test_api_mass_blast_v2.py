@@ -91,7 +91,7 @@ def _client(monkeypatch, repository, design, *, enabled: bool = True) -> TestCli
     if enabled:
         monkeypatch.setenv(config.MASS_BLAST_V2_ENABLED_ENV, "1")
     else:
-        monkeypatch.delenv(config.MASS_BLAST_V2_ENABLED_ENV, raising=False)
+        monkeypatch.setenv(config.MASS_BLAST_V2_ENABLED_ENV, "0")
     monkeypatch.setattr(mass_blast_service, "_blocks_from_payload", lambda organization_id, payload: [block_from_design(design, code="66", horizon="410")])
     monkeypatch.setattr(mass_blast_v2.design_persistence, "load_design", lambda organization_id, design_id: design)
     app = FastAPI()
@@ -281,7 +281,11 @@ def test_revision_documents_print(monkeypatch, design, print_context, document):
 
 def test_revision_document_errors(monkeypatch, design, print_context):
     client = _client(monkeypatch, _PrintRepository(print_context), design)
-    assert client.get(f"{BASE}/revisions/rev-1/documents/graphics.pdf").status_code == 422
+    assert client.get(f"{BASE}/revisions/rev-1/documents/drawings.pdf").status_code == 422
+    graphics = client.get(f"{BASE}/revisions/rev-1/documents/graphics.pdf")
+    assert graphics.status_code == 200 and graphics.content.startswith(b"%PDF")
+    # Чертёж — в фактическом размере: просмотрщик не «вписывает в страницу».
+    assert b"/PrintScaling /None" in graphics.content
     assert client.get(f"{BASE}/revisions/rev-0/documents/title.pdf").status_code == 404
     draft = _client(monkeypatch, _PrintRepository(print_context, status="in_review"), design)
     response = draft.get(f"{BASE}/revisions/rev-1/documents/title.pdf")
@@ -330,6 +334,27 @@ def test_package_takes_issued_layers_of_this_revision(monkeypatch, design, print
     assert {item["layer_id"]: item["reason"] for item in manifest["omitted_layers"]} == {
         "l2": "выпущен по другой ревизии проекта", "l3": "слой не выпущен",
     }
+    assert "05_Графика.pdf" in archive.namelist() and "omitted_documents" not in manifest
+
+
+def test_revision_before_graphics(monkeypatch, design, print_context):
+    """Ревизия v2 без данных графики (выпущена до PR 4): графика — 409, в PACKAGE её нет, причина — в manifest."""
+    import copy
+    import io
+    import zipfile
+
+    context = copy.deepcopy(print_context)
+    del context["graphics"]
+    for block in context["blocks_v2"]:
+        del block["graphics"]
+    client = _client(monkeypatch, _PrintRepository(context), design)
+    assert client.get(f"{BASE}/revisions/rev-1/documents/graphics.pdf").status_code == 409
+    project = client.get(f"{BASE}/revisions/rev-1/documents/project.pdf")
+    assert project.status_code == 200 and b"/PrintScaling" not in project.content
+    archive = zipfile.ZipFile(io.BytesIO(client.get(f"{BASE}/revisions/rev-1/package.zip").content))
+    assert "05_Графика.pdf" not in archive.namelist()
+    manifest = json.loads(archive.read("manifest.json"))
+    assert [item["document"] for item in manifest["omitted_documents"]] == ["graphics"]
 
 
 def test_layer_revision_document_prints(monkeypatch, design, print_context):
@@ -370,3 +395,27 @@ def test_layer_preview_prints_draft_and_refuses_errors(monkeypatch, design, prin
     assert response.status_code == 200 and response.content.startswith(b"%PDF")
     refused = client.get(f"{BASE}/layers/l2/preview.pdf")
     assert refused.status_code == 422 and "адресата" in refused.json()["detail"]
+
+
+def test_execution_layer_needs_an_approved_project(monkeypatch, design, block):
+    stored = {**_stored_v2(block), "lifecycle_status": "in_review", "current_revision_id": "rev-1"}
+    repository = _Repository(stored)
+    repository.get_revision = lambda organization_id, revision_id: {"id": "rev-1", "context": {"document_context_version": 2}}
+    response = _client(monkeypatch, repository, design).post(f"{BASE}/p1/layers", json={"kind": "EXECUTION"})
+    assert response.status_code == 422 and "после утверждения" in response.json()["detail"]
+
+
+def test_execution_layer_revision_prints(monkeypatch, design, print_context):
+    from design.mass_blast_fact import block_fact
+    from design.mass_blast_layers import execution_view, layer_seed
+    from tests.test_safety_design import MATERIALS
+
+    seed = layer_seed("EXECUTION", print_context,
+                      facts=[block_fact(design, print_context["blocks_v2"][0]["parameter_table"], MATERIALS)])
+    view, _issues = execution_view(seed, {})
+    repository = _PrintRepository(print_context, status="executed")
+    repository.layer_revisions = {"lr-1": {"id": "lr-1", "revision_no": 2, "kind": "EXECUTION",
+                                           "context": {"kind": "EXECUTION", "seed": seed, "payload": {}, "view": view}}}
+    response = _client(monkeypatch, repository, design).get(f"{BASE}/layers/revisions/lr-1/document.pdf")
+    assert response.status_code == 200 and response.content.startswith(b"%PDF")
+    assert "execution_r2.pdf" in response.headers["content-disposition"]

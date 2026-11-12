@@ -72,6 +72,12 @@ class Part:
     page_titles: tuple[str, ...] | None = None    # название листа по страницам (иначе `title`)
     page_headers: tuple[str, ...] | None = None   # шапка по страницам (иначе `header`)
     draw_extra: Callable | None = None   # (canvas, part, logo, page_index) — поверх страницы
+    # Чертёж в масштабе (графика Г.1–Г.5): PDF просит просмотрщик печатать в
+    # фактическом размере (`/PrintScaling /None`), а не «вписать в страницу».
+    actual_size: bool = False
+    # Страница = лист с названием из `page_titles` (графика): иное число
+    # страниц — ошибка раскладки, а не перенос листа на следующую страницу.
+    one_page_per_title: bool = False
 
     @property
     def pagesize(self) -> tuple[float, float]:
@@ -181,6 +187,10 @@ def count_pages(part: Part) -> int:
     doc = _document(buffer, part.label)
     doc.addPageTemplates(_templates(0, part, lambda c, d: None, lambda c, d: None))
     doc.build(list(part.story()))
+    if part.one_page_per_title and doc.page != len(part.page_titles or ()):
+        raise RuntimeError(
+            f"«{part.label}»: {doc.page} стр. на {len(part.page_titles or ())} листов — лист не поместился на страницу."
+        )
     part._page_count = doc.page
     return doc.page
 
@@ -202,12 +212,18 @@ def plan_pages(parts: Sequence[Part], counts: Sequence[int], *, duplex: bool) ->
             raw.append((index, None))
     project = [k for k, (index, _page) in enumerate(raw) if parts[index].numbering == "project"]
     numbers: dict[int, str] = {k: f"Стр. {n} из {len(project)}" for n, k in enumerate(project, start=1)}
+    # Своя нумерация — у каждого документа (`"own"`); части одного документа
+    # слоя (`"group:<ключ>"`, исполнительная таблица и Г.1 слоя «Факт») — общая.
+    groups: dict[str, list[int]] = {}
     for index, part in enumerate(parts):
         if part.numbering == "project":
             continue
-        own = [k for k, (i, page) in enumerate(raw) if i == index and page is not None]
+        key = part.numbering if part.numbering.startswith("group:") else f"own:{index}"
+        groups.setdefault(key, []).append(index)
+    for members in groups.values():
+        own = [k for k, (i, page) in enumerate(raw) if i in members and page is not None]
         numbers.update({k: f"Стр. {n} из {len(own)}" for n, k in enumerate(own, start=1)})
-        numbers.update({k: "" for k, (i, page) in enumerate(raw) if i == index and page is None})
+        numbers.update({k: "" for k, (i, page) in enumerate(raw) if i in members and page is None})
     return [PageSlot(index, page, numbers[k]) for k, (index, page) in enumerate(raw)]
 
 
@@ -221,7 +237,11 @@ def render(parts: Sequence[Part], *, title: str, duplex: bool, draft: bool = Fal
     slots = plan_pages(parts, counts, duplex=duplex)
     logo = _logo()
 
+    actual_size = any(part.actual_size for part in parts)
+
     def on_page(canvas, _doc) -> None:
+        if actual_size and canvas.getPageNumber() == 1:
+            canvas.setViewerPreference("PrintScaling", "None")
         slot = slots[canvas.getPageNumber() - 1]
         part = parts[slot.part]
         canvas.saveState()

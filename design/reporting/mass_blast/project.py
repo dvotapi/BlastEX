@@ -1,9 +1,10 @@
 """Документы 1–4 проекта МВ по контексту ревизии v2: части комплекта и PDF.
 
 `project_parts` — титул (с оборотом «Состав проекта»), техрасчёт и таблица
-параметров по каждому блоку, распорядок. «Листов» в «Составе проекта» —
-число страниц документа без пустых оборотов (решение владельца 11.11.2026,
-В7); у графики Г.1–Г.5 до PR 4 — «—».
+параметров по каждому блоку, распорядок и «Графика» Г.1–Г.5 (PR 4).
+«Листов» в «Составе проекта» — число страниц документа без пустых оборотов
+(решение владельца 11.11.2026, В7); у Г.1–Г.5 — число листов (по листу на
+блок, Г.5 — один), у ревизии без данных графики — «—».
 """
 from __future__ import annotations
 
@@ -12,13 +13,14 @@ from typing import Any, Mapping
 from design.reporting.mass_blast import frame
 from design.reporting.mass_blast.common import header_line, text
 from design.reporting.mass_blast.frame import Margins, Part
+from design.reporting.mass_blast.graphics import graphics_part, graphics_sheet_counts
 from design.reporting.mass_blast.param_table import MARGINS as TABLE_MARGINS
 from design.reporting.mass_blast.param_table import table_story
 from design.reporting.mass_blast.schedule import schedule_story
 from design.reporting.mass_blast.techcalc import techcalc_story
 from design.reporting.mass_blast.title import draw_title_page, title_story
 
-DOCUMENTS = ("title", "technical-calculation", "parameter-table", "schedule")
+DOCUMENTS = ("title", "technical-calculation", "parameter-table", "schedule", "graphics")
 TITLE_LABEL = "Титул"
 TECHCALC_TITLE = "Технический расчёт массового взрыва (приложение № 10 к ФНП 494)"
 TABLE_TITLE = "Таблица параметров взрывных работ (приложение № 11 к ФНП 494)"
@@ -59,6 +61,7 @@ def project_parts(context: Mapping[str, Any], documents: tuple[str, ...] = DOCUM
             "techcalc": sum(frame.count_pages(part) for part in techcalc) or None,
             "table": sum(frame.count_pages(part) for part in tables) or None,
             "schedule": frame.count_pages(schedule),
+            **graphics_sheet_counts(context),
         }
     title = Part(
         key="title", label=TITLE_LABEL, title="", header="", story=lambda: title_story(context, width, counts),
@@ -74,6 +77,10 @@ def project_parts(context: Mapping[str, Any], documents: tuple[str, ...] = DOCUM
         selected += tables
     if "schedule" in documents:
         selected.append(schedule)
+    if "graphics" in documents:
+        graphics = graphics_part(context)
+        if graphics is not None:
+            selected.append(graphics)
     return selected
 
 
@@ -91,6 +98,8 @@ def render_project_document(context: Mapping[str, Any], document: str, *, draft:
     if document not in DOCUMENTS:
         raise ValueError(f"Неизвестный документ проекта МВ: {document}.")
     parts = project_parts(context, (document,))
+    if not parts:
+        raise ValueError("В ревизии нет данных графики: она выпущена до графической части (PR 4).")
     return frame.render(parts, title=_pdf_title(context, parts[0].label), duplex=False, draft=draft)
 
 

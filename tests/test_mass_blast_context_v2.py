@@ -134,6 +134,33 @@ def test_schedule_times_and_zones(context):
     assert len(names) == len(set(names))  # ФИО не повторяются
 
 
+def test_schedule_prints_exit_route_and_siren():
+    """«Куда удаляются люди» и «Средство подачи сигналов» — в строках ответственных пп. 21 и 27."""
+
+    from design.mass_blast_schedule import build_schedule
+
+    def duties(schedule_payload: dict) -> dict[str, str]:
+        result, _ = build_schedule(
+            project={"blast_date": "2026-11-20", "blast_time": "13:00"},
+            schedule=schedule_payload,
+            people={},
+            zones={},
+            objects=[],
+            blocks=[],
+            totals={},
+            guard_posts=[],
+            texts={},
+        )
+        return {row["points"]: row["duty"] for row in result["responsibilities"]["rows"]}
+
+    filled = duties({"station": "у поста 1", "exit_route": "на гор. 420 м", "siren": "сирена СС-1"})
+    assert filled["21"] == "Вывод людей из запретной и опасной зон — на гор. 420 м"
+    assert filled["27"] == "Подача звуковых сигналов — сирена СС-1"
+    empty = duties({"station": "у поста 1"})
+    assert empty["21"] == "Вывод людей из запретной и опасной зон"
+    assert empty["27"] == "Подача звуковых сигналов"
+
+
 def test_timing_change_changes_groups_and_seismic():
     spaced = context66(design66(surface_ms=25.0))
     together = context66(design66(surface_ms=5.0))

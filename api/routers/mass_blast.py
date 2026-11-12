@@ -11,6 +11,8 @@ from api.schemas.mass_blast import (
     MassBlastAttachmentSchema,
     MassBlastDocumentCreateSchema,
     MassBlastDocumentSchema,
+    MassBlastHintsSchema,
+    MassBlastLayerAvailabilitySchema,
     MassBlastLayerCreateSchema,
     MassBlastLayerIssueSchema,
     MassBlastLayerRefreshResponse,
@@ -19,21 +21,26 @@ from api.schemas.mass_blast import (
     MassBlastLayerSchema,
     MassBlastLayerUpdateSchema,
     MassBlastLifecycleSchema,
+    MassBlastNewProjectSchema,
+    MassBlastRememberResponse,
+    MassBlastRememberSchema,
     MassBlastProjectInputSchema,
     MassBlastProjectSchema,
     MassBlastProjectSummarySchema,
     MassBlastRevisionSchema,
     MassBlastValidationResponse,
+    NotificationAddresseesSchema,
     RevisionCreateSchema,
 )
 from api import config
-from api.security import require_human, require_internal_access
+from api.security import require_human, require_internal_access, require_reference_editor
 from api.services import mass_blast_documents_v2 as documents_v2
 from api.services import mass_blast_layers_service as layers_service
 from api.services.economics_service import get_economics_repository
 from api.services.mass_blast_service import (
     approve_revision,
     attachment_path,
+    create_new_project_v2,
     create_project,
     create_revision,
     delete_attachment,
@@ -41,13 +48,16 @@ from api.services.mass_blast_service import (
     generate_document,
     get_mass_blast_repository,
     organization_accounts,
+    project_hints,
     repository_error,
     transition_project,
     upload_attachment,
     update_project,
     validate_project,
 )
-from cost.v2.repository import EconomicsRepository
+from api.services.public_sync_service import get_public_reader, reference_issues
+from cost.v2.public_sync import PublicReader
+from cost.v2.repository import EconomicsRepository, ReferenceRevisionConflict
 from design.mass_blast_repository import PostgresMassBlastRepository
 
 
@@ -537,5 +547,137 @@ def post_layer_revision(
         return MassBlastLayerRevisionSchema.model_validate(layers_service.issue_layer(
             repository, economics_repository, organization_id, actor, layer_id, payload.expected_version,
         ))
+    except Exception as exc:
+        raise _layer_errors(exc) from exc
+
+
+
+# --- Окно проекта МВ (TASK-018, PR 6) ----------------------------------------
+
+
+@router.post(
+    "/new", response_model=MassBlastProjectSchema, status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(_require_layers)],
+)
+def post_new_project(
+    payload: MassBlastNewProjectSchema,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
+    economics_repository: EconomicsRepository = Depends(get_economics_repository),
+) -> MassBlastProjectSchema:
+    """Новый проект по форме ВМ.09.03: дата, время и блоки — остальное заполняется само."""
+
+    organization_id, actor = _identity(session)
+    try:
+        return MassBlastProjectSchema.model_validate(create_new_project_v2(
+            repository, economics_repository, organization_id, actor,
+            design_ids=payload.design_ids, blast_date=payload.blast_date,
+            blast_time=payload.blast_time, site_code=payload.site_code,
+        ))
+    except Exception as exc:
+        raise _layer_errors(exc) from exc
+
+
+@router.get("/{project_id}/hints", response_model=MassBlastHintsSchema, dependencies=[Depends(_require_layers)])
+def get_hints(
+    project_id: str,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
+) -> MassBlastHintsSchema:
+    organization_id, _ = _identity(session)
+    try:
+        return MassBlastHintsSchema.model_validate(project_hints(repository, organization_id, project_id))
+    except Exception as exc:
+        raise _layer_errors(exc) from exc
+
+
+@router.get(
+    "/{project_id}/layers/available", response_model=list[MassBlastLayerAvailabilitySchema],
+    dependencies=[Depends(_require_layers)],
+)
+def get_available_layers(
+    project_id: str,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
+) -> list[MassBlastLayerAvailabilitySchema]:
+    organization_id, _ = _identity(session)
+    try:
+        return [MassBlastLayerAvailabilitySchema.model_validate(item)
+                for item in layers_service.available_layers(repository, organization_id, project_id)]
+    except Exception as exc:
+        raise _layer_errors(exc) from exc
+
+
+@router.get(
+    "/{project_id}/notification-addressees", response_model=NotificationAddresseesSchema,
+    dependencies=[Depends(_require_layers)],
+)
+def get_notification_addressees(
+    project_id: str,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
+    economics_repository: EconomicsRepository = Depends(get_economics_repository),
+) -> NotificationAddresseesSchema:
+    organization_id, _ = _identity(session)
+    try:
+        return NotificationAddresseesSchema.model_validate(layers_service.notification_addressees(
+            repository, economics_repository, organization_id, project_id,
+        ))
+    except Exception as exc:
+        raise _layer_errors(exc) from exc
+
+
+@router.post(
+    "/{project_id}/remember", response_model=MassBlastRememberResponse, dependencies=[Depends(_require_layers)],
+)
+def post_remember(
+    project_id: str,
+    payload: MassBlastRememberSchema,
+    session: dict[str, object] = Depends(require_reference_editor),
+    repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
+    economics_repository: EconomicsRepository = Depends(get_economics_repository),
+    reader: PublicReader = Depends(get_public_reader),
+) -> MassBlastRememberResponse:
+    """«Запомнить для объекта» (В8): поля объекта из проекта или слоя — в справочник новой ревизией."""
+
+    from api.services.mass_blast_remember import remember_for_site
+
+    organization_id, actor = _identity(session)
+    try:
+        project = repository.get_project(organization_id, project_id)
+        layer = None
+        if payload.layer_id:
+            layer = repository.get_layer(organization_id, payload.layer_id)
+            if layer["project_id"] != project_id:
+                raise ValueError("Слой относится к другому проекту.")
+        return MassBlastRememberResponse.model_validate(remember_for_site(
+            economics_repository, organization_id, actor, project, payload.paths, layer=layer,
+            issues_of=lambda sections: reference_issues(reader, economics_repository, organization_id, sections),
+        ))
+    except ReferenceRevisionConflict as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Справочник только что изменили: проект сохранён, сохраните его ещё раз, чтобы запомнить значения.",
+        ) from exc
+    except Exception as exc:
+        raise _layer_errors(exc) from exc
+
+
+@router.post("/{project_id}/suggest-layout", dependencies=[Depends(_require_layers)])
+def post_suggest_layout(
+    project_id: str,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
+    economics_repository: EconomicsRepository = Depends(get_economics_repository),
+) -> dict[str, object]:
+    """«Предложить посты» (В6): посты на пересечениях дорог с границей зоны для людей,
+    станция и укрытие за зоной. Проект не меняется — окно ставит точки в форму."""
+
+    from design.mass_blast_posts import suggest_layout
+
+    organization_id, _ = _identity(session)
+    try:
+        result = validate_project(repository, organization_id, project_id, economics_repository=economics_repository)
+        return suggest_layout((result.get("context") or {}).get("graphics") or {})
     except Exception as exc:
         raise _layer_errors(exc) from exc

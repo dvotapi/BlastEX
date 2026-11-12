@@ -4,9 +4,10 @@
 `NEXT_PAGE_ROWS` скважин (63 / 73, TASK-018 §3.2), заголовок таблицы (2 строки,
 группы граф Р / Ф) повторяется на каждой странице. «Общая запись» (прил. 11,
 прим. 3): диаметр, перебур Р, забойка Р и ПД печатаются в первой строке
-страницы и там, где значение меняется. Графы Ф — пустые белые клетки (PR 5
-заполнит их фактом). Данные — `blocks_v2[i].parameter_table` (PR 2), рендер
-ничего не считает.
+страницы и там, где значение меняется. Графы Ф проекта — пустые белые клетки;
+исполнительная таблица слоя «Факт» (PR 5, `fact=`) печатает в них факт и
+итог Ф. Данные — `blocks_v2[i].parameter_table` (PR 2) или ревизия слоя
+«Факт», рендер ничего не считает.
 """
 from __future__ import annotations
 
@@ -58,11 +59,26 @@ COMMON_ENTRY = ("diameter_mm", "subdrill_m", "stemming_m", "primers_pcs")   # «
 DIGITS = {
     "diameter_mm": 0, "bench_height_m": 1, "depth_m": 1, "subdrill_m": 1, "water_m": 1, "lspp_m": 2,
     "spacing_m": 2, "burden_m": 2, "charge_kg": 0, "stemming_m": 1, "primers_pcs": 0,
+    "depth_fact_m": 1, "subdrill_fact_m": 1, "lspp_fact_m": 2, "spacing_fact_m": 2, "burden_fact_m": 2,
+    "charge_fact_kg": 0, "stemming_fact_m": 1,
 }
 NOTE_TEXT = (
     "Р — расчётная, Ф — фактическая величина (Ф заполняется при заряжании или после него). Повторяющиеся значения — "
     "общей записью: показаны в первой строке страницы и там, где меняются. Красный № — скважина первого ряда "
     "(ЛСПП указана). Масса заряда Р — по декам проекта, кратно {round_kg} кг."
+)
+
+
+FACT_NOTE_TEXT = (
+    "Р — по проекту (ревизия проекта массового взрыва), Ф — по факту: глубина, перебур, ЛСПП и расстояния — по "
+    "исполнительной съёмке (те же правила расчёта, что у Р), масса и забойка — по записям заряжания; масса Р — "
+    "кратно {round_kg} кг, Ф — до 1 кг. Пустая клетка Ф — факта нет. Итог Ф — когда факт есть у всех скважин. "
+    "Красный № — скважина первого ряда."
+)
+FACT_TOTALS = (
+    ("depth_fact_m", "depth_fact_m", 1), ("subdrill_fact_m", "subdrill_fact_mean_m", 1),
+    ("spacing_fact_m", "spacing_fact_mean_m", 2), ("burden_fact_m", "burden_fact_mean_m", 2),
+    ("charge_fact_kg", "charge_fact_kg", 0), ("stemming_fact_m", "stemming_fact_min_m", 1),
 )
 
 
@@ -150,6 +166,8 @@ def _page_table(
     widths: Sequence[float],
     totals: Mapping[str, Any] | None,
     overflow: list[tuple[str, str]] | None = None,
+    *,
+    fact: bool = False,
 ) -> Table:
     head, head_style = _head()
     data = list(head)
@@ -186,6 +204,10 @@ def _page_table(
         line[KEYS.index("stemming_m")] = num(totals.get("stemming_min_m"), 1)
         line[KEYS.index("primers_pcs")] = num(totals.get("primers_pcs"), 0)
         line[KEYS.index("note")] = f"скважин: {int(totals.get('hole_count') or 0)}"
+        if fact:
+            for key, total, digits in FACT_TOTALS:
+                value = totals.get(total)
+                line[KEYS.index(key)] = "" if value is None else num(value, digits)
         data.append(line)
         heights.append(ROW_H + 2)
         style += [
@@ -223,7 +245,12 @@ def _summary_line(context: Mapping[str, Any], block: Mapping[str, Any], *, commo
     return ";  ".join(part for part in parts if part)
 
 
-def table_story(context: Mapping[str, Any], block_index: int, width: float) -> list:
+def table_story(
+    context: Mapping[str, Any], block_index: int, width: float, *, fact: Mapping[str, Any] | None = None
+) -> list:
+    """Таблица блока. `fact` — исполнительная таблица слоя «Факт» (PR 5):
+    `{"blast_date", "blast_time"}` по факту; без него — таблица проекта."""
+
     block = (context.get("blocks_v2") or [])[block_index]
     table = block.get("parameter_table") or {}
     rows = list(table.get("rows") or [])
@@ -233,13 +260,16 @@ def table_story(context: Mapping[str, Any], block_index: int, width: float) -> l
     widths = [width * c[3] / sum(c[3] for c in COLUMNS) for c in COLUMNS]
     horizon = text(block.get("horizon"))
     title = " · ".join(filter(None, (
-        "ТАБЛИЦА ПАРАМЕТРОВ ВЗРЫВНЫХ РАБОТ",
+        "ТАБЛИЦА ПАРАМЕТРОВ ВЗРЫВНЫХ РАБОТ (ФАКТ)" if fact is not None else "ТАБЛИЦА ПАРАМЕТРОВ ВЗРЫВНЫХ РАБОТ",
         f"блок № {text(block.get('code'))}" if text(block.get("code")) else "",
         f"гор. {horizon} м" if horizon else "",
     )))
     # Значения проекта — экранированными (`rich`): текст пользователя не становится разметкой.
     when = (f"взрыв  <b>{rich(date(project.get('blast_date')))}</b>    "
             f"<b>{rich(text(project.get('blast_time')) or DASH)}</b>")
+    if fact is not None and (text(fact.get("blast_date")) or text(fact.get("blast_time"))):
+        when = (f"взрыв по факту  <b>{rich(date(text(fact.get('blast_date')) or project.get('blast_date')))}</b>    "
+                f"<b>{rich(text(fact.get('blast_time')) or DASH)}</b>")
     head = Table([[p(title, "doc_red"), p("", "grey_r", markup=when)]], colWidths=[width * 0.68, width * 0.32])
     head.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
                               ("VALIGN", (0, 0), (-1, -1), "BOTTOM"), ("BOTTOMPADDING", (0, 0), (-1, -1), 1)]))
@@ -260,9 +290,10 @@ def table_story(context: Mapping[str, Any], block_index: int, width: float) -> l
         # Итог — строкой под последней скважиной, если помещается на странице.
         capacity = FIRST_PAGE_ROWS if number == 0 else NEXT_PAGE_ROWS
         tail_fits = (capacity - (end - start)) * ROW_H >= TAIL_H
-        story.append(_page_table(rows[start:end], widths, totals if last and tail_fits else None, overflow))
+        story.append(_page_table(rows[start:end], widths, totals if last and tail_fits else None, overflow,
+                                 fact=fact is not None))
         if last and not tail_fits:
-            story += [PageBreak(), _page_table([], widths, totals)]
+            story += [PageBreak(), _page_table([], widths, totals, fact=fact is not None)]
     round_kg = short(table.get("charge_round_kg") or 5, 1)
     sign = Table(
         [[p("Составил:", "body"), p(person_line(requisites.get("made_by")), "body"), "",
@@ -273,7 +304,13 @@ def table_story(context: Mapping[str, Any], block_index: int, width: float) -> l
         ("LINEBELOW", (2, 0), (2, 0), 0.5, LINE), ("LINEBELOW", (5, 0), (5, 0), 0.5, LINE),
         ("VALIGN", (0, 0), (-1, -1), "BOTTOM"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
     ]))
-    story += [spacer(1), p(NOTE_TEXT.format(round_kg=round_kg), "small")]
+    if fact is None:
+        story += [spacer(1), p(NOTE_TEXT.format(round_kg=round_kg), "small")]
+    else:
+        count = int(totals.get("hole_count") or 0)
+        done = (f"Факт: бурение — {int(totals.get('drilled_count') or 0)} из {count} скв., заряжание — "
+                f"{int(totals.get('charged_count') or 0)} из {count} скв.; отказов — {int(totals.get('misfired_count') or 0)}.")
+        story += [spacer(1), p(done + " " + FACT_NOTE_TEXT.format(round_kg=round_kg), "small")]
     if common_below:
         story.append(p(f"Общее для всех скважин: {text(table.get('common_note'))}.", "small"))
     if overflow:

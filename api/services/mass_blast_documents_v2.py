@@ -11,6 +11,7 @@ from typing import Any, Mapping
 from cost.v2.repository import EconomicsRepository
 from design.mass_blast_repository import MassBlastConflictError, PostgresMassBlastRepository
 from design.reporting.mass_blast.layers import render_layer_document
+from design.reporting.mass_blast.graphics import has_graphics
 from design.reporting.mass_blast.package import render_package
 from design.reporting.mass_blast.project import DOCUMENTS, render_project_document
 
@@ -48,11 +49,13 @@ def _v2_revision(repository: PostgresMassBlastRepository, organization_id: str, 
 def project_document(
     repository: PostgresMassBlastRepository, organization_id: str, revision_id: str, document: str
 ) -> tuple[bytes, str]:
-    """PDF документа проекта (`title`, `technical-calculation`, `parameter-table`, `schedule`, `project`)."""
+    """PDF документа проекта (`title`, `technical-calculation`, `parameter-table`, `schedule`, `graphics`, `project`)."""
 
     if document not in PROJECT_DOCUMENTS:
         raise ValueError(f"Неизвестный документ проекта МВ: {document}.")
     revision, context = _v2_revision(repository, organization_id, revision_id)
+    if document == "graphics" and not has_graphics(context):
+        raise MassBlastConflictError("Ревизия выпущена до графической части Г.1–Г.5: данных графики в ней нет.")
     return render_project_document(context, document), _file_name(context, revision, document, ".pdf")
 
 
@@ -102,8 +105,11 @@ def project_package(
         "layers": [{key: item[key] for key in ("layer_id", "kind", "revision_id", "revision_no", "content_sha256")}
                    for item in included],
         "omitted_layers": omitted,
-        "graphics": "Г.1–Г.5 — в следующей версии комплекта",
     }
+    if not has_graphics(context):
+        manifest["omitted_documents"] = [
+            {"document": "graphics", "reason": "ревизия выпущена до графической части Г.1–Г.5 (PR 4): данных графики в ней нет"}
+        ]
     data = render_package(context, included, manifest=manifest)
     return data, _file_name(context, revision, "package", ".zip")
 
@@ -154,5 +160,8 @@ def layer_preview(
     errors = [issue["message"] for issue in layer.get("issues") or [] if issue.get("level") == "error"]
     if errors:
         raise PreviewError("Предпросмотр недоступен: " + "; ".join(errors))
-    revision = {"kind": layer["kind"], "seed": layer["seed"], "payload": layer["payload"], "view": layer.get("view") or {}}
+    revision = {
+        "kind": layer["kind"], "seed": layer["seed"], "payload": layers_service.effective_payload(layer),
+        "view": {key: value for key, value in (layer.get("view") or {}).items() if key not in ("defaults", "rememberable")},
+    }
     return render_layer_document(revision, draft=True)

@@ -111,17 +111,18 @@ def test_table_pages_split_63_73():
 def test_project_documents_and_blank_versos(context):
     parts = project_parts(context)
     counts = [frame.count_pages(part) for part in parts]
-    assert [part.key for part in parts] == ["title", "techcalc:0", "table:0", "schedule"]
-    # Как эталон v0.11: титул + «Состав проекта» 2, техрасчёт 2, таблица 3 (+ пустой оборот), распорядок 2.
-    assert counts == [2, 2, 3, 2]
+    assert [part.key for part in parts] == ["title", "techcalc:0", "table:0", "schedule", "graphics"]
+    # Как эталон v0.11: титул + «Состав проекта» 2, техрасчёт 2, таблица 3 (+ пустой оборот), распорядок 2,
+    # «Графика» Г.1–Г.5 — 5 листов (+ пустой оборот, эталон: стр. 15–20).
+    assert counts == [2, 2, 3, 2, 5]
     slots = frame.plan_pages(parts, counts, duplex=True)
-    assert len(slots) == 10
+    assert len(slots) == 16
     blanks = [index for index, slot in enumerate(slots) if slot.page is None]
-    assert blanks == [7]
+    assert blanks == [7, 15]
     # Каждый документ начинается с лицевой (нечётной) страницы.
     starts = [index for index, slot in enumerate(slots) if slot.page == 0]
     assert all(index % 2 == 0 for index in starts)
-    assert [slot.number for slot in slots] == [f"Стр. {n} из 10" for n in range(1, 11)]
+    assert [slot.number for slot in slots] == [f"Стр. {n} из 16" for n in range(1, 17)]
 
 
 def test_layer_numbering_is_own_and_blank_has_no_number(context):
@@ -133,7 +134,7 @@ def test_layer_numbering_is_own_and_blank_has_no_number(context):
 
 def test_project_pdf_pages_and_texts(project_pdf):
     pages = _pages(project_pdf)
-    assert len(pages) == 10
+    assert len(pages) == 16
     texts = [_text(page) for page in pages]
     assert "ПРОЕКТ МАССОВОГО ВЗРЫВА" in texts[0] and "№ 66-26" in texts[0]
     assert "Состав проекта" in texts[1] and "Г.5" in texts[1]
@@ -158,6 +159,9 @@ def test_project_pdf_pages_and_texts(project_pdf):
         assert marker in schedule, marker
     for point in ("35.", "36.", "37."):
         assert point in schedule
+    for index, code in zip(range(10, 15), ("Г.1", "Г.2", "Г.3", "Г.4", "Г.5")):
+        assert f"Приложение {code}." in texts[index], code
+    assert "Страница оставлена пустой" in texts[15]
     # Лист «Реквизиты» формы не печатается.
     assert not any("Реквизиты" in text for text in texts)
 
@@ -165,9 +169,21 @@ def test_project_pdf_pages_and_texts(project_pdf):
 def test_composition_counts_sheets(project_pdf):
     text = _text(_pages(project_pdf)[1])
     assert "Технический расчёт" in text and "Таблица параметров взрывных работ" in text
-    # Листов: техрасчёт 2, таблица 3, распорядок 2; графика (PR 4) — «—».
-    tokens = text.split()
-    assert tokens.count("—") >= 5
+    # Листов: техрасчёт 2, таблица 3, распорядок 2; Г.1–Г.5 — по листу (PR 4), «—» нет.
+    rows = [line for line in text.splitlines() if line.strip()]
+    assert not any(line.strip().endswith("—") for line in rows)
+    for code in ("Г.1", "Г.2", "Г.3", "Г.4", "Г.5"):
+        assert code in text
+
+
+def test_composition_without_graphics_prints_dash(context):
+    # Ревизия v2, выпущенная до PR 4, данных графики не имеет: «Листов» у Г.1–Г.5 — «—».
+    data = copy.deepcopy(context)
+    del data["graphics"]
+    parts = project_parts(data)
+    assert [part.key for part in parts] == ["title", "techcalc:0", "table:0", "schedule"]
+    text = _text(_pages(render_project_document(data, "title"))[1])
+    assert text.split().count("—") >= 5
 
 
 def test_common_entry_prints_diameter_once_per_page(project_pdf):
@@ -185,8 +201,15 @@ def test_single_documents_have_own_numbering(context):
     pages = _pages(pdf)
     assert len(pages) == 3
     assert "Стр. 3 из 3" in _text(pages[2])
+    graphics = _pages(render_project_document(context, "graphics"))
+    assert len(graphics) == 5
+    assert "Стр. 5 из 5" in _text(graphics[4])
+    data = copy.deepcopy(context)
+    del data["blocks_v2"][0]["graphics"]
     with pytest.raises(ValueError):
-        render_project_document(context, "graphics")
+        render_project_document(data, "graphics")
+    with pytest.raises(ValueError):
+        render_project_document(context, "drawings")
 
 
 def test_draft_mark_on_every_page(context):
@@ -284,17 +307,17 @@ def test_package_order_and_manifest(context):
     names = archive.namelist()
     assert names == [
         "00_Комплект.pdf", "01_Титул.pdf", "02_Технический_расчёт.pdf", "03_Таблица_параметров.pdf",
-        "04_Распорядок.pdf", "06_Акт_готовности_блока.pdf", "07_Уведомление.pdf", "08_Наряд-путёвка.pdf",
+        "04_Распорядок.pdf", "05_Графика.pdf", "06_Акт_готовности_блока.pdf", "07_Уведомление.pdf", "08_Наряд-путёвка.pdf",
         "09_Талон-допуск.pdf", "10_Акт_приёмки_работ.pdf", "manifest.json",
     ]
     manifest = json.loads(archive.read("manifest.json"))
     assert manifest["revision_id"] == "rev-1"
     assert [item["name"] for item in manifest["files"]] == names[:-1]
     combined = _pages(archive.read("00_Комплект.pdf"))
-    # Проект 10 страниц + 5 слоёв по одной странице и пустому обороту.
-    assert len(combined) == 20
-    assert "Стр. 10 из 10" in _text(combined[9])
-    assert "Стр. 1 из 1" in _text(combined[10])
+    # Проект 16 страниц (с «Графикой») + 5 слоёв по одной странице и пустому обороту.
+    assert len(combined) == 26
+    assert "Стр. 16 из 16" in _text(combined[15])
+    assert "Стр. 1 из 1" in _text(combined[16])
     assert render_package(context, layers, manifest={"revision_id": "rev-1"}) == data
 
 
@@ -478,3 +501,111 @@ def test_consumption_marks_unknown_primer_mass(context):
     primer.update(mass_kg=90.0)
     text = _text(_pages(render_project_document(data, "technical-calculation"))[0])
     assert "не менее 90,0" in text
+
+
+# --- PR 5: слой «Факт», наряд после взрыва, талон и акт приёмки по факту -------
+
+from design.as_charged import as_charged_from_design_load  # noqa: E402
+from design.as_drilled import as_drilled_from_design_hole  # noqa: E402
+from design.mass_blast_fact import block_fact  # noqa: E402
+from design.mass_blast_layers import (  # noqa: E402
+    acceptance_view,
+    execution_summary,
+    execution_view,
+    naryad_after_blast,
+    talon_view,
+)
+from design.models import Point3  # noqa: E402
+from tests.mass_blast_block66 import design66  # noqa: E402
+from tests.test_safety_design import MATERIALS  # noqa: E402
+
+
+@pytest.fixture(scope="module")
+def fact_revision() -> dict:
+    """Ревизия слоя «Факт» блока 66: без съёмки 2 скважины, № 1 сдвинута на 0,8 м, заряд +2 кг, отказ № 17."""
+
+    design = design66()
+    context = context66(design, payload=payload66(requisites={**REQUISITES, "surveyor_name": "Сидоров С.С."}))
+    design.as_drilled_holes = [as_drilled_from_design_hole(hole) for hole in design.holes if hole.enabled][:-2]
+    first = design.as_drilled_holes[0]
+    first.actual_collar = Point3(first.actual_collar.x + 0.8, first.actual_collar.y, first.actual_collar.z)
+    first.actual_toe = Point3(first.actual_toe.x + 0.8, first.actual_toe.y, first.actual_toe.z)
+    design.as_charged_holes = [as_charged_from_design_load(load) for load in design.loads]
+    for item in design.as_charged_holes:
+        item.charge_mass_kg += 2.0
+    seed = layer_seed("EXECUTION", context, facts=[block_fact(design, context["blocks_v2"][0]["parameter_table"], MATERIALS)])
+    payload = {"blast_date": "2026-10-14", "blast_time": "13:05", "misfired_holes": ["17"], "hole_notes": {}}
+    view, _issues = execution_view(seed, payload)
+    return {"kind": "EXECUTION", "seed": seed, "payload": payload, "view": view, "context66": context}
+
+
+def test_fact_document_table_and_g1(fact_revision):
+    pdf = render_layer_document(fact_revision)
+    pages = _pages(pdf)
+    # Исполнительная таблица 63 + 73 + 60 и лист Г.1 по съёмке — одна нумерация.
+    assert len(pages) == 4
+    assert "Стр. 4 из 4" in _text(pages[3])
+    first = _text(pages[0])
+    assert "(ФАКТ)" in first and "взрыв по факту" in first and "13:05" in first
+    last_table = _text(pages[2])
+    assert "бурение — 194 из 196 скв., заряжание — 196 из 196 скв.; отказов — 1" in last_table
+    assert "отказ" in _text(pages[0])
+    width, height = pages[3].get_size()
+    assert width > height
+    g1 = _text(pages[3])
+    assert "по исполнительной съёмке" in g1 and "без съёмки" in g1
+    assert "№ 1 — 0,80 м" in g1 and "Сидоров С.С." in g1
+    assert render_layer_document(fact_revision) == pdf
+
+
+def test_package_puts_fact_document_eleventh(context, fact_revision):
+    layers = [
+        {"kind": "EXECUTION", "revision_no": 1, "context": fact_revision},
+        {"kind": "TALON", "revision_no": 1, "context": _layer_revision(context, "TALON")},
+    ]
+    archive = zipfile.ZipFile(io.BytesIO(render_package(context, layers, manifest={})))
+    names = archive.namelist()
+    assert names[-3:] == ["09_Талон-допуск.pdf", "11_Таблица_параметров_(исполнительная).pdf", "manifest.json"]
+    assert len(_pages(archive.read("11_Таблица_параметров_(исполнительная).pdf"))) == 4
+
+
+def test_naryad_prints_after_blast_columns(fact_revision):
+    context = fact_revision["context66"]
+    summary = execution_summary(fact_revision, "lr-1")
+    seed = layer_seed("NARYAD", context, execution=summary)
+    payload = {"vv_site": False, "issued": {}, "consumed": {}, "returned": {}}
+    lines = naryad_lines(seed, payload, {})
+    payload["issued"] = {line["key"]: line["issue_qty"] + 500 if line["kind"] == "explosive" else line["issue_qty"]
+                         for line in lines}
+    after, blocks, _issues = naryad_after_blast(seed, payload, lines)
+    view = {"lines": after, "totals": naryad_totals(seed, lines), "blocks_fact": blocks, "after_blast": True}
+    page = _text(_pages(render_layer_document({"kind": "NARYAD", "seed": seed, "payload": payload, "view": view}))[0])
+    explosive = next(line for line in after if line["kind"] == "explosive")
+    assert f"{explosive['consumed_qty']:,.1f}".replace(",", " ").replace(".", ",") in page
+    assert "195" in page and "33 051,3" in page  # взорвано зарядов; израсходовано ВВ, кг
+
+
+def test_new_empty_after_blast_keys_print_like_before(context):
+    revision = _layer_revision(context, "NARYAD")
+    with_keys = copy.deepcopy(revision)
+    with_keys["payload"] = {"issued": {}, "consumed": {}, "returned": {}}
+    assert render_layer_document(with_keys) == render_layer_document(revision)
+
+
+def test_talon_and_acceptance_print_fact(context, fact_revision):
+    seed = layer_seed("TALON", context)
+    payload = {"fired_date": "2026-10-14", "fired_time": "23:45"}
+    talon = _text(_pages(render_layer_document({"kind": "TALON", "seed": seed, "payload": payload,
+                                                "view": talon_view(seed, payload)}))[0])
+    assert talon.count("00:15 (15.10.2026)") == 2
+    project_time = _text(_pages(render_layer_document({"kind": "TALON", "seed": seed, "payload": {},
+                                                       "view": talon_view(seed, {})}))[0])
+    assert "13:30 *" in project_time and "по проектному времени взрыва" in project_time
+
+    seed = layer_seed("ACCEPTANCE_ACT", context, execution=execution_summary(fact_revision, "lr-1"))
+    view, _issues = acceptance_view(seed, {"accepted_volume_m3": 30000})
+    act = _text(_pages(render_layer_document({"kind": "ACCEPTANCE_ACT", "seed": seed,
+                                              "payload": {"accepted_volume_m3": 30000}, "view": {"fact": view}}))[0])
+    assert "Параметры взрывных работ (по факту)" in act and "Израсходовано ВВ, кг" in act
+    assert "«14» октября 2026 г." in act
+    assert "(по проекту)" in act  # сетка: факт бурения не у всех скважин

@@ -17,9 +17,11 @@ from cost.v2.repository import EconomicsRepository
 from design import persistence as design_persistence
 from design.mass_blast import ProjectBlock
 from design.mass_blast_context import BlockSource, ContextReferences, build_document_context_v2
+from design.mass_blast_defaults import DefaultsInputs, fill_empty, project_defaults
+from design.reporting.brand import ORGANIZATION
 from design.models import BlastDesign
 
-__all__ = ["context_v2", "load_block_designs", "V2_PAYLOAD_KEYS"]
+__all__ = ["context_v2", "defaults_v2", "load_block_designs", "V2_PAYLOAD_KEYS"]
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +34,7 @@ V2_PAYLOAD_KEYS = (
     "personnel",
     "protected_objects",
     "safety_overrides",
+    "layout_points",
 )
 
 
@@ -105,17 +108,87 @@ def _situation(organization_id: str, designs: Sequence[BlastDesign]) -> tuple[li
     return layers, issues, bool(refs)
 
 
+def _drill_passports(organization_id: str, designs: Sequence[BlastDesign]) -> list[dict[str, Any] | None]:
+    """Последний изменённый паспорт на бурение каждого блока (его payload) или None."""
+
+    try:
+        from api.services.drilling_passport_service import get_drilling_passport_repository
+
+        repository = get_drilling_passport_repository()
+        result: list[dict[str, Any] | None] = []
+        for design in designs:
+            passports = list(repository.list_passports(organization_id, design.design_id))
+            result.append(dict(passports[0].get("payload") or {}) if passports else None)
+        return result
+    except Exception:  # noqa: BLE001 — паспорт даёт только умолчания: без него проект считается
+        logger.warning("Паспорта на бурение блоков проекта МВ не прочитаны", exc_info=True)
+        return [None for _ in designs]
+
+
+def _customer_name(snapshot: Any, site_code: str) -> str:
+    from api.services.drilling_passport_prefill import _customer
+
+    item = snapshot.item("sites", site_code) if site_code else None
+    return _customer(snapshot, dict(item.payload or {})) if item is not None else ""
+
+
+def defaults_v2(
+    organization_id: str,
+    payload: Mapping[str, Any],
+    designs: Sequence[BlastDesign],
+    snapshot: Any,
+    *,
+    previous: Sequence[Mapping[str, Any]] = (),
+    created_on: str = "",
+    author: str = "",
+) -> dict[str, dict[str, Any]]:
+    """Значения по умолчанию полей проекта (В1–В5): справочник объекта, проект блока,
+    паспорт на бурение, прошлый проект объекта, правила."""
+
+    site_code = str(payload.get("site_code") or "")
+    inputs = DefaultsInputs(
+        designs=list(designs),
+        site=_site_record(snapshot, "mass_blast_sites", site_code) or {},
+        customer_name=_customer_name(snapshot, site_code),
+        drill_passports=_drill_passports(organization_id, designs),
+        previous=previous,
+        organization=ORGANIZATION,
+        created_on=created_on,
+    )
+    defaults = project_defaults(payload, inputs)
+    # «Составил» без источника — тот, кто создал проект (В4): ФИО учётки, без должности.
+    if author and "requisites.made_by.name" not in defaults:
+        defaults["requisites.made_by.name"] = {"value": author, "source": "RULE"}
+    return defaults
+
+
 def context_v2(
     organization_id: str,
     payload: Mapping[str, Any],
     blocks: Sequence[ProjectBlock],
     economics_repository: EconomicsRepository,
     reference_revision_id: str | None,
+    *,
+    previous: Sequence[Mapping[str, Any]] = (),
+    created_on: str = "",
+    author: str = "",
+    defaults_out: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
-    """Контекст v2 и сообщения об изменившихся источниках блоков."""
+    """Контекст v2 и сообщения об изменившихся источниках блоков.
+
+    Пустые поля проекта заполняются значениями по умолчанию (§14 плана PR 6):
+    документы печатают то же, что окно показывает в полях. Сами значения —
+    в `defaults_out` (для окна).
+    """
 
     designs, stale = load_block_designs(organization_id, blocks)
     snapshot = economics_repository.get_reference_snapshot(organization_id, reference_revision_id or None)
+    defaults = defaults_v2(
+        organization_id, payload, designs, snapshot, previous=previous, created_on=created_on, author=author,
+    )
+    if defaults_out is not None:
+        defaults_out.update(defaults)
+    payload = fill_empty(payload, defaults)
     site_code = str(payload.get("site_code") or "")
     site_safety = _site_record(snapshot, "blast_safety", site_code)
     site = _site_record(snapshot, "mass_blast_sites", site_code)

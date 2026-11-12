@@ -184,7 +184,8 @@ export function NaryadForm({ layer, draft, set, disabled, errors, afterBlast, re
         <Text {...common} disabled={disabled || locked("issue_date")} name="issue_date" label="Дата выписки" type="date" />
         <Text {...common} name="warehouse" label="Склад выдачи" max={200} />
         <Text {...common} name="permit" label="Разрешение на ведение взрывных работ" max={300} />
-        {!magex && <Text {...common} name="blaster_index" label="Индивидуальный индекс взрывника" max={40} />}
+        {/* В учёте MagEX индекс — из справочника «Взрывники»; вне учёта — вводится здесь. */}
+        {!online && <Text {...common} name="blaster_index" label="Индивидуальный индекс взрывника" max={40} />}
         <Text {...common} name="vehicle" label="Спецавтомобиль" max={200} />
         <Text {...common} name="driver" label="Водитель" max={200} />
         <Text {...common} name="delivery" label="Лица, привлекаемые к доставке" max={300} />

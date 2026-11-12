@@ -421,10 +421,11 @@ def _magex_state(repository: PostgresMassBlastRepository, organization_id: str, 
 
     if layer["kind"] == "NARYAD":
         state: dict[str, Any] = {"magex": magex.layer_state(repository, organization_id, layer["id"])}
-        execution = (state["magex"] or {}).get("execution")
+        accepted_lines = state["magex"].pop("accepted_lines", [])
+        execution = state["magex"].get("execution")
         if execution:
             state["magex_execution"] = execution
-            state["magex_lines"] = _accepted_magex_lines(repository, organization_id, layer["id"])
+            state["magex_lines"] = accepted_lines
         return state
     total = 0.0
     found = False

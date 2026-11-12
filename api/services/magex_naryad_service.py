@@ -350,9 +350,17 @@ def approve(
     accepted = _accepted(versions)
     if accepted is not None:
         previous = decode_content(accepted["jws"])
-        if _semantic_sha(previous) == _semantic_sha(content):
+        # Версия новее принятой ещё в пути (очередь): возврат к принятой выписке — тоже новая
+        # версия, иначе ожидающая ушла бы позже и перезаписала её.
+        in_flight = any(item["ver"] > accepted["ver"] and item["status"] in ("PENDING", "SENDING") for item in versions)
+        if _semantic_sha(previous) == _semantic_sha(content) and not in_flight:
             # Без изменений — повтор принятой строки, а не новая версия (§5.5).
             return _resend(repository, organization_id, layer_id, accepted, client)
+        try:
+            # Выдачу на складе BlastEX узнаёт только из исполнения: перед проверкой запретов — свежее.
+            repository.save_magex_execution(organization_id, layer_id, client.get_naryad(layer_id))
+        except MagexError:
+            pass
         if _issued(repository, organization_id, layer_id):
             locked = locked_issue(previous, content)
             if locked:
@@ -363,6 +371,10 @@ def approve(
         return jws_module.sign_naryad(versioned, key), key.kid, _semantic_sha(versioned)
 
     version = repository.create_magex_version(organization_id, actor, layer_id, build)
+    # Сразу в очередь со сроком аренды: если процесс упадёт до ответа MagEX, версию отправит очередь.
+    version = repository.update_magex_version(
+        version["id"], status="PENDING", next_attempt_at=now + timedelta(seconds=LEASE_S),
+    )
     signed = decode_content(version["jws"])
     merged, _ = magex_lines(lines, ctx.materials, ctx.catalog)
     magex_snapshot = {
@@ -508,20 +520,23 @@ def refresh_execution(repository: Any, organization_id: str, layer_id: str, *, t
     return state
 
 
-def _material_names(repository: Any, organization_id: str, accepted: Mapping[str, Any] | None) -> dict[str, str]:
-    """Позиция MagEX → наименования строк наряда (для таблицы исполнения в окне)."""
+def _accepted_lines(
+    repository: Any, organization_id: str, accepted: Mapping[str, Any] | None,
+) -> tuple[dict[str, str], list[dict[str, Any]]]:
+    """Строки выписки принятой версии и наименования позиций MagEX (одно чтение ревизии)."""
 
     if not accepted or not accepted.get("layer_revision_id"):
-        return {}
+        return {}, []
     try:
         context = repository.get_layer_revision(organization_id, accepted["layer_revision_id"]).get("context") or {}
-    except Exception:  # noqa: BLE001 — без имён таблица покажет позицию MagEX
-        return {}
+    except Exception:  # noqa: BLE001 — без снимка таблица покажет позицию MagEX
+        return {}, []
+    lines = list((context.get("magex") or {}).get("lines") or [])
     names = {str(line.get("key")): str(line.get("name") or "") for line in (context.get("view") or {}).get("lines") or []}
     return {
         str(row.get("material_id")): ", ".join(names.get(str(key), str(key)) for key in row.get("keys") or [])
-        for row in (context.get("magex") or {}).get("lines") or []
-    }
+        for row in lines
+    }, lines
 
 
 def layer_state(repository: Any, organization_id: str, layer_id: str) -> dict[str, Any]:
@@ -543,7 +558,10 @@ def layer_state(repository: Any, organization_id: str, layer_id: str) -> dict[st
     state["latest"] = state["versions"][-1] if latest else None
     accepted = _accepted(versions)
     state["accepted_ver"] = accepted["ver"] if accepted else None
-    state["material_names"] = _material_names(repository, organization_id, accepted)
+    names, accepted_lines = _accepted_lines(repository, organization_id, accepted)
+    state["material_names"] = names
+    # Строки выписки принятой версии (позиция MagEX → ключи строк наряда): графы после взрыва.
+    state["accepted_lines"] = accepted_lines
     stored = repository.magex_execution(organization_id, layer_id)
     if stored:
         execution = stored["execution"]

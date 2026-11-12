@@ -350,3 +350,41 @@ def test_semantic_hash_ignores_signing_moment():
     assert magex._semantic_sha(content) == magex._semantic_sha(later)
     assert content_sha256(content) != content_sha256(later)
     assert json.dumps(content, ensure_ascii=False).count("\\u") == 0
+
+
+def test_back_to_accepted_while_newer_is_queued_is_a_new_version():
+    repository, fake = MemoryRepository(), FakeMagex()
+    _approve(repository, fake)
+    original = dict(repository.layer["payload"])
+    fake.down = True
+    repository.layer["payload"] = {**original, "reserve": {"primer:ПД Сферит-ДП 1000 г:": 5}}
+    assert _approve(repository, fake)["outcome"] == "PENDING"
+    fake.down = False
+    repository.layer["payload"] = original
+    result = _approve(repository, fake)
+    # Не «без изменений»: ожидающая v2 заменена, в MagEX — v3 с исходной выпиской.
+    assert result["outcome"] == "ACCEPTED"
+    assert [(item["ver"], item["status"]) for item in repository.versions] == [(1, "ACCEPTED"), (2, "SUPERSEDED"), (3, "ACCEPTED")]
+    assert magex.process_due(repository, transport=fake, now=NOW + timedelta(hours=2)) == 0
+
+
+def test_new_version_is_queued_before_sending():
+    """Процесс упал между созданием версии и ответом MagEX — версию отправит очередь."""
+
+    repository, fake = MemoryRepository(), FakeMagex()
+    seen = []
+    original_put = magex.MagexClient.put_naryad
+
+    def crash(self, naryad_id, token):
+        seen.append(repository.versions[-1]["status"])
+        raise RuntimeError("процесс упал")
+
+    magex.MagexClient.put_naryad = crash
+    try:
+        with pytest.raises(RuntimeError):
+            _approve(repository, fake)
+    finally:
+        magex.MagexClient.put_naryad = original_put
+    assert seen == ["PENDING"]
+    assert magex.process_due(repository, transport=fake, now=NOW + timedelta(seconds=magex.LEASE_S + 1)) == 1
+    assert repository.versions[0]["status"] == "ACCEPTED"

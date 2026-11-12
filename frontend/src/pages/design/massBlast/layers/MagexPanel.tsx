@@ -29,7 +29,8 @@ export function canDownload(layer: MassBlastLayer): boolean {
   const state = magexState(layer);
   if (state?.mode !== "ONLINE") return true;
   const version = (state.versions ?? []).find((item) => item.layer_revision_id === layer.current_revision_id);
-  return version?.status === "ACCEPTED";
+  // Ревизия без версии MagEX выпущена до включения интеграции — печатается как раньше.
+  return !version || version.status === "ACCEPTED";
 }
 
 function moment(text: string | null | undefined): string {

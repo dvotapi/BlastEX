@@ -127,6 +127,8 @@ describe("наряд-путёвка в учёте MagEX", () => {
     expect(await screen.findByText(/Вне учёта MagEX: Не задан адрес MagEX/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Выпустить ревизию" })).toBeTruthy();
     expect(screen.queryByText("Доступно на складе")).toBeNull();
+    // Вне учёта индекс взрывника вводится в наряде — он печатается в форме 4.
+    expect(screen.getByLabelText("Индивидуальный индекс взрывника")).toBeTruthy();
   });
 
   it("отмена в MagEX — с причиной", async () => {

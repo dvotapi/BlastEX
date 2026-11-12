@@ -98,8 +98,10 @@ export function MassBlastPanel({ designId, designName }: { designId: string; des
                   if (!window.confirm("Перевести черновик на форму ВМ.09.03? Обратно на прежнюю форму перевести нельзя.")) return;
                   setBusy(true);
                   setError("");
+                  // Черновик могли сохранить в прежней панели: версия — свежая, с сервера.
                   api.massBlast
-                    .saveV2(found.project!.id, convertInput(found.project!))
+                    .getV2(found.project!.id)
+                    .then((fresh) => api.massBlast.saveV2(fresh.id, convertInput(fresh)))
                     .then(() => setReload((value) => value + 1))
                     .catch((reason) => setError(errorText(reason, "Не удалось перевести проект.")))
                     .finally(() => setBusy(false));

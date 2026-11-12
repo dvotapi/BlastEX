@@ -48,7 +48,8 @@ export function payloadFromDraft(kind: MassBlastLayer["kind"], draft: LayerDraft
   }
   if (kind === "EXECUTION") {
     payload.misfired_holes = String(draft.misfired_text ?? "")
-      .split(/[\s,;]+/)
+      // Только явные разделители: код блока может содержать пробел («66 север:1»).
+      .split(/[,;\n]+/)
       .map((item) => item.trim())
       .filter(Boolean);
     payload.hole_notes = Object.fromEntries(

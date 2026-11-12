@@ -114,6 +114,23 @@ describe("окно проекта МВ", () => {
     expect(screen.queryByRole("button", { name: "Сохранить" })).toBeNull();
   });
 
+  it("правки слоя не теряются при переходе на другую вкладку, закрытие спрашивает про них", async () => {
+    const user = userEvent.setup();
+    const { layer } = await import("./testFixtures");
+    vi.mocked(api.massBlast.layers).mockResolvedValue([layer()]);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const onClose = vi.fn();
+    render(<MassBlastDialog project={projectV2({ lifecycle_status: "approved", current_revision_id: "r1" })} onClose={onClose} onChange={() => {}} />);
+    await user.type(await screen.findByLabelText("Запас: ВВ"), "50");
+    await user.click(screen.getByRole("button", { name: "Реквизиты" }));
+    await user.click(screen.getByRole("button", { name: "День взрыва" }));
+    expect((screen.getByLabelText("Запас: ВВ") as HTMLInputElement).value).toBe("50");
+    await user.click(screen.getByRole("button", { name: "Закрыть" }));
+    expect(confirm).toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    confirm.mockRestore();
+  });
+
   it("ручные коэффициенты подписаны по схеме справочника, с источником значения", async () => {
     const user = userEvent.setup();
     render(<MassBlastDialog project={projectV2()} onClose={() => {}} onChange={() => {}} />);

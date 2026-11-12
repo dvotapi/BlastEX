@@ -2,7 +2,7 @@
 // документы дня взрыва. Какие слои можно открыть — решает сервер
 // (`GET …/layers/available`); перенос заново показывает расхождение до
 // подтверждения; выпуск — неизменяемая ревизия слоя.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../../../api/endpoints";
 import type {
   LayerAvailability,
@@ -26,6 +26,7 @@ function LayerCard({
   projectStatus,
   onChange,
   onIssued,
+  onDirty,
 }: {
   layer: MassBlastLayer;
   label: string;
@@ -33,6 +34,8 @@ function LayerCard({
   onChange: (layer: MassBlastLayer) => void;
   /** Выпуск ревизии меняет и другие слои (новая ревизия «Факта» — `fact_layer_stale` у наряда и акта приёмки). */
   onIssued: () => Promise<void>;
+  /** Есть ли у карточки несохранённые правки — окно спросит перед закрытием. */
+  onDirty: (layerId: string, dirty: boolean) => void;
 }) {
   const [draft, setDraft] = useState<LayerDraft>(() => draftFromPayload(layer));
   const [dirty, setDirty] = useState(false);
@@ -54,6 +57,11 @@ function LayerCard({
     setDirty(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layer.id, layer.version, layer.status, layer.current_revision_id]);
+
+  useEffect(() => {
+    onDirty(layer.id, dirty);
+  }, [dirty, layer.id, onDirty]);
+  useEffect(() => () => onDirty(layer.id, false), [layer.id, onDirty]);
 
   function set(key: string, value: unknown) {
     setDraft((current) => ({ ...current, [key]: value }));
@@ -187,7 +195,19 @@ function cardLabel(layer: MassBlastLayer, label: string, number: number): string
   return number ? `${label} № ${number}` : label;
 }
 
-export function DayTab({ project }: { project: MassBlastProjectV2 }) {
+export function DayTab({ project, onDirty }: {
+  project: MassBlastProjectV2;
+  /** Есть ли несохранённые правки хоть в одном слое. */
+  onDirty?: (dirty: boolean) => void;
+}) {
+  const dirtyLayers = useRef(new Set<string>());
+  const markDirty = useCallback((layerId: string, dirty: boolean) => {
+    const before = dirtyLayers.current.size > 0;
+    if (dirty) dirtyLayers.current.add(layerId);
+    else dirtyLayers.current.delete(layerId);
+    const after = dirtyLayers.current.size > 0;
+    if (before !== after) onDirty?.(after);
+  }, [onDirty]);
   const [layers, setLayers] = useState<MassBlastLayer[]>([]);
   const [available, setAvailable] = useState<LayerAvailability[]>([]);
   const [addressees, setAddressees] = useState<NotificationAddressees | null>(null);
@@ -253,7 +273,7 @@ export function DayTab({ project }: { project: MassBlastProjectV2 }) {
         return (
           <section key={kind} className="mb-layer-group" aria-label={label}>
             {own.map((layer, index) => (
-              <LayerCard key={layer.id} layer={layer} projectStatus={project.lifecycle_status} onChange={replace} onIssued={reload}
+              <LayerCard key={layer.id} layer={layer} projectStatus={project.lifecycle_status} onChange={replace} onIssued={reload} onDirty={markDirty}
                 label={cardLabel(layer, label, own.length > 1 ? index + 1 : 0)} />
             ))}
             {info && !info.can_open && own.length === 0 && (

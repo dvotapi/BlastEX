@@ -64,6 +64,9 @@ export function MassBlastDialog({
   const [project, setProject] = useState(initial);
   const [form, setForm] = useState<ProjectForm>(() => formFromProject(initial));
   const [dirty, setDirty] = useState(false);
+  // Несохранённые правки слоёв дня взрыва: вкладка слоёв не размонтируется при
+  // переходе на другие вкладки, а закрытие окна спрашивает и про них.
+  const [layersDirty, setLayersDirty] = useState(false);
   const [validation, setValidation] = useState<MassBlastValidationV2 | null>(null);
   const [hints, setHints] = useState<MassBlastHints | null>(null);
   const [accounts, setAccounts] = useState<MassBlastAccount[]>([]);
@@ -226,7 +229,7 @@ export function MassBlastDialog({
   };
 
   function requestClose() {
-    if (dirty && !window.confirm("В проекте есть несохранённые правки. Закрыть без сохранения?")) return;
+    if ((dirty || layersDirty) && !window.confirm("В проекте есть несохранённые правки. Закрыть без сохранения?")) return;
     ref.current?.close?.();
     onClose();
   }
@@ -260,7 +263,7 @@ export function MassBlastDialog({
         <span className="cad-files">
           {STATUS_LABELS[project.lifecycle_status]}
           {project.current_revision_id ? " · ревизия выпущена" : ""}
-          {dirty ? " · есть несохранённые правки" : ""}
+          {dirty || layersDirty ? " · есть несохранённые правки" : ""}
         </span>
         <span className="cad-header-actions">
           <MassBlastHelp />
@@ -299,7 +302,11 @@ export function MassBlastDialog({
               onRelease={() => void onRelease()} onApprove={(role) => void onApprove(role)} onTransition={onTransition}
               onOpenIssue={(issue) => setTab(tabForIssue(issue))} />
           )}
-          {tab === "day" && approvedLike && <DayTab project={project} />}
+          {approvedLike && (
+            <div hidden={tab !== "day"}>
+              <DayTab project={project} onDirty={setLayersDirty} />
+            </div>
+          )}
         </div>
       </div>
       <footer className="mb-footer">

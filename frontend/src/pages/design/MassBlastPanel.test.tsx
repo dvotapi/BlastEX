@@ -74,7 +74,10 @@ describe("панель «Проект МВ»", () => {
     const user = userEvent.setup();
     vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.mocked(api.massBlast.list).mockResolvedValue([summary]);
-    vi.mocked(api.massBlast.getV2).mockResolvedValue(projectV2({ context_version: 1 }));
+    vi.mocked(api.massBlast.getV2).mockResolvedValueOnce(projectV2({ context_version: 1 }))
+      // Черновик сохранили в прежней панели — перевод берёт свежую версию с сервера.
+      .mockResolvedValueOnce(projectV2({ context_version: 1, version: 5 }))
+      .mockResolvedValue(projectV2());
     vi.mocked(api.massBlast.saveV2).mockResolvedValue(projectV2());
     render(<MassBlastPanel designId="d66" designName="Блок 66" />);
     expect(await screen.findByText("Прежняя панель")).toBeTruthy();
@@ -82,7 +85,7 @@ describe("панель «Проект МВ»", () => {
     await waitFor(() => expect(api.massBlast.saveV2).toHaveBeenCalled());
     const [, input] = vi.mocked(api.massBlast.saveV2).mock.calls[0];
     expect(input.context_version).toBe(2);
-    expect(input.expected_version).toBe(3);
+    expect(input.expected_version).toBe(5);
   });
 
   it("утверждённый проект: «Весь комплект» на панели", async () => {

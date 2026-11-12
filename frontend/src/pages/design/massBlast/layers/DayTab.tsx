@@ -25,11 +25,14 @@ function LayerCard({
   label,
   projectStatus,
   onChange,
+  onIssued,
 }: {
   layer: MassBlastLayer;
   label: string;
   projectStatus: MassBlastProjectV2["lifecycle_status"];
   onChange: (layer: MassBlastLayer) => void;
+  /** Выпуск ревизии меняет и другие слои (новая ревизия «Факта» — `fact_layer_stale` у наряда и акта приёмки). */
+  onIssued: () => Promise<void>;
 }) {
   const [draft, setDraft] = useState<LayerDraft>(() => draftFromPayload(layer));
   const [dirty, setDirty] = useState(false);
@@ -99,7 +102,9 @@ function LayerCard({
     if (!saved) return;
     const revision = await api.massBlast.issueLayer(saved.id, { expected_version: saved.version });
     setRevisionNo(revision.revision_no);
-    onChange(await api.massBlast.getLayer(saved.id));
+    // Весь список: у зависимых слоёв появляются замечания и «Перенести данные заново»;
+    // их несохранённые правки не стираются (версия у них прежняя).
+    await onIssued();
     setMessage({ text: `Выпущена ревизия слоя № ${revision.revision_no}.`, error: false });
   }, "Не удалось выпустить ревизию слоя.");
 
@@ -248,7 +253,7 @@ export function DayTab({ project }: { project: MassBlastProjectV2 }) {
         return (
           <section key={kind} className="mb-layer-group" aria-label={label}>
             {own.map((layer, index) => (
-              <LayerCard key={layer.id} layer={layer} projectStatus={project.lifecycle_status} onChange={replace}
+              <LayerCard key={layer.id} layer={layer} projectStatus={project.lifecycle_status} onChange={replace} onIssued={reload}
                 label={cardLabel(layer, label, own.length > 1 ? index + 1 : 0)} />
             ))}
             {info && !info.can_open && own.length === 0 && (

@@ -77,6 +77,23 @@ describe("слои дня взрыва", () => {
     expect((screen.getByLabelText("Запас: ВВ") as HTMLInputElement).value).toBe("50");
   });
 
+  it("выпуск «Факта» обновляет замечания наряда без перезагрузки вкладки", async () => {
+    const user = userEvent.setup();
+    const execution = layer({ id: "e1", kind: "EXECUTION", payload: {}, view: { blocks: [] } });
+    vi.mocked(api.massBlast.layers).mockResolvedValue([layer(), execution]);
+    vi.mocked(api.massBlast.issueLayer).mockReset().mockResolvedValue({ id: "er1", layer_id: "e1", revision_no: 1, project_revision_id: "r1", content_sha256: "", created_at: "" });
+    render(<DayTab project={projectV2({ lifecycle_status: "executed", current_revision_id: "r1" })} />);
+    await screen.findByLabelText("Запас: ВВ");
+    vi.mocked(api.massBlast.layers).mockResolvedValue([
+      layer({ issues: [{ level: "warning", code: "fact_layer_stale", message: "Выпущена новая ревизия слоя «Факт».", path: "seed.fact" }] }),
+      { ...execution, status: "issued", current_revision_id: "er1" },
+    ]);
+    const factCard = screen.getByText("Таблица параметров (исполнительная) и Г.1 по съёмке").closest("fieldset")!;
+    await user.click(within(factCard as HTMLElement).getByRole("button", { name: "Выпустить ревизию" }));
+    expect(await screen.findByText("Выпущена новая ревизия слоя «Факт».")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Перенести данные заново" })).toBeTruthy();
+  });
+
   it("графы после взрыва — только когда взрыв произведён", async () => {
     const { unmount } = render(<DayTab project={approved} />);
     await screen.findByLabelText("Запас: ВВ");

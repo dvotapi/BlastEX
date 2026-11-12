@@ -1078,7 +1078,6 @@ export const api = {
     layers: (id: string) => get<MassBlastLayer[]>(`${MB}/${encodeURIComponent(id)}/layers`),
     createLayer: (id: string, payload: { kind: LayerKind; payload?: Record<string, unknown> }) =>
       post<MassBlastLayer>(`${MB}/${encodeURIComponent(id)}/layers`, payload),
-    getLayer: (layerId: string) => get<MassBlastLayer>(`${MB}/layers/${encodeURIComponent(layerId)}`),
     saveLayer: (layerId: string, payload: { payload: Record<string, unknown>; expected_version: number }) =>
       put<MassBlastLayer>(`${MB}/layers/${encodeURIComponent(layerId)}`, payload),
     refreshLayer: (layerId: string, payload: { expected_version: number; confirm: boolean }) =>

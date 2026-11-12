@@ -5,7 +5,7 @@ TASK-013 по видам, охраняемые объекты с номером 
 постов, взрывной станции, укрытия и места сбора (`layout_points`). Справа —
 зоны, охраняемые объекты, посты, станция. Масштаб — ряд Г.5 1:2000 / 1:5000 /
 1:10 000 / 1:25 000 (решение владельца В4), самый крупный, при котором зона
-для людей, объекты и точки помещаются. Данные — `context["graphics"]`.
+для людей (и большие зоны), объекты и точки помещаются. Данные — `context["graphics"]`.
 """
 from __future__ import annotations
 
@@ -50,10 +50,10 @@ NO_SITUATION = "Ситуации карьера нет: объекты, пост
 
 def _extent(graphics: Mapping[str, Any]) -> list[tuple[float, float]]:
     points: list[tuple[float, float]] = []
+    # Все кольца зон: зона для механизмов или зданий бывает больше зоны для людей.
     for zone in graphics.get("zones") or ():
-        if zone.get("kind") == "people":
-            for ring in zone.get("rings") or ():
-                points += plan_sheet.line(ring)
+        for ring in zone.get("rings") or ():
+            points += plan_sheet.line(ring)
     for ring in graphics.get("outlines") or ():
         points += plan_sheet.line(ring)
     for item in graphics.get("points") or ():

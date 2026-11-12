@@ -64,6 +64,10 @@ def _points(graphics: Mapping[str, Any]) -> list[XY]:
     for key in ("crest_top", "crest_toe"):
         for item in plan.get(key) or ():
             found += plan_sheet.line(item)
+    # Заходки СЗМ (Г.3) выходят за крайние скважины — за тыльный ряд и на
+    # полшага за крайнюю колонку: вид общий на три листа, они должны поместиться.
+    for item in (graphics.get("szm") or {}).get("passes") or ():
+        found += plan_sheet.line(item.get("points") or ())
     return found
 
 
@@ -259,6 +263,9 @@ def _g1_note(graphics: Mapping[str, Any], with_mass: bool) -> str:
 
 # --------------------------------------------------------------- Г.3
 
+PASS_MARKER_MM = 1.8
+
+
 def _pass_marker(x: float, y: float, number: int) -> Group:
     group = Group()
     group.add(Circle(x * mm, y * mm, 1.7 * mm, fillColor=white, strokeColor=BLUE, strokeWidth=0.6))
@@ -292,9 +299,13 @@ def g3_drawings(graphics: Mapping[str, Any], view: PlanView, zones: Mapping[str,
         line = [view.xy(p) for p in plan_sheet.line(item.get("points") or ())]
         if len(line) < 2:
             continue
-        d.add(PolyLine(pts(line[:-1]), strokeColor=BLUE, strokeWidth=1.1))
+        for part in _clip(line[:-1]):
+            d.add(PolyLine(pts(part), strokeColor=BLUE, strokeWidth=1.1))
         d.add(arrow(line[-2], line[-1], BLUE, width=1.1, head_mm=1.8))
-        d.add(_pass_marker(*line[0], int(item.get("number") or 0)))
+        # Кружок с номером — целиком в поле (у края центр сдвигается внутрь).
+        mx = min(max(line[0][0], PASS_MARKER_MM), FIELD_W_MM - PASS_MARKER_MM)
+        my = min(max(line[0][1], PASS_MARKER_MM), FIELD_H_MM - PASS_MARKER_MM)
+        d.add(_pass_marker(mx, my, int(item.get("number") or 0)))
     _label(d, view, szm.get("rear_label"), "тыл блока — въезд / выезд СЗМ", GRAPHITE)
     _label(d, view, szm.get("front_label"), "бровка (первый ряд)", RED)
     field_frame(d)

@@ -185,7 +185,7 @@ def test_profile_and_situation_scales(context):
     small = copy.deepcopy(context["graphics"])
     small["zones"] = [zone for zone in small["zones"] if zone["kind"] == "buildings"]
     small["points"], small["objects"] = [], []
-    assert situation.situation_view(small).scale in (2000, 5000)
+    assert situation.situation_view(small).scale in (5000, 10000)   # кольцо зоны для зданий — целиком
 
 
 # --- документ «Графика» -------------------------------------------------------
@@ -314,3 +314,42 @@ def test_section_lines_stay_inside_field():
             xs, ys = shape.points[0::2], shape.points[1::2]
             assert min(xs) >= -0.01 and max(xs) <= FIELD_W_MM * mm + 0.01
             assert min(ys) >= -0.01 and max(ys) <= FIELD_H_MM * mm + 0.01
+
+
+def test_situation_view_includes_the_largest_zone(context):
+    graphics = copy.deepcopy(context["graphics"])
+    graphics["points"], graphics["objects"] = [], []
+    people = next(zone for zone in graphics["zones"] if zone["kind"] == "people")
+    cx = sum(x for x, _y in people["rings"][0]) / len(people["rings"][0])
+    cy = sum(y for _x, y in people["rings"][0]) / len(people["rings"][0])
+    # Зона для людей мала (150 м), зона для зданий — 1,2 км: масштаб — по большему кольцу.
+    people["rings"] = [[[cx + 150 * math.cos(a / 10), cy + 150 * math.sin(a / 10)] for a in range(63)]]
+    buildings = next(zone for zone in graphics["zones"] if zone["kind"] == "buildings")
+    buildings["rings"] = [[[cx + 1200 * math.cos(a / 10), cy + 1200 * math.sin(a / 10)] for a in range(63)]]
+    view = situation.situation_view(graphics)
+    ring = [view.xy(tuple(p)) for p in buildings["rings"][0]]
+    assert all(0 <= x <= situation.MAP_W_MM and 0 <= y <= situation.MAP_H_MM for x, y in ring)
+
+
+def test_szm_routes_fit_the_shared_view():
+    from design.mass_blast_graphics import block_graphics
+    from design.models import BlockContour, Hole, Point3
+
+    design = _design66()
+    # 7 колонок шагом 10 м: последняя заходка — на полшага (5 м) за крайней колонкой, за контуром.
+    design.holes = [
+        Hole(id=str(n), row=0, col=0, collar=Point3(1000 + x, 2000 + y, 400.0), toe=Point3(1000 + x, 2000 + y, 388.0),
+             diameter_mm=144.0, subdrill_m=1.5)
+        for n, (x, y) in enumerate(((x, y) for x in range(2, 63, 10) for y in (2, 7, 12)), start=1)
+    ]
+    design.loads, design.network.surface_connectors, design.network.connectors = [], [], []
+    design.pattern_params = {"pattern": "square", "spacing_a_m": 10.0}
+    design.contour = BlockContour(vertices=[Point3(1000 + x, 2000 + y, 0) for x, y in ((0, 0), (64, 0), (64, 15), (0, 15))],
+                                  free_faces=[[0, 1]])
+    graphics, _ = block_graphics(design, [])
+    assert len(graphics["szm"]["passes"]) == 4
+    view = plans.block_view(graphics)
+    for item in graphics["szm"]["passes"]:
+        for point in item["points"]:
+            x, y = view.xy(tuple(point))
+            assert 0 <= x <= FIELD_W_MM and 0 <= y <= FIELD_H_MM

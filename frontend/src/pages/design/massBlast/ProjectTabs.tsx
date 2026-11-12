@@ -438,7 +438,8 @@ function ObjectNotes({ value, disabled, onChange, prefix, errors }: {
 }) {
   return (
     <div className="drill-grid">
-      <TextInput label="Мероприятия по защите (п. 14 распорядка)" value={value.measures} disabled={disabled} maxLength={600} multiline
+      <TextInput label="Мероприятия по защите объекта" value={value.measures} disabled={disabled} maxLength={600} multiline
+        hint="Печатаются в п. 14 распорядка, когда объект «В ЗОНЕ». Объект в зоне без мероприятий — ошибка проверки."
         onChange={(measures) => onChange({ ...value, measures })} />
       <Field label="Лечебное или детское учреждение (п. 808)">
         {(id) => (
@@ -536,19 +537,32 @@ export function ObjectsTab({ form, edit, editable, errors, issues, context }: Ta
 
 // --- Распорядок ----------------------------------------------------------------
 
-const SCHEDULE_TEXTS: Array<{ key: keyof ProjectForm["schedule"]; label: string; max: number; wide?: boolean }> = [
-  { key: "charging_order", label: "Порядок заряжания", max: 300, wide: true },
-  { key: "network_order", label: "Порядок монтажа взрывной сети", max: 300, wide: true },
-  { key: "station", label: "Место взрывной станции (п. 11)", max: 300 },
-  { key: "shelter", label: "Место укрытия", max: 300 },
-  { key: "gather", label: "Место сбора", max: 300 },
-  { key: "exit_route", label: "Куда удаляются люди", max: 300 },
-  { key: "siren", label: "Средство подачи сигналов", max: 200 },
-  { key: "transport", label: "Транспорт ВМ", max: 200 },
-  { key: "cleaning", label: "Средства очистки скважин", max: 200 },
-  { key: "measures", label: "Мероприятия по защите (п. 14)", max: 600, wide: true },
-  { key: "other_conditions", label: "Особые условия (п. 17)", max: 600, wide: true },
-  { key: "airblast_buildings", label: "УВВ на здания и сооружения (текст техрасчёта)", max: 300, wide: true },
+// Подсказка — где пункт печатается и что в него писать: номера пунктов в подписи не понятны.
+const SCHEDULE_TEXTS: Array<{ key: keyof ProjectForm["schedule"]; label: string; hint: string; max: number; wide?: boolean }> = [
+  { key: "charging_order", label: "Порядок заряжания", max: 300, wide: true,
+    hint: "Распорядок, п. 9: в какой последовательности заряжают скважины (например, от вруба к флангам)." },
+  { key: "network_order", label: "Порядок монтажа взрывной сети", max: 300, wide: true,
+    hint: "Распорядок, п. 10: как и в каком порядке соединяют скважины и когда сеть подключают к магистрали." },
+  { key: "station", label: "Место взрывной станции", max: 300,
+    hint: "Распорядок, п. 11: откуда подают импульс на взрыв. Точку станции поставьте и на плане (вкладка «Посты и план»)." },
+  { key: "shelter", label: "Место укрытия", max: 300,
+    hint: "Распорядок, п. 11 (через «/» после станции): где укрываются взрывники во время взрыва." },
+  { key: "gather", label: "Место сбора", max: 300,
+    hint: "Таблица сигналов, п. 29.2: где собираются люди перед выходом из опасной зоны." },
+  { key: "exit_route", label: "Куда удаляются люди", max: 300,
+    hint: "Направление вывода людей из опасной зоны. В документы проекта пока не печатается." },
+  { key: "siren", label: "Средство подачи сигналов", max: 200,
+    hint: "Сирена, громкоговоритель и т. п. В документы проекта пока не печатается." },
+  { key: "transport", label: "Транспорт ВМ", max: 200,
+    hint: "Распорядок, п. 19: на чём ВМ доставляют к блоку; сопровождающий — с вкладки «Персонал»." },
+  { key: "cleaning", label: "Средства очистки скважин", max: 200,
+    hint: "Распорядок, п. 20: чем очищают скважины перед заряжанием; бригада — с вкладки «Персонал»." },
+  { key: "measures", label: "Мероприятия по защите охраняемых объектов", max: 600, wide: true,
+    hint: "Распорядок, п. 14. Если у объектов «В ЗОНЕ» мероприятия заданы на вкладке «Охраняемые объекты», печатаются они, а это поле — нет. Пусто и объектов в зоне нет — «не требуются»." },
+  { key: "other_conditions", label: "Особые условия", max: 600, wide: true,
+    hint: "Техрасчёт, разд. 17 «Прочие сведения»: что ещё нужно учесть при этом взрыве (обводнённость, работающее рядом оборудование, мороз и т. п.). Пусто — в разделе только общая фраза о мероприятиях для объектов в зоне." },
+  { key: "airblast_buildings", label: "Воздушная волна: вывод по зданиям и сооружениям", max: 300, wide: true,
+    hint: "Техрасчёт, разд. 14, строка «На здания и сооружения (пп. 796–801)». Пусто — вывод строится сам по охраняемым объектам; заполняйте, только если нужен свой текст." },
 ];
 
 export function ScheduleTab({ form, edit, editable, issues, context, defaults, remember }: TabProps) {
@@ -584,7 +598,7 @@ export function ScheduleTab({ form, edit, editable, issues, context, defaults, r
         <legend>Пункты распорядка</legend>
         <div className="drill-grid">
           {SCHEDULE_TEXTS.map((item) => (
-            <TextInput key={item.key} label={item.label} value={sch[item.key]} disabled={disabled} maxLength={item.max}
+            <TextInput key={item.key} label={item.label} hint={item.hint} value={sch[item.key]} disabled={disabled} maxLength={item.max}
               auto={defaults[`schedule.${item.key}`]} remember={remember(`schedule.${item.key}`, sch[item.key])}
               multiline={item.max > 300} wide={item.wide}
               onChange={(value) => edit((draft) => { (draft.schedule[item.key] as string) = value; })} />

@@ -276,3 +276,20 @@ def test_inherited_values_come_from_earlier_projects(design):
 def test_reaming_k_uses_the_bit_entered_in_the_project(design):
     defaults = project_defaults(_payload(explosives={"bit_mm": 120}), DefaultsInputs(designs=[design], drill_passports=[{"bit_diameter_mm": 140}]))
     assert defaults["explosives.reaming_k"]["value"] == round(144 / 120, 2)
+
+
+def test_paths_with_digits_and_disabled_holes(design):
+    """`q_tp_kg_m3` — путь с цифрой; выключенные скважины в описание заряда не входят (Codex)."""
+
+    assert remember_values({"explosives": {"q_tp_kg_m3": 0.7}}, ["explosives.q_tp_kg_m3"]) == {"q_tp_kg_m3": 0.7}
+    import copy
+
+    from design.mass_blast_defaults import charge_design_text
+    from design.models import Deck
+
+    changed = copy.deepcopy(design)
+    hole = changed.holes[0]
+    hole.enabled = False
+    load = next(load for load in changed.loads if load.hole_id == hole.id)
+    load.decks = [Deck(kind="explosive", from_m=1, to_m=3), Deck(kind="explosive", from_m=5, to_m=7)]
+    assert charge_design_text(changed).startswith("Сплошная колонка ВВ")

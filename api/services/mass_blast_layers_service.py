@@ -250,14 +250,34 @@ def _with_view(
     # Значения по умолчанию ручного ввода (PR 6, §14, В3 и В7): окно показывает их
     # в полях, выпуск и предпросмотр подставляют в пустые поля.
     site_code = str((context.get("project") or {}).get("site_code") or "")
-    from api.services.mass_blast_remember import rememberable
-
-    view["rememberable"] = rememberable(_site_record(snapshot, "mass_blast_sites", site_code), layer_kind=layer["kind"])
     view["defaults"] = layer_defaults(
         layer["kind"], seed, payload, site=_site_record(snapshot, "mass_blast_sites", site_code),
         previous_naryad=state.get("previous_naryad"), view=view, created_on=created_on(layer.get("created_at")),
     )
     return {**layer, "view": view, "issues": issues}
+
+
+def _with_remember(
+    layers: list[dict[str, Any]], economics_repository: EconomicsRepository | None, organization_id: str,
+) -> list[dict[str, Any]]:
+    """«Запомнить для объекта» у полей слоя — по текущему справочнику, а не по ревизии,
+    на которой выпущен проект: пишется запомненное именно в текущий (ревью Codex)."""
+
+    from api.services.mass_blast_remember import rememberable
+
+    if not layers:
+        return layers
+    try:
+        current = economics_repository.get_reference_snapshot(organization_id) if economics_repository is not None else None
+    except Exception:  # noqa: BLE001 — без справочника запоминать некуда
+        current = None
+    for layer in layers:
+        site_code = str(((layer.get("seed") or {}).get("project") or {}).get("site_code") or "")
+        layer["view"]["rememberable"] = (
+            {} if current is None
+            else rememberable(_site_record(current, "mass_blast_sites", site_code), layer_kind=layer["kind"])
+        )
+    return layers
 
 
 def effective_payload(viewed: Mapping[str, Any]) -> dict[str, Any]:
@@ -423,7 +443,7 @@ def list_layers(
         context, snapshot = contexts[revision_id]
         result.append(_with_view(layer, snapshot, context,
                                  _fact_state(repository, organization_id, layer, context, project, latest)))
-    return result
+    return _with_remember(result, economics_repository, organization_id)
 
 
 def get_layer(
@@ -431,10 +451,10 @@ def get_layer(
 ) -> dict[str, Any]:
     layer = repository.get_layer(organization_id, layer_id)
     context = repository.get_revision(organization_id, layer["project_revision_id"])["context"]
-    return _with_view(
+    return _with_remember([_with_view(
         layer, _snapshot(economics_repository, organization_id, context), context,
         _fact_state(repository, organization_id, layer, context),
-    )
+    )], economics_repository, organization_id)[0]
 
 
 def create_layer(
@@ -477,7 +497,7 @@ def create_layer(
     )
     # Только что перенесённый факт не изменился: проекты блоков второй раз не читаются.
     state = {"fact_changed": False} if kind == "EXECUTION" else _fact_state(repository, organization_id, layer, context, project)
-    return _with_view(layer, snapshot, context, state)
+    return _with_remember([_with_view(layer, snapshot, context, state)], economics_repository, organization_id)[0]
 
 
 def _check_after_blast(kind: str, project: Mapping[str, Any], data: Mapping[str, Any], stored: Mapping[str, Any]) -> None:
@@ -506,10 +526,10 @@ def update_layer(
     _check_after_blast(layer["kind"], project, data, layer["payload"])
     updated = repository.update_layer(organization_id, actor, layer_id, expected_version=expected_version, payload=data)
     context = repository.get_revision(organization_id, updated["project_revision_id"])["context"]
-    return _with_view(
+    return _with_remember([_with_view(
         updated, _snapshot(economics_repository, organization_id, context), context,
         _fact_state(repository, organization_id, updated, context, project),
-    )
+    )], economics_repository, organization_id)[0]
 
 
 def refresh_layer(
@@ -547,14 +567,16 @@ def refresh_layer(
     if not confirm or not changes:
         return {
             "applied": False, "changes": changes,
-            "layer": _with_view(layer, snapshot, context, _fact_state(repository, organization_id, layer, context, project)),
+            "layer": _with_remember([_with_view(layer, snapshot, context, _fact_state(repository, organization_id, layer, context, project))],
+                                    economics_repository, organization_id)[0],
         }
     updated = repository.update_layer(
         organization_id, actor, layer_id, expected_version=expected_version, seed=new_seed, project_revision_id=revision["id"],
     )
     return {
         "applied": True, "changes": changes,
-        "layer": _with_view(updated, snapshot, context, _fact_state(repository, organization_id, updated, context, project)),
+        "layer": _with_remember([_with_view(updated, snapshot, context, _fact_state(repository, organization_id, updated, context, project))],
+                                economics_repository, organization_id)[0],
     }
 
 

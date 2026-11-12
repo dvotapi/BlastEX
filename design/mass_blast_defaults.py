@@ -121,7 +121,7 @@ _SCHEME_TEXT = {
     "trapezoid": "Трапециевидная короткозамедленная",
     "trunk_chains": "Поочерёдная короткозамедленная: магистраль + цепочки",
 }
-_PATH = re.compile(r"([a-z_]+)(?:\[(\d+)\])?")
+_PATH = re.compile(r"([a-z_][a-z0-9_]*)(?:\[(\d+)\])?")
 _ISO = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
 _RU = re.compile(r"^(\d{2})\.(\d{2})\.(\d{4})$")
 
@@ -279,7 +279,10 @@ def charge_design_text(design: BlastDesign) -> str:
 
     parts: list[int] = []
     primers: list[int] = []
+    enabled = {hole.id for hole in _enabled_holes(design)}
     for load in design.loads:
+        if load.hole_id not in enabled:
+            continue
         decks = [deck for deck in load.decks if is_explosive_deck_kind(deck.kind)]
         if not decks:
             continue
@@ -297,9 +300,10 @@ def charge_design_text(design: BlastDesign) -> str:
 
 
 def stemming_text(design: BlastDesign) -> str:
+    enabled = {hole.id for hole in _enabled_holes(design)}
     products = Counter(
         str(deck.product).strip()
-        for load in design.loads for deck in load.decks
+        for load in design.loads if load.hole_id in enabled for deck in load.decks
         if deck.kind == "stemming" and str(deck.product or "").strip()
     )
     return products.most_common(1)[0][0] if products else ""

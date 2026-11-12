@@ -446,8 +446,14 @@ def execution_summary(revision_context: Mapping[str, Any], revision_id: str) -> 
             key = _line_key(line)
             row = merged.setdefault(key, {"key": key, "kind": line.get("kind", ""), "name": line.get("name", ""),
                                           "unit": line.get("unit", ""), "delay_ms": line.get("delay_ms"),
-                                          "material_code": line.get("material_code", ""), "quantity": 0.0})
+                                          "material_code": line.get("material_code", ""), "quantity": 0.0,
+                                          "mass_kg": None, "mass_known": True})
             row["quantity"] = round(row["quantity"] + float(line.get("quantity") or 0.0), 3)
+            # Масса — как у расхода проекта: неизвестна у части ПД — неизвестна у строки.
+            if line.get("warning") == "primer_mass_unknown":
+                row["mass_known"] = False
+            if line.get("mass_kg") is not None:
+                row["mass_kg"] = round(float(row["mass_kg"] or 0.0) + float(line["mass_kg"]), 3)
     return {
         "execution_revision_id": revision_id,
         "blast_date": str(view.get("blast_date") or ""),
@@ -555,13 +561,28 @@ def naryad_after_blast(
     issues: list[dict[str, str]] = []
     result: list[dict[str, Any]] = []
     known = {line["key"] for line in lines}
-    extra = [
-        {"key": key, "kind": line.get("kind", ""), "name": line.get("name", ""), "unit": line.get("unit", ""),
-         "delay_ms": line.get("delay_ms"), "project_qty": 0.0, "mass_kg": None, "mass_known": True,
-         "reserve_qty": 0.0, "reserve_source": "REFERENCE", "issue_qty": 0.0, "unit_mass_kg": 1.0 if line.get("unit") == "кг" else None,
-         "issue_kg": 0.0 if line.get("unit") == "кг" else None, "outside_project": True}
-        for key, line in facts.items() if key not in known
-    ]
+    def fact_unit_mass(line: Mapping[str, Any]) -> float | None:
+        """Масса единицы строки «вне проекта» — по массе факта (ПД), у ВВ — 1 кг."""
+
+        if line.get("unit") == "кг":
+            return 1.0
+        quantity = float(line.get("quantity") or 0.0)
+        mass = line.get("mass_kg")
+        if line.get("mass_known", True) and mass is not None and float(mass) > 0 and quantity > 0:
+            return round(float(mass) / quantity, 6)
+        return None
+
+    extra = []
+    for key, line in facts.items():
+        if key in known:
+            continue
+        unit_mass = fact_unit_mass(line)
+        extra.append(
+            {"key": key, "kind": line.get("kind", ""), "name": line.get("name", ""), "unit": line.get("unit", ""),
+             "delay_ms": line.get("delay_ms"), "project_qty": 0.0, "mass_kg": None, "mass_known": True,
+             "reserve_qty": 0.0, "reserve_source": "REFERENCE", "issue_qty": 0.0, "unit_mass_kg": unit_mass,
+             "issue_kg": None if unit_mass is None else 0.0, "outside_project": True}
+        )
     for line in extra:
         issues.append(_issue(
             "warning", "fact_material_not_in_project",

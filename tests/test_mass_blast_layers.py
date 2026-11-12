@@ -535,3 +535,18 @@ def test_talon_prints_the_admittance_date_when_the_blast_moved(context66_v2):
     assert moved["admittance_not_before"] == "13:35" and moved["admittance_date"] == "2026-10-15"
     issued_that_day = talon_view(seed, {"fired_date": "2026-10-15", "fired_time": "13:05", "issued_date": "2026-10-15"})
     assert issued_that_day["admittance_date"] == ""
+
+
+def test_outside_project_primer_keeps_its_fact_mass():
+    from design.mass_blast_layers import execution_summary, naryad_after_blast
+
+    revision = {"seed": {"blocks_fact": [{"code": "66", "consumption": [
+        {"kind": "primer", "name": "ПД-900", "unit": "шт", "delay_ms": None, "material_code": "", "quantity": 2.0, "mass_kg": 1.8},
+    ]}]}, "view": {}}
+    summary = execution_summary(revision, "lr-1")
+    assert summary["consumption"][0]["mass_kg"] == 1.8
+    after, _blocks, issues = naryad_after_blast({"blocks": [], "fact": summary}, {"issued": {"primer:ПД-900:": 3}}, [])
+    line = after[0]
+    assert line["outside_project"] and line["unit_mass_kg"] == 0.9
+    assert line["consumed_kg"] == 1.8 and line["issued_kg"] == 2.7 and line["returned_kg"] == pytest.approx(0.9)
+    assert "fact_material_not_in_project" in {issue["code"] for issue in issues}

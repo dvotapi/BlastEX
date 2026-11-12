@@ -10,7 +10,11 @@ import { errorText, Field, Issues, ruNum, TextInput } from "./ui";
 
 const KIND_LABEL = Object.fromEntries(POINT_KINDS.map((item) => [item.code, item.label])) as Record<LayoutPointKind, string>;
 
-export function PostsTab({ form, edit, editable, errors, issues, context, projectId }: TabProps & { projectId: string }) {
+export function PostsTab({ form, edit, editable, errors, issues, context, projectId, ensureSaved }: TabProps & {
+  projectId: string;
+  /** Несохранённые правки (например, ручная зона) сначала сохраняются: посты — по текущим зонам. */
+  ensureSaved: () => Promise<unknown>;
+}) {
   const [suggesting, setSuggesting] = useState(false);
   const [note, setNote] = useState<{ text: string; error: boolean } | null>(null);
 
@@ -19,6 +23,7 @@ export function PostsTab({ form, edit, editable, errors, issues, context, projec
     setSuggesting(true);
     setNote(null);
     try {
+      if (!(await ensureSaved())) return;
       const result = await api.massBlast.suggestLayout(projectId);
       // Нет пересечений дорог с границей зоны — постов нет: существующие не трогаем.
       if (!result.posts.length) {

@@ -352,7 +352,7 @@ export function MassBlastDialog({
           {tab === "objects" && <ObjectsTab {...props} />}
           {tab === "schedule" && <ScheduleTab {...props} />}
           {tab === "personnel" && <PersonnelTab {...props} hints={hints} accounts={accounts} />}
-          {tab === "posts" && <PostsTab {...props} projectId={project.id} />}
+          {tab === "posts" && <PostsTab {...props} projectId={project.id} ensureSaved={saveLocked} />}
           {tab === "documents" && (
             <ProjectDocuments project={project} issues={issues} checked={validation !== null} dirty={dirty} busy={busy}
               userEmail={userEmail} hasGraphics={hasGraphics} ensureSaved={saveLocked}

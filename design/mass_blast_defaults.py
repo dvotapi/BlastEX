@@ -436,7 +436,8 @@ def layer_defaults(
         _put(result, "handed_by", _person_line(seed.get("customer_approver")), PROJECT)
         _put(result, "accepted_by", _person_line(seed.get("blast_manager")), PROJECT)
     elif kind == "TALON":
-        _put(result, "issued_date", payload.get("fired_date") or blast_date, RULE)
+        # Допуск после полуночи — дата допуска (`talon_view`), иначе дата взрыва по факту или проектная.
+        _put(result, "issued_date", view.get("admittance_date") or payload.get("fired_date") or blast_date, RULE)
         _put(result, "issued_time", view.get("admittance_not_before"), RULE)
         _put(result, "issued_by", _person_line(seed.get("blast_manager")), PROJECT)
         _put(result, "received_by", _person_line(seed.get("talon_receiver")), PROJECT)

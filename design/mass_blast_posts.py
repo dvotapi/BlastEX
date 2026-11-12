@@ -23,6 +23,25 @@ POST_MERGE_M = 50.0
 # Станция и укрытие — за границей зоны для людей на столько метров.
 STATION_OFFSET_M = 60.0
 SHELTER_OFFSET_M = 120.0
+# Шаг и предел поиска точки вне всех зон по лучу от блока.
+RAY_STEP_M = 25.0
+RAY_LIMIT_M = 50_000.0
+
+
+def _outside_on_ray(zone, center: Point, ux: float, uy: float, start: float, offset: float) -> Point:
+    """Точка на луче от блока: дальше всей геометрии зоны (у проекта из нескольких
+    блоков зоны бывают несвязными) и ещё на `offset` за её последней границей."""
+
+    distance = start
+    while distance < RAY_LIMIT_M:
+        point = Point(center.x + ux * distance, center.y + uy * distance)
+        if not zone.covers(point):
+            beyond = Point(center.x + ux * (distance + offset), center.y + uy * (distance + offset))
+            # За границей может начаться соседняя зона — тогда ищем дальше.
+            if not zone.covers(beyond):
+                return beyond
+        distance += RAY_STEP_M
+    return Point(center.x + ux * distance, center.y + uy * distance)
 
 
 def _zone(graphics: Mapping[str, Any]) -> tuple[Polygon | None, float]:
@@ -87,9 +106,6 @@ def suggest_layout(graphics: Mapping[str, Any]) -> dict[str, Any]:
     dx, dy = anchor.x - center.x, anchor.y - center.y
     length = math.hypot(dx, dy) or 1.0
     for kind, offset in (("blast_station", STATION_OFFSET_M), ("shelter", SHELTER_OFFSET_M)):
-        target = Point(center.x + dx / length * (length + offset), center.y + dy / length * (length + offset))
-        if zone.contains(target):  # граница зоны не круг — выносим за неё по тому же лучу
-            far = max(radius * 2.0, length + offset)
-            target = Point(center.x + dx / length * far, center.y + dy / length * far)
+        target = _outside_on_ray(zone, center, dx / length, dy / length, length, offset)
         points.append({"kind": kind, "ref": "", "x": round(target.x, 1), "y": round(target.y, 1), "label": ""})
     return {"posts": posts, "points": points, "reason": "" if posts else "Дороги ситуации не пересекают границу зоны для людей."}

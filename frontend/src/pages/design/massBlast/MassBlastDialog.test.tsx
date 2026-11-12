@@ -220,8 +220,13 @@ describe("окно проекта МВ", () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<MassBlastDialog project={projectV2()} onClose={() => {}} onChange={() => {}} />);
     await user.click(await screen.findByRole("button", { name: "Посты и план" }));
+    // Несохранённая правка сохраняется до запроса: посты — по текущим зонам.
+    await user.type(screen.getByDisplayValue("дорога"), " у въезда");
     await user.click(await screen.findByRole("button", { name: "Предложить посты" }));
     expect(await screen.findByDisplayValue("Карьерная дорога, на границе опасной зоны (750 м)")).toBeTruthy();
+    expect(vi.mocked(api.massBlast.saveV2).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(api.massBlast.suggestLayout).mock.invocationCallOrder[0],
+    );
     expect(screen.getByDisplayValue("100,5")).toBeTruthy();
     expect(screen.getByText(/Предложено постов: 1/)).toBeTruthy();
   });

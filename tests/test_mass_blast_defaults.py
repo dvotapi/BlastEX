@@ -233,3 +233,29 @@ def test_reference_values_resolved_by_context_are_not_filled():
     filled = fill_empty({"explosives": {}, "requisites": {}, "schedule": {}}, defaults)
     assert filled["explosives"] == {} and "customer_approver" not in filled["requisites"]
     assert filled["schedule"]["station"] == "Будка" and filled["requisites"]["contractor_approver"]["name"] == "Иванов"
+
+
+def test_talon_issue_date_follows_midnight_rollover():
+    seed = {"project": {"blast_date": "2026-11-20"}}
+    talon = layer_defaults("TALON", seed, {"fired_date": "2026-11-20", "fired_time": "23:50"},
+                           view={"admittance_not_before": "00:20", "admittance_date": "2026-11-21"})
+    assert (talon["issued_date"]["value"], talon["issued_time"]["value"]) == ("2026-11-21", "00:20")
+
+
+def test_station_leaves_every_zone_of_a_multi_block_project():
+    """Несвязные зоны двух блоков: станция и укрытие — вне обеих (замечание Codex)."""
+
+    graphics = {
+        "has_situation": True,
+        "outlines": [_square(-5000, 0, 50), _square(5000, 0, 50)],
+        "zones": [{"kind": "people", "value_m": 1000, "rings": [_square(-5000, 0, 1050), _square(5000, 0, 1050)]}],
+        "situation": [{"name": "Дорога", "kind": "road", "lines": [[[0, 10], [4500, 10]]]}],
+    }
+    result = suggest_layout(graphics)
+    from shapely.geometry import Point, Polygon
+    from shapely.ops import unary_union
+
+    zone = unary_union([Polygon(_square(-5000, 0, 1050)), Polygon(_square(5000, 0, 1050))])
+    for point in result["points"]:
+        if point["kind"] in ("blast_station", "shelter"):
+            assert not zone.covers(Point(point["x"], point["y"])), point

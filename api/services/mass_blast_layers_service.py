@@ -26,6 +26,7 @@ from design.mass_blast_layers import (
     LAYER_OPEN_AFTER,
     MULTI_LAYER_KINDS,
     acceptance_view,
+    execution_seed_diff,
     execution_summary,
     execution_view,
     layer_open_issue,
@@ -166,6 +167,10 @@ def _with_view(
         execution, fact_issues = execution_view(seed, payload)
         view.update(execution)
         issues += fact_issues
+        if state.get("fact_error"):
+            issues.append(
+                {"level": "error", "code": "fact_source_invalid", "message": str(state["fact_error"]), "path": "seed.blocks_fact"}
+            )
         if state.get("fact_changed"):
             issues.append(
                 {
@@ -292,21 +297,31 @@ def _fact_state(
     layer: Mapping[str, Any],
     context: Mapping[str, Any],
     project: Mapping[str, Any] | None = None,
+    latest: dict[str, str | None] | None = None,
 ) -> dict[str, Any]:
+    """Что о слое знает только сервис; `latest` — кэш последней ревизии «Факта»
+    по ревизии проекта на один список слоёв."""
+
     state: dict[str, Any] = {}
     if layer["kind"] == "EXECUTION":
         try:
             hashes = [execution_sha256(design) for design in _block_designs(organization_id, context)]
-        except ValueError:
-            hashes = None
+        except ValueError as exc:
+            # Проект блока удалён или изменён: причина — как есть, а не «факт изменился».
+            state["fact_error"] = str(exc)
+            return state
         seeded = [str(block.get("execution_sha256") or "") for block in layer["seed"].get("blocks_fact") or []]
         state["fact_changed"] = hashes != seeded
     elif layer["kind"] in ("NARYAD", "ACCEPTANCE_ACT"):
         project = project or repository.get_project(organization_id, layer["project_id"])
         state["after_blast"] = str(project.get("lifecycle_status") or "") in AFTER_BLAST_STATUSES
-        state["latest_execution_id"], _ = _latest_execution(
-            repository, organization_id, layer["project_id"], layer["project_revision_id"]
-        )
+        key = layer["project_revision_id"]
+        if latest is None or key not in latest:
+            found, _ = _latest_execution(repository, organization_id, layer["project_id"], key)
+            if latest is None:
+                return {**state, "latest_execution_id": found}
+            latest[key] = found
+        state["latest_execution_id"] = latest[key]
     return state
 
 
@@ -339,6 +354,7 @@ def list_layers(
     """Слои проекта; вид каждого — по ревизии проекта, на которой он основан (как у `get_layer`)."""
 
     contexts: dict[str, tuple[Mapping[str, Any], Any]] = {}
+    latest: dict[str, str | None] = {}
     project = repository.get_project(organization_id, project_id)
     result = []
     for layer in repository.list_layers(organization_id, project_id):
@@ -347,7 +363,8 @@ def list_layers(
             context = repository.get_revision(organization_id, revision_id)["context"]
             contexts[revision_id] = (context, _snapshot(economics_repository, organization_id, context))
         context, snapshot = contexts[revision_id]
-        result.append(_with_view(layer, snapshot, context, _fact_state(repository, organization_id, layer, context, project)))
+        result.append(_with_view(layer, snapshot, context,
+                                 _fact_state(repository, organization_id, layer, context, project, latest)))
     return result
 
 
@@ -400,7 +417,9 @@ def create_layer(
         # создания под блокировкой проекта (одновременные запросы).
         unique_payload_key="notification_code" if kind == "NOTIFICATION" else None,
     )
-    return _with_view(layer, snapshot, context, _fact_state(repository, organization_id, layer, context, project))
+    # Только что перенесённый факт не изменился: проекты блоков второй раз не читаются.
+    state = {"fact_changed": False} if kind == "EXECUTION" else _fact_state(repository, organization_id, layer, context, project)
+    return _with_view(layer, snapshot, context, state)
 
 
 def _check_after_blast(kind: str, project: Mapping[str, Any], data: Mapping[str, Any], stored: Mapping[str, Any]) -> None:
@@ -461,7 +480,8 @@ def refresh_layer(
         # Адресата убрали из справочника или справочник не прочитан — остаётся прежний.
         addressee = found or addressee
     new_seed = _seed(repository, organization_id, layer["kind"], context, snapshot, project, revision["id"], addressee)
-    changes = seed_diff(layer["seed"], new_seed)
+    diff = execution_seed_diff if layer["kind"] == "EXECUTION" else seed_diff
+    changes = diff(layer["seed"], new_seed)
     if revision["id"] != layer["project_revision_id"]:
         changes.insert(0, {"path": "project_revision_id", "before": layer["project_revision_id"], "after": revision["id"]})
     if not confirm or not changes:

@@ -90,27 +90,37 @@ def fact_subdrill_m(designed: Hole, drilled: AsDrilledHole) -> float | None:
     """
 
     floor_z = designed.collar.z - designed.bench_height_m
-    cos_a = math.cos(math.radians(drilled.angle_deg))
+    cos_a = math.cos(math.radians(_fact_angle_deg(drilled.actual_collar, _actual_toe(designed, drilled))))
     if cos_a < 1e-6:
         return None
     return drilled.length_m - (drilled.actual_collar.z - floor_z) / cos_a
 
 
 def _actual_toe(designed: Hole, drilled: AsDrilledHole) -> Point3:
-    """Забой по факту; записана только глубина — по проектному направлению оси."""
+    """Забой по факту на фактической длине (`AsDrilledHole.length_m`).
+
+    Направление — по записанным устью и забою; забоя нет (совпадает с
+    устьем) — по проектной оси. Длина — записанная: глубину правят после
+    копии проекта, а забой остаётся проектным — тогда он сдвигается по оси,
+    иначе перебур (по длине) и точка подошвы (по забою) разошлись бы.
+    """
 
     collar, toe = drilled.actual_collar, drilled.actual_toe
-    if math.dist((collar.x, collar.y, collar.z), (toe.x, toe.y, toe.z)) > 0.01:
+    axis = (toe.x - collar.x, toe.y - collar.y, toe.z - collar.z)
+    if math.hypot(*axis) <= 0.01:
+        axis = (designed.toe.x - designed.collar.x, designed.toe.y - designed.collar.y, designed.toe.z - designed.collar.z)
+    norm = math.hypot(*axis)
+    length = drilled.length_m
+    if norm <= 1e-9 or length <= 0:
         return toe
-    length = designed.length_m
-    if length <= 0 or drilled.length_m <= 0:
-        return toe
-    k = drilled.length_m / length
-    return Point3(
-        x=collar.x + (designed.toe.x - designed.collar.x) * k,
-        y=collar.y + (designed.toe.y - designed.collar.y) * k,
-        z=collar.z + (designed.toe.z - designed.collar.z) * k,
-    )
+    k = length / norm
+    return Point3(x=collar.x + axis[0] * k, y=collar.y + axis[1] * k, z=collar.z + axis[2] * k)
+
+
+def _fact_angle_deg(collar: Point3, toe: Point3) -> float:
+    horizontal = math.hypot(toe.x - collar.x, toe.y - collar.y)
+    vertical = collar.z - toe.z
+    return 0.0 if horizontal == 0.0 and vertical == 0.0 else math.degrees(math.atan2(horizontal, vertical))
 
 
 def _fact_geometry(design: BlastDesign, drilled: Mapping[str, AsDrilledHole]) -> BlastDesign:
@@ -121,11 +131,12 @@ def _fact_geometry(design: BlastDesign, drilled: Mapping[str, AsDrilledHole]) ->
     """
 
     copy = deepcopy(design)
+    by_id = {hole.id: hole for hole in design.holes}
     for hole in copy.holes:
         item = drilled.get(hole.id)
         if item is None:
             continue
-        designed = next(h for h in design.holes if h.id == hole.id)
+        designed = by_id[hole.id]
         subdrill = fact_subdrill_m(designed, item)
         hole.collar = Point3(x=item.actual_collar.x, y=item.actual_collar.y, z=item.actual_collar.z)
         hole.toe = _actual_toe(designed, item)
@@ -246,11 +257,13 @@ def block_fact(
             "fact_charging_missing",
             f"Нет факта заряжания у {len(no_charge)} скв. ({_list(no_charge)}): масса и забойка Ф у них пустые.",
         ))
+    # Только скважины таблицы: копии у выключенных скважин в документ не идут.
     copied = sorted(
         {item.design_hole_id for item in design.as_drilled_holes if item.provenance.method == COPY_METHOD}
         | {item.design_hole_id for item in design.as_charged_holes if item.provenance.method == COPY_METHOD},
         key=_natural,
     )
+    copied = [hole_id for hole_id in copied if hole_id in by_id]
     if copied:
         issues.append(_issue(
             "fact_copied_from_design",

@@ -29,8 +29,15 @@ NUMBERING = "group:EXECUTION"
 
 
 def _blocks(revision: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    view = revision.get("view") or {}
-    return list(view.get("blocks") or (revision.get("seed") or {}).get("blocks_fact") or [])
+    """Блоки `seed.blocks_fact` с таблицей из `view` (отказы и примечания по факту)."""
+
+    seeded = list((revision.get("seed") or {}).get("blocks_fact") or [])
+    viewed = list((revision.get("view") or {}).get("blocks") or [])
+    return [
+        {**block, "parameter_table": viewed[index].get("parameter_table") or block.get("parameter_table")}
+        if index < len(viewed) else block
+        for index, block in enumerate(seeded)
+    ]
 
 
 def fact_context(revision: Mapping[str, Any]) -> dict[str, Any]:

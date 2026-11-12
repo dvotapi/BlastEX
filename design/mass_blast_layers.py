@@ -29,6 +29,7 @@
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta
 from typing import Any, Mapping, Sequence
 
@@ -44,6 +45,7 @@ __all__ = [
     "seed_diff",
     "acceptance_view",
     "execution_summary",
+    "execution_seed_diff",
     "execution_view",
     "naryad_after_blast",
     "talon_view",
@@ -357,7 +359,10 @@ def execution_view(seed: Mapping[str, Any], payload: Mapping[str, Any]) -> tuple
         totals = dict(table.get("totals") or {})
         totals["misfired_count"] = count
         totals["misfired_kg"] = round(misfired_kg, 3)
-        blocks.append({**dict(block), "parameter_table": {**table, "rows": rows, "totals": totals}})
+        # В `view` — только то, что меняет ручной ввод (строки с отказами и итоги):
+        # геометрия Г.1 и расход остаются в `seed`, ревизия их не дублирует.
+        blocks.append({"code": block.get("code", ""), "horizon": block.get("horizon", ""),
+                       "parameter_table": {**table, "rows": rows, "totals": totals}})
     unknown = [hole for hole in dict.fromkeys(misfired) if hole not in known]
     if unknown:
         issues.append(_issue(
@@ -500,6 +505,18 @@ def naryad_after_blast(
     consumed = {str(k): v for k, v in (payload.get("consumed") or {}).items() if v is not None}
     returned = {str(k): v for k, v in (payload.get("returned") or {}).items() if v is not None}
     facts = {line["key"]: line for line in fact.get("consumption") or []}
+    # Строка факта ищется по ключу «вид:марка:замедление», а не нашлась — по коду
+    # материала справочника с тем же видом и замедлением (марка подписана иначе).
+    by_code = {
+        (line.get("kind"), line.get("material_code"), line.get("delay_ms")): line
+        for line in fact.get("consumption") or [] if line.get("material_code")
+    }
+    for line in lines:
+        code = (line.get("kind"), line.get("material_code"), line.get("delay_ms"))
+        if line["key"] not in facts and line.get("material_code") and code in by_code:
+            found = by_code[code]
+            facts.pop(found["key"], None)
+            facts[line["key"]] = {**found, "key": line["key"]}
     issues: list[dict[str, str]] = []
     result: list[dict[str, Any]] = []
     known = {line["key"] for line in lines}
@@ -664,6 +681,41 @@ def naryad_totals(seed: Mapping[str, Any], lines: list[Mapping[str, Any]]) -> di
         "initiation_issue_pcs": round(sum(float(line["issue_qty"]) for line in pieces), 3),
         "reserve": reserve,
     }
+
+
+FACT_DIFF_KEYS = ("depth_fact_m", "subdrill_fact_m", "lspp_fact_m", "spacing_fact_m", "burden_fact_m",
+                  "charge_fact_kg", "stemming_fact_m")
+
+
+def execution_seed_diff(old: Mapping[str, Any], new: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Расхождение переноса слоя «Факт»: по скважинам и графам Ф, а не списками целиком."""
+
+    def rest(seed: Mapping[str, Any]) -> dict[str, Any]:
+        return {key: value for key, value in seed.items() if key != "blocks_fact"}
+
+    changes = seed_diff(rest(old), rest(new))
+    before_blocks, after_blocks = list(old.get("blocks_fact") or []), list(new.get("blocks_fact") or [])
+    if len(before_blocks) != len(after_blocks):
+        return changes + [{"path": "blocks_fact", "before": len(before_blocks), "after": len(after_blocks)}]
+    for index, (before, after) in enumerate(zip(before_blocks, after_blocks)):
+        path = f"blocks_fact[{index}]"
+        found = len(changes)
+        rows_before = {str(r.get("hole_id")): r for r in (before.get("parameter_table") or {}).get("rows") or []}
+        rows_after = {str(r.get("hole_id")): r for r in (after.get("parameter_table") or {}).get("rows") or []}
+        for hole_id in sorted(set(rows_before) | set(rows_after), key=_natural_key):
+            a, b = rows_before.get(hole_id) or {}, rows_after.get(hole_id) or {}
+            changes += [{"path": f"{path}.{hole_id}.{key}", "before": a.get(key), "after": b.get(key)}
+                        for key in FACT_DIFF_KEYS if a.get(key) != b.get(key)]
+        if before.get("consumption") != after.get("consumption"):
+            changes.append({"path": f"{path}.consumption", "before": before.get("consumption"), "after": after.get("consumption")})
+        # Остальное (устья Г.1 без смены граф, отпечаток факта) — одной строкой.
+        if len(changes) == found and before != after:
+            changes.append({"path": path, "before": before.get("execution_sha256"), "after": after.get("execution_sha256")})
+    return changes
+
+
+def _natural_key(hole_id: str) -> tuple:
+    return tuple(int(part) if part.isdigit() else part for part in re.split(r"(\d+)", hole_id))
 
 
 def seed_diff(old: Mapping[str, Any], new: Mapping[str, Any], prefix: str = "") -> list[dict[str, Any]]:

@@ -141,3 +141,18 @@ def test_g1_points_use_fact_collars(base):
     missing = next(point for point in fact["holes"] if not point["surveyed"])
     assert missing["offset_m"] is None
     assert all(math.isfinite(point["x"]) for point in fact["holes"])
+
+
+def test_depth_edited_after_copy_moves_the_toe_along_the_axis(base):
+    """Копия проекта, затем правка глубины: забой — на записанной длине, перебур и подошва согласованы."""
+
+    design, table = base
+    design = _with_copies(design, charge=False)
+    item = design.as_drilled_holes[0]
+    hole = next(h for h in design.holes if h.id == item.design_hole_id)
+    item.actual_depth = hole.length_m - 0.5
+    fact, _issues = block_fact(design, table, MATERIALS)
+    row = next(row for row in fact["rows"] if row["hole_id"] == hole.id)
+    assert row["depth_fact_m"] == pytest.approx(round(hole.length_m - 0.5, 1))
+    assert row["subdrill_fact_m"] == pytest.approx(round(hole.subdrill_m - 0.5, 1), abs=0.11)
+    assert fact_subdrill_m(hole, item) == pytest.approx(hole.subdrill_m - 0.5, abs=1e-6)

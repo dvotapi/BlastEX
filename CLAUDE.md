@@ -566,6 +566,28 @@ v2 (`V2_PAYLOAD_KEYS`): пост — по коду `guard_posts`; без точ�
 `tests/fixtures/mass_blast/golden/g1…g5.png`. Подробности —
 `Docs/MASS_BLAST_DOCUMENTS.md`, `Docs/plans/2026-11-12-task-018-pr4.md`.
 
+## Факт в документах проекта МВ (TASK-018, PR 5)
+
+Факт пишется в проект блока (`as_drilled`/`as_charged`/`as_fired`), в
+документы — только через слой «Факт» (`EXECUTION`, один на проект, после
+`approved`): ревизия проекта МВ не меняется. Графы Ф — `design/mass_blast_fact.py`
+(`block_fact`: те же функции, что Р, на копии проекта с фактической
+геометрией; перебур Δ_ф = L_ф − (Z_уст.ф − Z_подошвы)/cos α_ф при проектной
+подошве; масса — до 1 кг; итог Ф — только когда факт у всех скважин);
+проект блока с другим `designed_sha256` — ошибка, факт записан после
+переноса (`execution_sha256`) — `fact_changed`, выпуск — после `refresh`.
+Отказы, примечания и время взрыва по факту — `payload` слоя
+(`execution_view`). Печать — `design/reporting/mass_blast/fact.py`
+(исполнительная таблица `table_story(..., fact=)` + Г.1 по съёмке
+`plans.g1_drawings` с `surveyed`/`offset_m`, нумерация `group:EXECUTION`),
+документ 11 в PACKAGE. Акт приёмки и наряд после взрыва (`issued`,
+`consumed`, `returned`, только у `executed`/`closed`) — из последней
+выпущенной ревизии «Факта» (`execution_summary`, `fact_layer_stale`);
+талон — своё `fired_time`, «не ранее» = факт + 30 мин. Поверхностные и
+стартеры — вручную (MagEX — PR 7). Ревизии слоёв до PR 5 печатаются
+байт-в-байт как раньше: новое — только в новых ключах `view`. Подробности —
+`Docs/MASS_BLAST_DOCUMENTS.md`, `Docs/plans/2026-11-12-task-018-pr5.md`.
+
 ## Нумерация скважин
 
 `design/numbering.py::number_by_position`, зовёт `pattern._finish_pattern`.

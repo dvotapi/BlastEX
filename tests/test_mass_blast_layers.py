@@ -478,3 +478,32 @@ def test_talon_admittance_from_fact_time(context66_v2):
                              "admittance_source": "FACT"}
     with pytest.raises(ValueError):
         service.update_layer(repository, _economics(), ORG, "user", talon["id"], {"fired_time": "25:00"}, talon["version"])
+
+
+def test_fact_refresh_diff_is_per_hole_and_source_errors_are_named(executed, monkeypatch):
+    design, context = executed
+    repository = _Repository(context)
+    layer = service.create_layer(repository, _economics(), ORG, "user", "p1", "EXECUTION", {})
+    target = design.as_charged_holes[0]
+    target.charge_mass_kg += 10.0
+    preview = service.refresh_layer(repository, _economics(), ORG, "user", layer["id"], layer["version"], confirm=False)
+    paths = [change["path"] for change in preview["changes"]]
+    assert f"blocks_fact[0].{target.design_hole_id}.charge_fact_kg" in paths
+    assert all(not isinstance(change["after"], list) or change["path"].endswith("consumption") for change in preview["changes"])
+
+    monkeypatch.setattr(service, "_load_design", lambda organization_id, design_id: (_ for _ in ()).throw(
+        service.design_persistence.DesignNotFoundError(design_id)))
+    broken = service.get_layer(repository, _economics(), ORG, layer["id"])
+    assert "fact_source_invalid" in _codes(broken) and "fact_changed" not in _codes(broken)
+
+
+def test_fact_line_found_by_material_code():
+    from design.mass_blast_layers import naryad_after_blast
+
+    seed = {"blocks": [], "fact": {"blocks": [], "consumption": [
+        {"key": "primer:ПД-1000:", "kind": "primer", "name": "ПД-1000", "material_code": "MAT_PD", "delay_ms": None, "quantity": 7.0},
+    ]}}
+    lines = [{"key": "primer:ПД Сферит 1000 г:", "kind": "primer", "name": "ПД Сферит 1000 г", "material_code": "MAT_PD",
+              "delay_ms": None, "unit": "шт", "unit_mass_kg": 1.0, "project_qty": 8.0, "issue_qty": 8.0}]
+    after, _blocks, issues = naryad_after_blast(seed, {}, lines)
+    assert len(after) == 1 and after[0]["consumed_qty"] == 7.0 and not issues

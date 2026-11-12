@@ -50,7 +50,7 @@ export function validation(changes: Partial<MassBlastValidationV2> = {}): MassBl
       document_context_version: 2,
       requisites: { tp_basis: "ТП из справочника", customer_approver: { position: "Тех. директор", name: "Заказчиков З. З.", authority: "", is_head: true } },
       zones: { people: { value: 750, factor: "разлёт" }, mechanisms: { value: 500 }, buildings: { value: 100 } },
-      blocks_v2: [{ design_id: "d66", code: "66", horizon: "+410", safety: { params: { k_ground: 5, frost: true, sources: { k_ground: "REFERENCE", frost: "REFERENCE" } } }, consumption: [], parameter_table: { rows: [] } }],
+      blocks_v2: [{ design_id: "d66", code: "66", horizon: "+410", safety: { params: { k_ground: 5, frost: true, hardness_f: 14, sources: { k_ground: "REFERENCE", frost: "REFERENCE", hardness_f: "REFERENCE" } } }, consumption: [], parameter_table: { rows: [] } }],
       graphics: {
         outlines: [[[0, 0], [10, 0], [10, 10], [0, 10]]],
         zones: [{ kind: "people", value_m: 750, rings: [[[-50, -50], [60, -50], [60, 60], [-50, 60]]] }],

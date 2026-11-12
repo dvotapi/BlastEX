@@ -356,8 +356,12 @@ export function SafetyTab({ form, edit, editable, errors, issues, context, field
             const own = form.overrides[key] ?? "";
             const shown = typeof current === "boolean" ? (current ? "да" : "нет") : current === null || current === undefined ? "—" : ruNum(Number(current), 3);
             const hint = `сейчас: ${shown}${field.unit ? ` ${field.unit}` : ""} — ${sourceLabel(sources[key])}`;
+            // Поле схемы без заголовка (у крепости пород — только пояснение): подпись — из пояснения, не служебное имя.
+            const untitled = field.title === key;
+            const title = untitled ? field.description.split(/[;.]/)[0].trim() || key : field.title;
+            const note = untitled ? "" : field.description;
             return (
-              <Field key={key} label={field.unit ? `${field.title}, ${field.unit}` : field.title} hint={field.description ? `${hint}. ${field.description}` : hint}
+              <Field key={key} label={field.unit ? `${title}, ${field.unit}` : title} hint={note ? `${hint}. ${note}` : hint}
                 error={errors[`safety_overrides.${key}`]}>
                 {(id) =>
                   typeof current === "boolean" ? (

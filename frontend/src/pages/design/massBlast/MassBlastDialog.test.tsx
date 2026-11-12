@@ -45,6 +45,12 @@ beforeEach(() => {
           },
         },
       },
+      rocks: {
+        json_schema: {
+          type: "object",
+          properties: { hardness_f: { anyOf: [{ type: "number" }, { type: "null" }], "x-unit": "f", description: "Крепость по Протодьяконову; не знаете — оставьте пустым" } },
+        },
+      },
     },
   } as never);
   vi.mocked(api.massBlast.validateV2).mockReset().mockResolvedValue(validation());
@@ -115,6 +121,9 @@ describe("окно проекта МВ", () => {
     expect(await screen.findByLabelText("Коэффициент K_г")).toBeTruthy();
     expect(screen.getByText(/сейчас: 5 — справочник/)).toBeTruthy();
     expect(screen.getByLabelText("Отрицательная температура").tagName).toBe("SELECT");
+    // Поле без заголовка в схеме — подпись из пояснения, а не служебное имя.
+    expect(screen.getByLabelText("Крепость по Протодьяконову, f")).toBeTruthy();
+    expect(screen.queryByText(/hardness_f/)).toBeNull();
   });
 
   it("согласовать можно только своей учёткой", async () => {

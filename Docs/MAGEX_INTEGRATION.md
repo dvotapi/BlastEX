@@ -37,9 +37,11 @@ MagEX». Ошибку в ключе или в наборе API проверяе�
 
 - `MAGEX_API_URL=https://magex.complex-services.ru/api/v1`: маршруты `/integrations/blastex/*`
   отвечают `503 BLASTEX_KEYS_UNAVAILABLE`, пока MagEX не видит ключ BlastEX (проверено 13.11.2026).
-- UUID организации MagEX — `00000000-0000-4000-8000-00000000d0e1`:
-  `MAGEX_ORGANIZATIONS={"<организация BlastEX>": "00000000-0000-4000-8000-00000000d0e1"}`.
-  Ключ слева — `organization_id` учёток BlastEX на проде (`BLASTEX_USERS_JSON`; не задан — `default`).
+- **Боевой организации в MagEX ещё нет:** MagEX в разработке.
+  `00000000-0000-4000-8000-00000000d0e1` — dev-организация сида MagEX, годится только для стенда.
+  Флаг на проде не включать, пока у MagEX не появится боевая организация. Тогда
+  `MAGEX_ORGANIZATIONS={"<организация BlastEX>": "<UUID боевой организации MagEX>"}`,
+  где ключ слева — `organization_id` учёток BlastEX на проде (`BLASTEX_USERS_JSON`; не задан — `default`).
 
 ## Первая выкладка
 

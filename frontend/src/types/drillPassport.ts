@@ -100,6 +100,8 @@ export type DrillPassportRevision = {
   id: string;
   passport_id: string;
   revision_no: number;
+  /** Хэш проектной части проекта блока, по которому выпущена ревизия. */
+  design_sha256?: string;
   content_sha256: string;
   created_at: string;
   created_by: string;

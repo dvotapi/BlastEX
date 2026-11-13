@@ -35,6 +35,7 @@ export function TimingPanel({
   currentMs,
   maxMs,
   onScrub,
+  stale = false,
 }: {
   analysis: AnalyzeResponse | null;
   busy: boolean;
@@ -50,6 +51,8 @@ export function TimingPanel({
   currentMs: number;
   maxMs: number;
   onScrub: (ms: number) => void;
+  /** Прежний расчёт сброшен правкой (сети, скважин, породы…): его нужно повторить. */
+  stale?: boolean;
 }) {
   const warnings = analysis
     ? [...analysis.timing_warnings.map((m) => ({ code: "unconnected_holes", message: m })), ...analysis.validation_warnings]
@@ -75,6 +78,11 @@ export function TimingPanel({
         <button className="calculate-button" onClick={onAnalyze} disabled={busy}>
           {busy ? "Считаем…" : "Рассчитать тайминг"}
         </button>
+        {stale && !analysis && (
+          <small className="retie-summary" role="status">
+            Расчёт тайминга устарел: изменились его исходные данные (скважины, коммутация, порода, сетка или контур). Времена на плане — по связям; изолинии, темп отбойки и проверки — после «Рассчитать тайминг».
+          </small>
+        )}
 
         {analysis && (
           <>

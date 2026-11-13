@@ -5,7 +5,7 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../../api/endpoints";
 import { HttpError } from "../../api/client";
-import { emptyDesign, type LayoutSearchStatus } from "../../types/design";
+import { emptyDesign, type Hole, type LayoutSearchStatus } from "../../types/design";
 import { LAYOUT_SEARCH_POLL_MS, layoutFingerprint, layoutSearchInputs, useLayoutSearch } from "./useLayoutSearch";
 
 beforeEach(() => {
@@ -360,5 +360,28 @@ describe("layoutFingerprint: основной путь", () => {
     const edited = { ...base, contour: { a: 2, b: [1, 2] } };
     expect(await layoutFingerprint(edited)).not.toBe(await layoutFingerprint(base));
     expect(await layoutFingerprint(base)).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe("layoutSearchInputs: сдвиги от узлов (TASK-017, PR 2)", () => {
+  const plainHole: Hole = {
+    id: "1-01", row: 0, col: 0, collar: { x: 1, y: 2, z: 0 }, toe: { x: 1, y: 2, z: -10 }, diameter_mm: 165, subdrill_m: 1,
+    kind: "production", source: "generated", enabled: true, intervals: [], water_intervals: [], measured_intervals: [], measured_water_intervals: [],
+  };
+
+  it("без сдвигов ключа нет — отпечаток прежний", () => {
+    const design = { ...emptyDesign(), holes: [{ ...plainHole, manual_offset: null }] };
+    expect("moved_holes" in layoutSearchInputs(design, {})).toBe(false);
+  });
+
+  it("сдвиг входит в отпечаток: итог подбора устаревает", async () => {
+    const design = { ...emptyDesign(), holes: [{ ...plainHole }] };
+    const moved = {
+      ...design,
+      holes: [{ ...plainHole, manual: ["xy" as const], manual_offset: { node_x: 0.5, node_y: 2, along: 0.5, across: 0 } }],
+    };
+    const inputs = layoutSearchInputs(moved, {});
+    expect(inputs.moved_holes).toEqual([{ id: "1-01", node_x: 0.5, node_y: 2, along: 0.5, across: 0 }]);
+    expect(await layoutFingerprint(inputs)).not.toBe(await layoutFingerprint(layoutSearchInputs(design, {})));
   });
 });

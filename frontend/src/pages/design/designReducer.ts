@@ -3,6 +3,8 @@
 // документа (не должны попадать в историю правок).
 import { faceAngleForImportedBlock } from "../../lib/faceAngle";
 import { renameHoleIds } from "./holeRenumber";
+import { clearMoved, isMovedHole, layoutAxes, markMoved, type LayoutAxes } from "./holeMove";
+import { isGeometryStale, isNetworkEmpty, markGeometryStale, networkOrigin, retieRequest } from "./retie";
 import { isRecordFrozen } from "../../lib/lifecycle";
 import { collarZFromSurfaces } from "../../lib/surfaces";
 import type { CadCrs } from "../../types/cad";
@@ -14,6 +16,7 @@ import type {
   CoordinateSystem,
   Hole,
   HoleLoad,
+  DetonatingCord,
   InitiationNetwork,
   PatternParams,
   SurfaceKind,
@@ -90,7 +93,18 @@ export type DesignAction =
   | { type: "RECOMPUTE_HOLES"; holes: Hole[] }
   // `series` — время нажатия стрелки, мс: нажатия подряд склеиваются в одну
   // запись отмены (`MOVE_SERIES_GAP_MS`); сдвиг мышью идёт без него.
-  | { type: "MOVE_HOLES"; ids: string[]; dx: number; dy: number; series?: number }
+  // `axes` — оси раскладки, в которых копится смещение от узла (TASK-017,
+  // PR 2): страница берёт их у формы «Сетка»; без них — по параметрам паспорта.
+  | { type: "MOVE_HOLES"; ids: string[]; dx: number; dy: number; series?: number; axes?: LayoutAxes }
+  /** «Вернуть в узел сетки»: устье — в узел, пометка сдвига снимается (TASK-017, PR 2). */
+  | { type: "RETURN_TO_NODE"; ids: string[] }
+  /**
+   * Сеть, пересчитанная после сдвига (TASK-017, PR 3). `base` — документ, по
+   * которому спрошен пересчёт: документ с тех пор сменился — ответ не
+   * применяется. `merge` — автопересчёт: вливается в запись отмены сдвига
+   * (одна отмена возвращает и скважины, и прежнюю сеть); иначе — своя запись.
+   */
+  | { type: "RETIE_NETWORK"; network: InitiationNetwork; base: BlastDesign; merge: boolean }
   | { type: "UPDATE_HOLE"; id: string; patch: Partial<Hole> }
   | { type: "ADD_HOLE"; hole: Hole }
   | { type: "DELETE_HOLES"; ids: string[] }
@@ -138,6 +152,13 @@ export type DesignState = {
    * не меняет, но начинает новую серию).
    */
   moveSeries?: { at: number; present: BlastDesign; ids: string };
+  /**
+   * Документ, который дал сдвиг скважин при сети шаблона (TASK-017, PR 3):
+   * пока он на экране, страница пересчитывает коммутацию сама. `series` —
+   * сдвиг стрелками: пересчёт ждёт конца серии. Открытие паспорта с уже
+   * помеченной сетью отметки не даёт — пересчёт только от сдвига.
+   */
+  autoRetie?: { present: BlastDesign; series: boolean };
 };
 
 /** Пауза между нажатиями стрелок, после которой сдвиг — новая запись отмены, мс. */
@@ -180,6 +201,17 @@ function serverFields(design: BlastDesign): ServerFields {
 
 function edgeKey(index: number, total: number): number[] {
   return [index, (index + 1) % total];
+}
+
+/**
+ * Сеть после смены скважин (сдвиг, добавление, удаление, исключение, вид):
+ * непустая помечается «устаревшей по геометрии» (TASK-017, PR 3 и PR 5).
+ * Непустая — всегда новый объект: по нему `designReducer` видит, что действие
+ * сменило скважины (и при уже стоящей пометке ставит пересчёт снова).
+ */
+function staleNetwork(source: InitiationNetwork): InitiationNetwork {
+  const network = normalizeNetwork(source);
+  return isNetworkEmpty(network) ? source : markGeometryStale(network);
 }
 
 function moveHole(hole: Hole, dx: number, dy: number, document: BlastDesign): Hole {
@@ -245,6 +277,26 @@ function normalizeDesign(design: BlastDesign): BlastDesign {
   };
 }
 
+/**
+ * Шнур без удалённых скважин: рвётся на каждой, а не склеивается через неё
+ * (прямой отрезок мимо удалённой дал бы фантомное время; сервер отрезок с
+ * отсутствующей скважиной тоже пропускает). Куски короче двух скважин уходят.
+ */
+function cordRuns(cord: DetonatingCord, holeIds: Set<string>): DetonatingCord[] {
+  const runs: string[][] = [];
+  let run: string[] = [];
+  for (const id of [...cord.hole_ids, null]) {
+    if (id !== null && holeIds.has(id)) {
+      run.push(id);
+      continue;
+    }
+    if (run.length >= 2) runs.push(run);
+    run = [];
+  }
+  if (runs.length === 1 && runs[0].length === cord.hole_ids.length) return [cord];
+  return runs.map((hole_ids, index) => ({ ...cord, id: index ? `${cord.id}-${index + 1}` : cord.id, hole_ids }));
+}
+
 function pruneLoadsAndNetwork(document: BlastDesign, holeIds: Set<string>): Pick<BlastDesign, "loads" | "network"> {
   const loads = document.loads.filter((ld) => holeIds.has(ld.hole_id));
   const network = normalizeNetwork(document.network);
@@ -259,10 +311,7 @@ function pruneLoadsAndNetwork(document: BlastDesign, holeIds: Set<string>): Pick
       detonators: network.detonators.filter((item) => holeIds.has(item.hole_id)),
       surface_connectors: network.surface_connectors.filter((item) => holeIds.has(item.from_hole) && holeIds.has(item.to_hole)),
       downhole_connectors: network.downhole_connectors.filter((item) => holeIds.has(item.hole_id)),
-      detonating_cords: network.detonating_cords.map((cord) => ({
-        ...cord,
-        hole_ids: cord.hole_ids.filter((id) => holeIds.has(id)),
-      })).filter((cord) => cord.hole_ids.length >= 2),
+      detonating_cords: network.detonating_cords.flatMap((cord) => cordRuns(cord, holeIds)),
       starter_items: network.starter_items.filter((item) => holeIds.has(item.hole_id)),
       electronic_channels: network.electronic_channels.filter((item) => holeIds.has(item.hole_id)),
       firing_events: network.firing_events.filter((item) => holeIds.has(item.hole_id)),
@@ -398,51 +447,78 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
     }
     case "MOVE_HOLES": {
       const ids = new Set(action.ids);
+      const azimuth = Number(document.pattern_params?.row_azimuth_deg ?? 0);
+      const axes = action.axes ?? layoutAxes(azimuth, document.contour);
       return {
         ...document,
         holes: document.holes.map((h) => {
           if (!ids.has(h.id)) return h;
           const moved = moveHole(h, action.dx, action.dy, document);
-          return { ...moved, intervals: [], water_intervals: [] };
+          return markMoved({ ...moved, intervals: [], water_intervals: [] }, h, axes);
         }),
+        network: staleNetwork(document.network),
       };
     }
-    case "UPDATE_HOLE":
+    case "RETURN_TO_NODE": {
+      const ids = new Set(action.ids);
+      let changed = false;
+      const holes = document.holes.map((h) => {
+        if (!ids.has(h.id) || !isMovedHole(h) || !h.manual_offset) return h;
+        changed = true;
+        const { node_x, node_y } = h.manual_offset;
+        const back = moveHole(h, node_x - h.collar.x, node_y - h.collar.y, document);
+        return clearMoved({ ...back, collar: { ...back.collar, x: node_x, y: node_y }, intervals: [], water_intervals: [] });
+      });
+      return changed ? { ...document, holes, network: staleNetwork(document.network) } : document;
+    }
+    case "UPDATE_HOLE": {
+      // Вид скважины решает, войдёт ли она в сеть шаблона (контурная, стенка,
+      // вид основной сетки): смена вида делает коммутацию устаревшей (PR 5).
+      let kindChanged = false;
+      const holes = document.holes.map((h) => {
+        if (h.id !== action.id) return h;
+        const next = { ...h, ...action.patch };
+        if (action.patch.collar || action.patch.toe) {
+          next.intervals = [];
+          next.water_intervals = [];
+        }
+        if (next.kind !== h.kind) kindChanged = true;
+        return next;
+      });
+      return { ...document, holes, ...(kindChanged ? { network: staleNetwork(document.network) } : {}) };
+    }
+    case "ADD_HOLE":
       return {
         ...document,
-        holes: document.holes.map((h) => {
-          if (h.id !== action.id) return h;
-          const next = { ...h, ...action.patch };
-          if (action.patch.collar || action.patch.toe) {
-            next.intervals = [];
-            next.water_intervals = [];
-          }
-          return next;
-        }),
+        holes: [...document.holes, normalizeHole(action.hole)],
+        network: staleNetwork(document.network),
       };
-    case "ADD_HOLE":
-      return { ...document, holes: [...document.holes, normalizeHole(action.hole)] };
     case "SET_HOLES_ENABLED": {
       // Отключённая скважина остаётся в паспорте и на плане, но выпадает из
       // объёмов, погонажа, заряжания и тайминга — их считает сервер по флагу.
       const ids = new Set(action.ids);
       if (!ids.size) return document;
-      return {
-        ...document,
-        holes: document.holes.map((h) => (ids.has(h.id) ? { ...h, enabled: action.enabled } : h)),
-      };
+      let changed = false;
+      const holes = document.holes.map((h) => {
+        if (!ids.has(h.id)) return h;
+        if (h.enabled !== action.enabled) changed = true;
+        return { ...h, enabled: action.enabled };
+      });
+      return { ...document, holes, ...(changed ? { network: staleNetwork(document.network) } : {}) };
     }
     case "DELETE_HOLES": {
       const ids = new Set(action.ids);
       const holes = document.holes.filter((h) => !ids.has(h.id));
       const holeIds = new Set(holes.map((h) => h.id));
+      const pruned = pruneLoadsAndNetwork(document, holeIds);
       return {
         ...document,
         holes,
         as_drilled_holes: document.as_drilled_holes.filter((item) => holeIds.has(item.design_hole_id)),
         as_charged_holes: document.as_charged_holes.filter((item) => holeIds.has(item.design_hole_id)),
         as_fired_holes: document.as_fired_holes.filter((item) => holeIds.has(item.design_hole_id)),
-        ...pruneLoadsAndNetwork(document, holeIds),
+        ...pruned,
+        network: holes.length === document.holes.length ? pruned.network : staleNetwork(pruned.network),
       };
     }
     case "SET_CHARGE_RULES":
@@ -598,6 +674,7 @@ const UNDOABLE: DesignAction["type"][] = [
   "APPLY_LAYOUT",
   "RENUMBER_HOLES",
   "MOVE_HOLES",
+  "RETURN_TO_NODE",
   "UPDATE_HOLE",
   "ADD_HOLE",
   "DELETE_HOLES",
@@ -628,7 +705,46 @@ const UNDOABLE: DesignAction["type"][] = [
   "DELETE_AS_FIRED",
 ];
 
+/** Сеть построена шаблоном, не правлена и её можно пересчитать без формы. */
+function retiesItself(document: BlastDesign): boolean {
+  const network = normalizeNetwork(document.network);
+  return !isNetworkEmpty(network) && networkOrigin(network) === "template" && retieRequest(network) !== null;
+}
+
+/**
+ * Действия со скважинами, после которых сеть шаблона пересчитывается сама
+ * (TASK-017, PR 3 — сдвиг; PR 5 — добавление, удаление, исключение, вид).
+ * Пересчёт — только если действие пометило сеть устаревшей.
+ */
+const HOLE_SET_ACTIONS: ReadonlySet<DesignAction["type"]> = new Set([
+  "MOVE_HOLES",
+  "RETURN_TO_NODE",
+  "ADD_HOLE",
+  "DELETE_HOLES",
+  "SET_HOLES_ENABLED",
+  "UPDATE_HOLE",
+]);
+
 export function designReducer(state: DesignState, action: DesignAction): DesignState {
+  const next = reduceState(state, action);
+  if (next === state) return next;
+  if (
+    HOLE_SET_ACTIONS.has(action.type)
+    && next.present.network !== state.present.network
+    && isGeometryStale(normalizeNetwork(next.present.network))
+    && retiesItself(next.present)
+  ) {
+    return { ...next, autoRetie: { present: next.present, series: action.type === "MOVE_HOLES" && action.series !== undefined } };
+  }
+  if ((action.type === "RECOMPUTE_HOLES" || action.type === "SAVED") && state.autoRetie?.present === state.present) {
+    // Пересчёт по кровле приходит сам после сдвига, сохранение правок не
+    // меняет — пересчёт коммутации всё ещё нужен.
+    return { ...next, autoRetie: { ...state.autoRetie, present: next.present } };
+  }
+  return next;
+}
+
+function reduceState(state: DesignState, action: DesignAction): DesignState {
   if ((action.type === "LOAD" || action.type === "SAVED") && action.base && action.base !== state.saved) {
     // Пока шёл запрос, открыли другой паспорт: ответ о прежнем ему не принадлежит.
     return state;
@@ -659,6 +775,14 @@ export function designReducer(state: DesignState, action: DesignAction): DesignS
       // стрелок: следующее нажатие — новая запись, а не продолжение.
       moveSeries: undefined,
     };
+  }
+  if (action.type === "RETIE_NETWORK") {
+    // Пока шёл пересчёт, документ сменился (сдвиг, отмена, другая правка):
+    // сеть посчитана не для него.
+    if (action.base !== state.present) return state;
+    const present = { ...state.present, network: normalizeNetwork(action.network) };
+    if (action.merge) return { ...state, present, moveSeries: undefined };
+    return { ...state, past: [...state.past, state.present].slice(-HISTORY_LIMIT), present, future: [], moveSeries: undefined };
   }
   if (action.type === "REDO") {
     if (state.future.length === 0) return state;

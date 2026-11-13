@@ -82,6 +82,8 @@ export type MassBlastBlockDetails = {
 
 export type MassBlastBlockV2 = {
   design_id: string;
+  /** Хэш проектной части проекта блока на момент добавления (снимок). */
+  design_sha256?: string;
   technical_passport_id?: string | null;
   code: string;
   horizon: string;

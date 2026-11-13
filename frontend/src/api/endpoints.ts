@@ -1,4 +1,4 @@
-import { del, downloadFile, errorMessage, get, patch, post, postFile, postForm, put, requestSvg } from "./client";
+import { del, downloadFile, errorMessage, get, patch, post, postFile, postForm, put, request, requestSvg } from "./client";
 import type {
   AggregatedCostResult,
   BlastGeometryResponse,
@@ -52,6 +52,7 @@ import type {
   SurfaceModel,
   SurfaceSet,
   SurfaceStats,
+  TieCatalog,
   TieGenerateResponse,
   TieParams,
   BlastDomain,
@@ -631,19 +632,25 @@ export const api = {
         contour: extras?.contour,
         explosives: extras?.explosives ?? [],
       }),
+    tieCatalog: () => get<TieCatalog>(`${V1}/design/tie/catalog`),
     tie: (
       holes: Hole[],
       scheme: SchemeType,
       params: TieParams & Record<string, unknown>,
       contour?: BlockContour,
+      options?: { signal?: AbortSignal },
     ) =>
       // Контур — для сверки рядов с бровкой у «Магистраль + цепочки»: нужны
       // только вершины и свободные поверхности, сведения чертежа не шлём.
-      post<TieGenerateResponse>(`${V1}/design/tie/generate`, {
-        holes,
-        scheme,
-        params,
-        contour: contour && { vertices: contour.vertices, free_faces: contour.free_faces },
+      request<TieGenerateResponse>(`${V1}/design/tie/generate`, {
+        method: "POST",
+        body: JSON.stringify({
+          holes,
+          scheme,
+          params,
+          contour: contour && { vertices: contour.vertices, free_faces: contour.free_faces },
+        }),
+        signal: options?.signal,
       }),
     analyze: (design: BlastDesign, isolineStepMs: number, micWindowMs: number, ppv: PpvRequest | null) =>
       post<AnalyzeResponse>(`${V1}/design/analyze`, {

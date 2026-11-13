@@ -140,6 +140,15 @@ class WaterIntervalSchema(BaseModel):
     notes: str = ""
 
 
+class ManualOffsetSchema(BaseModel):
+    """Узел сетки и смещение от него в осях раскладки, м (TASK-017, PR 2)."""
+
+    node_x: float
+    node_y: float
+    along: float
+    across: float
+
+
 class HoleSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -157,8 +166,10 @@ class HoleSchema(BaseModel):
     water_intervals: list[WaterIntervalSchema] = Field(default_factory=list)
     measured_intervals: list[HoleIntervalSchema] = Field(default_factory=list)
     measured_water_intervals: list[WaterIntervalSchema] = Field(default_factory=list)
-    # Ручная правка (TASK-013, PR 3): отметка устья и/или длина не пересчитываются.
-    manual: list[Literal["collar_z", "length"]] = Field(default_factory=list)
+    # Ручная правка (TASK-013, PR 3): отметка устья и/или длина не пересчитываются;
+    # `xy` — скважина сетки сдвинута от узла (TASK-017, PR 2), см. `manual_offset`.
+    manual: list[Literal["collar_z", "length", "xy"]] = Field(default_factory=list)
+    manual_offset: ManualOffsetSchema | None = None
 
 
 class DeckSchema(BaseModel):
@@ -977,10 +988,14 @@ class BlastResultRecordResponse(BlastResultCompareResponse):
     network: InitiationNetworkSchema = Field(default_factory=InitiationNetworkSchema)
 
 
+# Прежние скважины в запросе сетки — не больше, чем в пересчёте (`MAX_RECOMPUTE_HOLES`).
+MAX_PATTERN_EXISTING_HOLES = 20_000
+
+
 class PatternGenerateRequest(BaseModel):
     contour: BlockContourSchema
     params: dict[str, Any] = Field(default_factory=dict)
-    existing_holes: list[HoleSchema] = Field(default_factory=list)
+    existing_holes: list[HoleSchema] = Field(default_factory=list, max_length=MAX_PATTERN_EXISTING_HOLES)
     surfaces: SurfaceSetSchema | None = None
     domains: list[BlastDomainSchema] = Field(default_factory=list)
 
@@ -1007,6 +1022,8 @@ class PatternGenerateResponse(BaseModel):
     holes: list[HoleSchema]
     hole_count: int
     block_volume_m3: float
+    # Сдвинутые от узла скважины без узла в новой сетке (TASK-017, PR 2).
+    warnings: list[str] = Field(default_factory=list)
 
 
 class ChargeGenerateRequest(BaseModel):
@@ -1036,6 +1053,20 @@ class TieGenerateResponse(BaseModel):
     starters_count: int
     connectors_count: int
     warnings: list[str] = Field(default_factory=list)
+
+
+class TieSystemCatalogSchema(BaseModel):
+    surface_ms: list[float]
+    downhole_ms: list[float]
+    downhole_default_ms: float
+    custom_surface: bool = False
+
+
+class TieCatalogResponse(BaseModel):
+    """Номиналы ступеней систем инициирования (`design/timing.py::tie_catalog`)."""
+
+    systems: dict[str, TieSystemCatalogSchema]
+    detcord_velocity_m_s: float
 
 
 class ValidationWarningSchema(BaseModel):

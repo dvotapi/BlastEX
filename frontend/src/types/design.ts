@@ -312,8 +312,22 @@ export type WaterInterval = {
   notes: string;
 };
 
-/** Что инженер задал руками: отметку устья и/или длину — пересчёт их не трогает. */
-export type HoleManualFlag = "collar_z" | "length";
+/**
+ * Что инженер задал руками: отметку устья и/или длину — пересчёт их не
+ * трогает; `xy` — скважина сетки сдвинута на плане от узла (TASK-017, PR 2),
+ * сам сдвиг — в `manual_offset`.
+ */
+export type HoleManualFlag = "collar_z" | "length" | "xy";
+
+/** Узел сетки (мировые координаты) и смещение от него в осях раскладки, м. */
+export type HoleManualOffset = {
+  node_x: number;
+  node_y: number;
+  /** Вдоль ряда (`holeMove.layoutAxes().along`). */
+  along: number;
+  /** Поперёк ряда; при свободной поверхности плюс — к откосу. */
+  across: number;
+};
 
 export type Hole = {
   id: string;
@@ -331,6 +345,8 @@ export type Hole = {
   measured_intervals: HoleInterval[];
   measured_water_intervals: WaterInterval[];
   manual?: HoleManualFlag[];
+  /** Только у сдвинутой скважины сетки, вместе с `xy` в `manual`. */
+  manual_offset?: HoleManualOffset | null;
 };
 
 /** Флаги пересчёта: устье вне кровли, высота уступа у скважины меньше 1 м. */
@@ -993,6 +1009,8 @@ export type PatternGenerateResponse = {
   holes: Hole[];
   hole_count: number;
   block_volume_m3: number;
+  /** Сдвинутые скважины без узла в новой сетке — оставлены ручными (TASK-017, PR 2). */
+  warnings?: string[];
 };
 
 export type DeckingType = "continuous" | "spaced";
@@ -1080,11 +1098,26 @@ export type DesignSummary = {
 
 export type SchemeType = "row" | "echelon" | "diagonal_v" | "trapezoid" | "trunk_chains";
 
-// Ступени поверхностных замедлений НСИ, мс.
-export const SURFACE_NSI_MS_OPTIONS = [17, 25, 42, 67, 109] as const;
-// Номиналы пиротехнических реле ДШ, мс (design/timing.py::DETCORD_RELAY_MS_OPTIONS).
-export const DETCORD_RELAY_MS_OPTIONS = [10, 20, 25, 35, 42] as const;
+/** Шаблоны связей, которые строит сервер (`design/timing.py::SCHEME_TYPES`). */
+export const SCHEME_TYPES: ReadonlySet<string> = new Set<SchemeType>(["row", "echelon", "diagonal_v", "trapezoid", "trunk_chains"]);
+
 export type SystemType = InitiationNetwork["system"];
+
+/** Номиналы системы инициирования (`GET /design/tie/catalog`, `design/timing.py::tie_catalog`). */
+export type TieSystemCatalog = {
+  /** Поверхностные ступени, мс (НСИ, реле ДШ). */
+  surface_ms: number[];
+  /** Номиналы внутрискважинных детонаторов, мс; пусто — только своё значение. */
+  downhole_ms: number[];
+  downhole_default_ms: number;
+  /** Ступень — любое своё значение (электронные детонаторы). */
+  custom_surface: boolean;
+};
+
+export type TieCatalog = {
+  systems: Record<SystemType, TieSystemCatalog>;
+  detcord_velocity_m_s: number;
+};
 
 export type TieParams = {
   system: SystemType;

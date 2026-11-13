@@ -549,6 +549,33 @@ class BlockContour:
 
 
 @dataclass
+class ManualOffset:
+    """Сдвиг скважины сетки от её узла (TASK-017, PR 2).
+
+    `node_x`, `node_y` — мировые координаты узла: место, куда скважину
+    поставил генератор. `along`, `across` — смещение в осях раскладки, м
+    (`geometry.layout_axes`: вдоль ряда и поперёк — к откосу).
+    """
+
+    node_x: float
+    node_y: float
+    along: float
+    across: float
+
+    def to_dict(self) -> dict[str, float]:
+        return {"node_x": self.node_x, "node_y": self.node_y, "along": self.along, "across": self.across}
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ManualOffset:
+        return cls(
+            node_x=float(data.get("node_x", 0.0)),
+            node_y=float(data.get("node_y", 0.0)),
+            along=float(data.get("along", 0.0)),
+            across=float(data.get("across", 0.0)),
+        )
+
+
+@dataclass
 class Hole:
     """Одна скважина: устье и забой как явные 3D-точки."""
 
@@ -569,6 +596,8 @@ class Hole:
     # Что инженер задал руками (TASK-013, PR 3): `collar_z` — отметку устья,
     # `length` — длину; пересчёт по кровле и подошве их не трогает.
     manual: list[str] = field(default_factory=list)
+    # Сдвиг от узла сетки (TASK-017, PR 2): только у сдвинутой — с `"xy"` в `manual`.
+    manual_offset: ManualOffset | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data = {
@@ -590,6 +619,8 @@ class Hole:
         # Ключ — только у правленой скважины: скважины входят в хэш паспорта.
         if self.manual:
             data["manual"] = list(self.manual)
+        if self.manual_offset is not None:
+            data["manual_offset"] = self.manual_offset.to_dict()
         return data
 
     @classmethod
@@ -612,6 +643,11 @@ class Hole:
                 WaterInterval.from_dict(iv) for iv in data.get("measured_water_intervals", [])
             ],
             manual=[str(item) for item in data.get("manual") or []],
+            manual_offset=(
+                ManualOffset.from_dict(data["manual_offset"])
+                if isinstance(data.get("manual_offset"), dict)
+                else None
+            ),
         )
 
     @property

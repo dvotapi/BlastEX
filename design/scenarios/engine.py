@@ -20,7 +20,7 @@ from design.scenarios.types import (
     ScenarioOutcomes,
     ScenarioParams,
 )
-from design.timing import TimingExprError, build_template_network, resolve_network
+from design.timing import GEOMETRY_STALE_KEY, TimingExprError, build_template_network, resolve_network
 from design.toe_line import grid_steps_m
 from simulation.fragmentation.models import MODEL_KUZRAM
 
@@ -229,6 +229,9 @@ def _scale_loads_to_powder_factor(loads: list[HoleLoad], powder_factor: float) -
 
 def _rebuild_network(overlay: BlastDesign, delay_interval_ms: float | None = None) -> None:
     timing_params = dict(overlay.network.timing_params or {})
+    # Сеть строится заново по текущим устьям: пометка «устарела по геометрии»
+    # (TASK-017, PR 3) к ней не относится.
+    timing_params.pop(GEOMETRY_STALE_KEY, None)
     scheme = str(timing_params.get("scheme") or "row")
     if "system" not in timing_params:
         timing_params["system"] = overlay.network.system or "nonel"

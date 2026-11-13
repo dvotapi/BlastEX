@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CHARGE_RULES, DEFAULT_PATTERN_PARAMS, DEFAULT_TIE_PARAMS, emptyDesign, type AsDrilledHole, type BlastDesign } from "../../types/design";
 import { designReducer, initDesignState, type DesignAction, type DesignState } from "./designReducer";
-import { backOffsetDefaultM, benchPatchFromObjectAngle, chargeGridOf, designWithParams, hasUnsavedChanges, isSquarePattern, paramsFromDesign, rockNameFromTransfer, tieRequestParams, type DesignParams } from "./designParams";
+import { backOffsetDefaultM, benchPatchFromObjectAngle, chargeGridOf, designedChanged, designWithParams, hasUnsavedChanges, snapshotStale, isSquarePattern, paramsFromDesign, rockNameFromTransfer, tieRequestParams, type DesignParams } from "./designParams";
 
 const DEFAULT_EXPLOSIVE = "ГРАНУЛИТ-РП";
 
@@ -278,5 +278,30 @@ describe("backOffsetDefaultM: отступ от тыла без ключа", () 
 
   it("нет диаметра — умолчание генератора 152 мм", () => {
     for (const bad of [undefined, null, 0, -1, Number.NaN]) expect(backOffsetDefaultM(bad)).toBeCloseTo(3.04, 9);
+  });
+});
+
+describe("designedChanged — изменена проектная часть (TASK-017, PR 3)", () => {
+  it("название — не проектная часть, сеть — проектная", () => {
+    const renamed = opened(passport(), { type: "SET_NAME", name: "Другое" });
+    expect(designedChanged(renamed, formsOf(renamed), DEFAULT_EXPLOSIVE)).toBe(false);
+    const retied = opened(passport(), { type: "SET_NETWORK", network: { ...passport().network, starters: ["h1"] } });
+    expect(designedChanged(retied, formsOf(retied), DEFAULT_EXPLOSIVE)).toBe(true);
+  });
+
+  it("шаг сетки в форме — проектная часть", () => {
+    const state = opened(passport());
+    const forms = formsOf(state);
+    expect(designedChanged(state, { ...forms, patternParams: { ...forms.patternParams, spacing_a_m: 6.5 } }, DEFAULT_EXPLOSIVE)).toBe(true);
+  });
+});
+
+describe("snapshotStale", () => {
+  it("другой хэш или несохранённая правка — устарел; хэша нет — не с чем сравнить", () => {
+    expect(snapshotStale("a", "a", false)).toBe(false);
+    expect(snapshotStale("a", "b", false)).toBe(true);
+    expect(snapshotStale("a", "a", true)).toBe(true);
+    expect(snapshotStale(undefined, "b", false)).toBe(false);
+    expect(snapshotStale("a", "", false)).toBe(false);
   });
 });

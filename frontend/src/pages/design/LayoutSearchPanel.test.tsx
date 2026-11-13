@@ -423,6 +423,20 @@ describe("LayoutSearchPanel: предпросмотр и «Применить»"
     expect(props.onApply).toHaveBeenCalledWith(props.status!.result!.best[0]);
   });
 
+  it("сдвинутые скважины — подтверждение сброса; отказ — без применения (TASK-017, PR 2)", () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const { props } = mount({ movedCount: 2 });
+    fireEvent.click(within(card(0)).getByRole("button", { name: "Применить" }));
+    expect(confirm).toHaveBeenCalledWith(
+      "2 сдвига вручную будут сброшены — вернуть можно отменой (Ctrl+Z). Применить вариант?",
+    );
+    expect(props.onApply).not.toHaveBeenCalled();
+
+    confirm.mockReturnValue(true);
+    fireEvent.click(within(card(0)).getByRole("button", { name: "Применить" }));
+    expect(props.onApply).toHaveBeenCalledWith(props.status!.result!.best[0]);
+  });
+
   it("без ручных скважин и свежий результат — без подтверждения", () => {
     const confirm = vi.spyOn(window, "confirm");
     const { props } = mount();

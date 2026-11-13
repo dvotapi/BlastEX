@@ -691,6 +691,112 @@ b/4, умолчание a/4 и b/4, от положения до жеста; Shi
 (`tests/test_live_lsp_fixture.py`, перезапись — `BLASTEX_WRITE_FIXTURES=1`).
 План — `Docs/plans/2026-11-13-task-017-pr1.md`.
 
+## Пометка сдвига (TASK-017, PR 2)
+
+Сдвинутая скважина сетки (`source = "generated"`) — `manual: ["xy"]` и
+`manual_offset = {node_x, node_y, along, across}`: узел — где её поставил
+генератор (устье до первого сдвига), смещение — в осях раскладки
+(`holeMove.ts::markMoved`, копится; вернулась в узел — пометка снимается);
+`source` не меняется. Оси — `geometry.layout_axes` = `holeMove.layoutAxes`
+(«поперёк» при свободной поверхности — к откосу, без неё — `advance_dir`;
+совпадение держит поле `axes` фикстуры `liveLspFixture.json`). Ключи — только
+у сдвинутой (хэш утверждённых паспортов — `tests/test_manual_offset.py`).
+Перестроение — `pattern.carry_moved_holes`: новая скважина сетки не дальше
+`NODE_TOLERANCE_M` (0,05 м) от узла (ключ — координаты, не `col`/`id`; узел —
+одной, ближайшей) встаёт в узел + смещение (`recompute_hole`), номер — по узлу
+(и в `renumber.renumber_map`); узла нет — прежняя скважина ручная `M-<n>` и
+предупреждение (`warnings` в `POST /design/pattern`). «Сгенерировать сетку» при
+сдвигах — `MovedHolesDialog` (сохранить / сбросить: `patternRequestHoles`),
+«Применить» вариант — `confirm` и сброс (отмена `APPLY_LAYOUT` возвращает);
+«Вернуть в узел сетки» — меню скважины, `RETURN_TO_NODE`; на плане —
+`hole-moved`; сдвиги — в отпечатке подбора ключом `moved_holes` (только когда
+есть). План — `Docs/plans/2026-11-13-task-017-pr2.md`.
+
+## Пересчёт коммутации после сдвига (TASK-017, PR 3)
+
+Построители (`design/timing.py::build_template_network`,
+`design/trunk_network.py::build_trunk_chains_network`) пишут в
+`network.timing_params` полный набор для повторного построения
+(`template_timing_params`: схема, `origin = "template"`, ступени, фланг,
+замедление в скважине, `include_contour`, `main_kind`, `burning_front_m`,
+параметры электронного режима; ключи — только заданные в запросе; азимут
+бровки не хранится, система — `network.system`). Ручная правка связей и
+стартовых — `origin = "edited"` (`retie.ts::markNetworkEdited`); нет ключа
+(сеть до PR 3) — тоже правленая, и пересчитать её нельзя (`retie_params` /
+`retieRequest` → null, кнопка с подсказкой). `MOVE_HOLES` и `RETURN_TO_NODE`
+ставят непустой сети `timing_params.geometry_stale = true` в той же записи
+отмены; у сети шаблона редьюсер отмечает документ `DesignState.autoRetie`
+(открытие паспорта отметки не даёт, `RECOMPUTE_HOLES` её переносит).
+`useNetworkRetie`: по отметке — `POST /design/tie/generate` с параметрами
+сети (после стрелок — через `MOVE_SERIES_GAP_MS`), ответ —
+`RETIE_NETWORK { base, merge }`: применяется, только если `present === base`;
+автопересчёт вливается в запись сдвига, кнопка — своя запись; смена
+документа отменяет запрос (`AbortController`). Пометка — баннер «Коммутации»
+и бейдж над планом («Скважины сдвинуты после построения коммутации»),
+сводка — `networkChangeSummary`. Паспорт на бурение и проект МВ — «Устарел»
+по `design_sha256` снимка против `designed_sha256` сохранённого проекта или
+несохранённой проектной части (`designParams.ts::designedChanged`,
+`snapshotStale`). План — `Docs/plans/2026-11-13-task-017-pr3.md`.
+
+## Правка коммутации на плане (TASK-017, PR 4)
+
+Только план, этап «Тайминг» ставит план в режим `tie` (анимация — по этапу).
+Номиналы ступеней — с сервера (`GET /design/tie/catalog`,
+`design/timing.py::tie_catalog`), во фронте копии нет (`useTieCatalog`,
+цвета и умолчания — `tieSteps.ts`). Правки — чистые функции
+`frontend/src/pages/design/tieEdits.ts` (`addTies` — и протяжка, и клик по
+двум; `setTiesDelay`, `removeTies`, `reverseTie`, `reconnectTie`,
+`toggleStarter`, `setDownholeDelay`): одна правка — один `SET_NETWORK` (одна
+запись отмены) и `markNetworkEdited`; у скважины одна входящая (новая
+заменяет, `replaced` мигает), цикл не ставится (`cycles`, подсказка
+`tieEditNotice`). План шлёт намерения (`TieEditAction`), ступень и замедление
+в скважине подставляет страница (`applyTieEdit`); жесты — `PlanCanvas`
+(протяжка `chain`, перецепка `tieEnd`, рамка «Ступени»/«В скважине»),
+попадания по линиям — `tieHits.ts`, палитра — `TiePalette`, меню —
+`TieContextMenu`. Времена и «без сигнала» до «Рассчитать тайминг» —
+`networkTimes.ts::resolveNetworkTimes` (порт `resolve_network`; совпадение
+держит `testing/networkTimesFixture.json`, его пишет
+`tests/test_network_times_fixture.py`, перезапись — `BLASTEX_WRITE_FIXTURES=1`).
+Панель «Коммутация» без списка связей: легенда ступеней с числом связей и
+счётчики. План — `Docs/plans/2026-11-13-task-017-pr4.md`.
+
+## Устаревание коммутации и шнур ДШ (TASK-017, PR 5)
+
+Пометку `timing_params.geometry_stale` (и `DesignState.autoRetie` у сети
+шаблона) ставят все действия `designReducer.HOLE_SET_ACTIONS`: сдвиг и
+«Вернуть в узел», добавление, удаление, исключение/включение скважины и смена
+её вида — только когда они что-то сменили и сеть после них не пустая
+(`staleNetwork`; решение владельца 14.11.2026: «как после сдвига»). Текст
+пометки — «Скважины изменены после построения коммутации». Правка связей или
+стартовых (`tieEdits.ts`: `finish`/`edited`, `toggleStarters` — и выбор
+стартовых на панели) у сети с общим шнуром (`detonating_cords` старых схем
+ДШ) снимает шнур (`cordRemoved`, подсказка `CORD_REMOVED_TEXT`): дальше время
+— по реле связей, как у «Магистраль + цепочки» ДШ (решение владельца
+14.11.2026); «В скважине» шнур не трогает. Совпадение клиента и сервера —
+случай `row_detcord_edited` фикстуры `networkTimesFixture.json`. План —
+`Docs/plans/2026-11-14-task-017-pr5.md`.
+
+Ручные скважины (`source = "manual"`, ряд −1000, `M-<n>`) в старых шаблонах
+(`row`, `echelon`, `diagonal_v`, `trapezoid`) — «прочие», как у «Магистраль +
+цепочки»: волны строятся без них (стартовые и времена сетки — как без ручных),
+каждая ручная подключается от ближайшей уже подключённой скважины
+(`timing.tie_to_nearest` — общее с «прочими» trunk, жадно, как Прим) ступенью —
+интервалом схемы (решение владельца 14.11.2026; ближайшая — по расстоянию, а
+не среди более ранних волн, — тоже решение владельца 14.11.2026); источник — не стенка
+(пресплит, контур, буфер — `_WALL_KINDS`), пока есть другая сетка; в общий шнур
+ДШ не входит (`_populate_v2_from_graph(off_cord=…)`, случай
+`echelon_detcord_manual` фикстуры `networkTimesFixture.json`), из неё связей
+нет; предупреждение — `manual_holes_warning` (до 10 номеров), ответ генерации —
+через `build_template_network_with_warnings`. Ручная стенка (пресплит, контур,
+буфер) — не «прочая», а стенка схемы (решение владельца 14.11.2026): у
+порядной — координата `_block_row_coordinates` (пресплит за
+`presplit_lead_ms` до первого ряда, контур и буфер — после последнего),
+`_anchor_manual(keep=…)` её не перетирает; у остальных схем — с первой волной.
+Нет сетки — ручные идут волнами, как раньше; режим электронного тайминга
+программирует ручные с первым рядом (`_anchor_manual`), связей у них нет, а в
+режимах «по рядам», «V» и «диагональ» — предупреждение
+`manual_first_row_warning`. Тест — `tests/test_template_manual_holes.py`.
+
 ## Нумерация скважин
 
 `design/numbering.py::number_by_position`, зовёт `pattern._finish_pattern`.

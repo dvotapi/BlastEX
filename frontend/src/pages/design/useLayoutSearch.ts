@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { HttpError } from "../../api/client";
 import { api } from "../../api/endpoints";
+import { isMovedHole } from "./holeMove";
 import {
   NO_LAYOUT_SEARCH_OPTIONS,
   type BlastDesign,
@@ -35,6 +36,22 @@ export interface LayoutFingerprintInput {
   network_system: string | null;
   /** Контурные скважины, которые монтирует базовая сеть (по номерам, по порядку). */
   wired_contour_holes: string[];
+  /**
+   * Сдвинутые от узла скважины (TASK-017, PR 2): после сдвига итог подбора
+   * устарел. Ключ — только когда сдвинутые есть: отпечаток паспорта без
+   * сдвигов прежний, сохранённые итоги не устаревают.
+   */
+  moved_holes?: MovedHoleKey[];
+}
+
+export type MovedHoleKey = { id: string; node_x: number; node_y: number; along: number; across: number };
+
+/** Сдвинутые от узла скважины для отпечатка подбора, по номерам. */
+export function movedHoleKeys(holes: Hole[]): MovedHoleKey[] {
+  return holes
+    .filter((h) => isMovedHole(h) && h.manual_offset)
+    .map((h) => ({ id: h.id, ...h.manual_offset! }))
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
 /**
@@ -64,6 +81,7 @@ export function layoutSearchInputs(
   design: Pick<BlastDesign, "contour" | "surfaces" | "domains" | "rock_name" | "network" | "holes">,
   patternParams: Record<string, unknown>,
   wired: string[] = wiredContourHoles(design.holes, design.network),
+  moved: MovedHoleKey[] = movedHoleKeys(design.holes),
 ): LayoutFingerprintInput {
   // Источник подошвы: только выбранная съёмка; null, "angle" и отсутствие
   // ключа — одно и то же (по углу), отпечаток от них не меняется.
@@ -76,6 +94,7 @@ export function layoutSearchInputs(
     rock_name: design.rock_name,
     network_system: design.network?.system ?? null,
     wired_contour_holes: wired,
+    ...(moved.length ? { moved_holes: moved } : {}),
   };
 }
 

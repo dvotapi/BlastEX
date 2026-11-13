@@ -546,3 +546,19 @@ def pattern_origin(
         return (0.0, 0.0), advance_dir
     origin = min(verts, key=lambda p: p[0] * advance_dir[0] + p[1] * advance_dir[1])
     return origin, advance_dir
+
+
+def layout_axes(contour: BlockContour, row_azimuth_deg: float) -> tuple[Point2, Point2]:
+    """Оси сдвига скважин (TASK-017): вдоль ряда и поперёк ряда, единичные векторы.
+
+    «Вдоль» — направление ряда (`local_basis`). «Поперёк» при свободных
+    поверхностях — к откосу: против продвижения рядов вглубь
+    (`pattern_origin`); без них — `advance_dir` как есть. Так же считает
+    фронт (`frontend/src/pages/design/holeMove.ts::layoutAxes`): смещение
+    сдвинутой скважины от узла (`Hole.manual_offset`) хранится в этих осях.
+    """
+    row_dir, advance_dir = local_basis(row_azimuth_deg)
+    if _face_reference_point(contour) is None:
+        return row_dir, advance_dir
+    _origin, deep = pattern_origin(contour, row_dir, advance_dir)
+    return row_dir, (-deep[0], -deep[1])

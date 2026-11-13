@@ -131,11 +131,13 @@ export type DesignState = {
   /** Паспорт, как он лежит на сервере: последняя загрузка или ответ сохранения. */
   saved: BlastDesign;
   /**
-   * Последнее нажатие серии стрелок (TASK-017): когда и какой документ оно
-   * дало. Серия продолжается, только пока документ тот же — любое другое
-   * действие, отмена или загрузка меняют `present`, и серия рвётся сама.
+   * Последнее нажатие серии стрелок (TASK-017): когда, какой документ оно
+   * дало и какие скважины двигало. Серия продолжается, только пока документ
+   * тот же — любое другое действие, отмена или загрузка меняют `present`, и
+   * серия рвётся сама, — и двигаются те же скважины (смена выделения документ
+   * не меняет, но начинает новую серию).
    */
-  moveSeries?: { at: number; present: BlastDesign };
+  moveSeries?: { at: number; present: BlastDesign; ids: string };
 };
 
 /** Пауза между нажатиями стрелок, после которой сдвиг — новая запись отмены, мс. */
@@ -667,8 +669,9 @@ export function designReducer(state: DesignState, action: DesignAction): DesignS
 
   if (action.type === "MOVE_HOLES" && action.series !== undefined) {
     const series = state.moveSeries;
-    const moveSeries = { at: action.series, present: nextPresent };
-    if (series && series.present === current && action.series - series.at <= MOVE_SERIES_GAP_MS) {
+    const ids = [...action.ids].sort().join("\n");
+    const moveSeries = { at: action.series, present: nextPresent, ids };
+    if (series && series.present === current && series.ids === ids && action.series - series.at <= MOVE_SERIES_GAP_MS) {
       // Продолжение серии стрелок: шаг истории уже создан первым нажатием.
       return { ...state, present: nextPresent, moveSeries };
     }

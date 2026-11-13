@@ -30,6 +30,7 @@ export type RememberControl = { checked: boolean; onChange: (checked: boolean) =
 export const SOURCE_LABELS: Record<string, string> = {
   REFERENCE: "справочник объекта",
   DESIGN: "проект блока",
+  SURVEY: "съёмка блока",
   DRILL_PASSPORT: "паспорт на бурение",
   PREVIOUS: "прошлый проект",
   RULE: "правило",

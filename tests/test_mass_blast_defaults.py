@@ -1,6 +1,7 @@
 """Предзаполнение проекта МВ и «Запомнить для объекта» (TASK-018, PR 6, §14, В1–В8)."""
 from __future__ import annotations
 
+import copy
 from types import SimpleNamespace
 
 import pytest
@@ -9,6 +10,8 @@ from api.services.mass_blast_remember import remember_for_site, rememberable
 from cost.v2.models import ReferenceItem
 from design.mass_blast_defaults import (
     DefaultsInputs,
+    block_area,
+    contour_area_m2,
     fill_empty,
     hydro_text,
     layer_defaults,
@@ -49,6 +52,35 @@ def test_design_texts_and_rules(design):
     assert value("requisites.project_date") == "2026-11-12"
     assert value("requisites.contractor_name") == "ООО «Комплексные решения»"
     assert value("schedule.charging_from") == "2026-11-20" and value("schedule.briefing_date") == "2026-11-20"
+
+
+def test_block_area_from_contour(design):
+    """Площадь блока — по контуру проекта блока (съёмка), до целого м²; без контура — не подставляется."""
+
+    area = contour_area_m2(design)
+    assert area and area > 0
+    defaults = project_defaults(_payload(), DefaultsInputs(designs=[design]))
+    assert defaults["blocks[0].details.area_m2"] == {"value": float(round(area)), "source": "DESIGN"}
+    filled = fill_empty(_payload(), defaults)
+    assert filled["blocks"][0]["details"]["area_m2"] == float(round(area))
+    # Своё значение не перезаписывается.
+    own = _payload(blocks=[{"design_id": "d66", "code": "66", "details": {"area_m2": 1234.0}}])
+    assert fill_empty(own, defaults)["blocks"][0]["details"]["area_m2"] == 1234.0
+    no_contour = SimpleNamespace(contour=SimpleNamespace(vertices=[], points_xy=[], cad=None))
+    assert contour_area_m2(no_contour) is None and block_area(no_contour) is None
+
+
+def test_block_area_from_survey(design):
+    """Контур из съёмки: площадь блока — как её называет маркшейдер (S ср по умолчанию), а не площадь контура."""
+
+    surveyed = copy.deepcopy(design)
+    surveyed.contour.cad = {"source_id": "s1", "area_basis": "mean", "area_m2": 3455.42}
+    assert block_area(surveyed) == (3455.42, "SURVEY")
+    defaults = project_defaults(_payload(), DefaultsInputs(designs=[surveyed]))
+    assert defaults["blocks[0].details.area_m2"] == {"value": 3455.0, "source": "SURVEY"}
+    # Вершины правили после построения — площадь съёмки к контуру уже не относится.
+    surveyed.contour.cad = {**surveyed.contour.cad, "edited": True}
+    assert block_area(surveyed) == (contour_area_m2(design), "DESIGN")
 
 
 def test_source_order_reference_then_passport_then_previous(design):

@@ -19,9 +19,8 @@ import math
 from statistics import median
 from typing import Any, Mapping, Sequence
 
-from shapely.geometry import Polygon
-
 from design.mass_blast_calc import ConsumptionLine
+from design.mass_blast_defaults import block_area
 from design.mass_blast_table import ParameterTable
 from design.models import BlastDesign, HoleLoad, is_explosive_deck_kind
 from design.safety import SafetyValue, num
@@ -87,14 +86,6 @@ def _text(text: str) -> dict[str, Any]:
 
 def _digits(value: float) -> int:
     return 0 if float(value).is_integer() else (1 if (value * 10).is_integer() else 2)
-
-
-def _contour_area(design: BlastDesign) -> float | None:
-    ring = design.contour.points_xy if len(design.contour.vertices) >= 3 else []
-    if not ring:
-        return None
-    polygon = Polygon(ring)
-    return float(polygon.area if polygon.is_valid else polygon.buffer(0).area)
 
 
 def _construction_groups(design: BlastDesign, table_rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -183,7 +174,11 @@ def technical_calculation(
 
     # 1. Общие сведения
     area_manual = block.get("area_m2")
-    area = float(area_manual) if area_manual not in (None, "") else _contour_area(design)
+    if area_manual not in (None, ""):
+        area: float | None = float(area_manual)
+    else:
+        found = block_area(design)
+        area = found[0] if found else None
     purpose = PURPOSE_LABELS.get(str(block.get("purpose") or ""), str(block.get("purpose") or ""))
     general = f"Блок № {block.get('code', '')}, гор. {block.get('horizon', '')} м"
     if purpose:

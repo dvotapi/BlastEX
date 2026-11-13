@@ -236,7 +236,9 @@ export function BlocksTab({ form, edit, editable, errors, issues, context, defau
                 )}
               </Field>
               <TextInput label="Площадь блока, м²" value={block.area_m2} disabled={disabled} inputMode="decimal"
-                hint={block.area_m2 ? undefined : "пусто — по маркшейдерскому контуру"} error={errors[`blocks[${index}].details.area_m2`]}
+                auto={defaults[`blocks[${index}].details.area_m2`]}
+                hint={block.area_m2 || defaults[`blocks[${index}].details.area_m2`] ? undefined : "у блока нет контура — введите площадь"}
+                error={errors[`blocks[${index}].details.area_m2`]}
                 onChange={(value) => edit((draft) => { draft.blocks[index].area_m2 = value; })} />
               <TextInput label="Порода (текстом)" value={block.rock_text} disabled={disabled} maxLength={300} wide
                 auto={defaults[`blocks[${index}].details.rock_text`]}

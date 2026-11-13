@@ -83,6 +83,19 @@ describe("окно проекта МВ", () => {
     expect(number.value).toBe("66-26/МВ");
   });
 
+  it("площадь блока — из съёмки, пока поле пустое", async () => {
+    const user = userEvent.setup();
+    const base = validation();
+    vi.mocked(api.massBlast.validateV2).mockResolvedValue({
+      ...base, defaults: { ...base.defaults, "blocks[0].details.area_m2": { value: 3455, source: "SURVEY" } },
+    });
+    render(<MassBlastDialog project={projectV2()} onClose={() => {}} onChange={() => {}} />);
+    await user.click(await screen.findByRole("button", { name: "Блоки" }));
+    const area = (await screen.findByLabelText("Площадь блока, м²")) as HTMLInputElement;
+    await waitFor(() => expect(area.value).toBe("3455"));
+    expect(screen.getByText("съёмка блока")).toBeTruthy();
+  });
+
   it("«Запомнить для объекта»: заполненное поле, пустое в справочнике, уходит в справочник после сохранения", async () => {
     const user = userEvent.setup();
     vi.mocked(api.me).mockResolvedValue({ email: "lead@example.test", role: "admin" } as never);

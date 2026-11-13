@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Mapping, Sequence
 
+from shapely.geometry import Polygon
+
 from design.models import BlastDesign, is_explosive_deck_kind
 
 __all__ = [
@@ -40,6 +42,7 @@ __all__ = [
 # Источник значения — подпись в окне.
 REFERENCE = "REFERENCE"  # справочник объекта
 DESIGN = "DESIGN"  # проект блока
+SURVEY = "SURVEY"  # маркшейдерская съёмка блока (импорт чертежа)
 DRILL_PASSPORT = "DRILL_PASSPORT"  # паспорт на бурение блока
 PREVIOUS = "PREVIOUS"  # прошлый проект МВ объекта (у слоёв — прошлый наряд)
 RULE = "RULE"  # правило: дата взрыва, шаблон №, Общество
@@ -331,6 +334,33 @@ def reaming_k(design: BlastDesign, bit_mm: float | None) -> float | None:
     return k if 0 < k <= 2 else None
 
 
+def contour_area_m2(design: BlastDesign) -> float | None:
+    """Площадь контура блока в плане, м² (контур — из съёмки или нарисованный); нет контура — None."""
+
+    ring = design.contour.points_xy if len(design.contour.vertices) >= 3 else []
+    if not ring:
+        return None
+    polygon = Polygon(ring)
+    area = float(polygon.area if polygon.is_valid else polygon.buffer(0).area)
+    return area if area > 0 else None
+
+
+def block_area(design: BlastDesign) -> tuple[float, str] | None:
+    """Площадь блока, м², и откуда она: съёмка или контур проекта; ничего нет — None.
+
+    Съёмка (`contour.cad.area_m2`) — площадь, как её называет маркшейдер объекта
+    (S верх, S низ или S ср — `area_basis`). Вершины контура правили после
+    построения (`edited`) — площадь съёмки к нему не относится: площадь контура.
+    """
+
+    cad = design.contour.cad if isinstance(design.contour.cad, Mapping) else {}
+    surveyed = _number(cad.get("area_m2"))
+    if surveyed and not cad.get("edited"):
+        return surveyed, SURVEY
+    area = contour_area_m2(design)
+    return (area, DESIGN) if area else None
+
+
 def _joined(values: Sequence[str]) -> str:
     return "; ".join(dict.fromkeys(value for value in values if value))
 
@@ -387,6 +417,10 @@ def project_defaults(payload: Mapping[str, Any], inputs: DefaultsInputs) -> dict
     for index, design in enumerate(designs):
         _put(result, f"blocks[{index}].details.rock_text", rock_text(design), DESIGN)
         _put(result, f"blocks[{index}].details.hydro_text", hydro_text(design), DESIGN)
+        area = block_area(design)
+        if area and round(area[0]) > 0:
+            # До целого м², как площадь печатает техрасчёт.
+            _put(result, f"blocks[{index}].details.area_m2", float(round(area[0])), area[1])
 
     # 3. Паспорт на бурение блока: долото, люди.
     bits = [_number(passport.get("bit_diameter_mm")) for passport in passports]

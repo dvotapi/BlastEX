@@ -146,3 +146,10 @@ def test_selected_magex_warehouse_is_printed_in_both_places(revision):
     text = pdfium.PdfDocument(render_layer_document(online))[0].get_textpage().get_text_range()
     assert "№ 66-26 / версия 3 / Склад ВМ № 2" in text
     assert "Склад ВМ № 1" not in text
+
+
+def test_selected_blaster_signs_receipt_consumption_and_return(revision):
+    online = _online(revision)
+    online["magex"]["print"] = {"blaster_name": "Выбранный Взрывник"}
+    text = pdfium.PdfDocument(render_layer_document(online))[0].get_textpage().get_text_range()
+    assert text.count("Выбранный Взрывник") >= 4  # шапка, «получил», «израсходовал», «сдал»

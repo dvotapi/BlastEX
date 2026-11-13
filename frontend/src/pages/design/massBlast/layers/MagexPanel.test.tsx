@@ -265,4 +265,24 @@ describe("наряд-путёвка в учёте MagEX", () => {
       driver_code: "D-01", driver: "Петров П. П.", escort_code: "E-01", delivery: "Сидоров С. С.",
     });
   });
+
+  it("две строки в кг одной штучной позиции — каждая вверх до целого патрона", async () => {
+    const twice = online();
+    twice.view.lines = [
+      { key: "vv:a:", kind: "explosive", name: "Патроны А", unit: "кг", delay_ms: null, project_qty: 26, reserve_qty: 0, reserve_source: "REFERENCE", issue_qty: 26, issue_kg: 26 },
+      { key: "vv:b:", kind: "explosive", name: "Патроны Б", unit: "кг", delay_ms: null, project_qty: 26, reserve_qty: 0, reserve_source: "REFERENCE", issue_qty: 26, issue_kg: 26 },
+    ];
+    vi.mocked(api.massBlast.layers).mockResolvedValue([twice]);
+    vi.mocked(api.massBlast.magexAvailability).mockResolvedValue({
+      items: {
+        "vv:a:": { available: 75, short: false, shared: true, material_id: "m", available_magex: 3, factor: 1 / 25, whole: true },
+        "vv:b:": { available: 75, short: false, shared: true, material_id: "m", available_magex: 3, factor: 1 / 25, whole: true },
+      },
+      error: "",
+    });
+    render(<DayTab project={approved} />);
+    // 26 кг → 2 патрона в каждой строке: 4 > 3 — не хватает.
+    const row = (await screen.findByLabelText("Запас: Патроны А")).closest("tr")!;
+    await waitFor(() => expect(within(row).getByText(/не хватает/)).toBeTruthy());
+  });
 });

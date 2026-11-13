@@ -224,9 +224,10 @@ export function NaryadForm({ layer, draft, set, disabled, errors, afterBlast, re
     for (const line of members) {
       const value = toIssueNow(line);
       if (value === null) return null;
-      total += value * (availability?.items?.[line.key]?.factor ?? 1);
+      const converted = value * (availability?.items?.[line.key]?.factor ?? 1);
+      // Штучная позиция: каждая строка — вверх до целого, как в выписке (`magex_lines`).
+      total += item.whole ? Math.ceil(converted - 1e-9) : converted;
     }
-    if (item.whole) total = Math.ceil(total - 1e-9);
     return total > (item.available_magex ?? item.available) + 1e-9;
   };
   const reserve = (draft.reserve ?? {}) as Record<string, string>;

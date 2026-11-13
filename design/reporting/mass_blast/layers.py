@@ -459,19 +459,23 @@ def _naryad_signatures(revision: Mapping[str, Any], width: float) -> list:
     seed, payload = _seed(revision), _payload(revision)
     project = seed.get("project") or {}
     people = seed.get("people") or {}
+    # Взрывник — тот же, что в шапке и в выписке MagEX: принятой выписки, выбранный в наряде,
+    # иначе из персонала проекта.
+    chosen = text(((revision.get("magex") or {}).get("print") or {}).get("blaster_name")) or text(payload.get("blaster_name"))
+    blaster = chosen or person_line(people.get("blaster"))
     issue_date = date(payload.get("issue_date")) if payload.get("issue_date") else ""
     blast_date = date(project.get("blast_date")) if project.get("blast_date") else ""
     before = (
         ("Наряд-путёвку выписал (рук. участка / лицо технадзора)", person_line(people.get("site_manager"))),
         ("Перевозку ВМ и ВР разрешаю (руководитель ВР)", person_line(people.get("blast_manager"))),
         ("ВМ выдал (зав. складом / раздатчик ВМ)", person_line(people.get("storekeeper"))),
-        ("ВМ получил (взрывник)", person_line(people.get("blaster"))),
+        ("ВМ получил (взрывник)", blaster),
         ("Работники, привлекаемые к доставке ВМ (Ф. И. О.)", text(payload.get("delivery")) or person_line(people.get("escort"))),
     )
     after = (
-        ("ВМ израсходовал (взрывник)", person_line(people.get("blaster"))),
+        ("ВМ израсходовал (взрывник)", blaster),
         ("Расход ВМ подтверждаю (руководитель ВР смены)", person_line(people.get("blast_manager"))),
-        ("Остаток ВМ сдал (взрывник)", person_line(people.get("blaster"))),
+        ("Остаток ВМ сдал (взрывник)", blaster),
         ("Остаток ВМ принял (зав. складом / раздатчик ВМ)", person_line(people.get("storekeeper"))),
         ("Наряд-путёвку принял на склад (дата сдачи путёвки)", person_line(people.get("storekeeper"))),
     )

@@ -492,6 +492,7 @@ export const api = {
       // Пустая подошва не отправляется: сервер берёт её из имени слоя.
       if (params.floorZM !== undefined && params.floorZM !== null) form.append("floor_z_m", String(params.floorZM));
       if (params.surveyDate) form.append("survey_date", params.surveyDate);
+      if (params.purpose) form.append("purpose", params.purpose);
       return postForm<CadImportResponse>(`${V1}/design/cad/sources`, form);
     },
     source: (id: string) => get<CadSource>(`${V1}/design/cad/sources/${encodeURIComponent(id)}`),

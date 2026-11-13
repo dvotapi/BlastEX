@@ -130,6 +130,7 @@ export function SourcesDialog({
               <tr key={item.id}>
                 <td>
                   <b>{item.title}</b>
+                  {item.purpose === "situation" && <span className="cad-site-situation-badge">план карьера</span>}
                 </td>
                 <td>{item.survey_date ? ruDate(item.survey_date) : "—"}</td>
                 <td className="cad-sources-file" title={item.file_name}>

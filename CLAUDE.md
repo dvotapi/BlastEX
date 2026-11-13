@@ -712,6 +712,32 @@ b/4, умолчание a/4 и b/4, от положения до жеста; Shi
 `hole-moved`; сдвиги — в отпечатке подбора ключом `moved_holes` (только когда
 есть). План — `Docs/plans/2026-11-13-task-017-pr2.md`.
 
+## Пересчёт коммутации после сдвига (TASK-017, PR 3)
+
+Построители (`design/timing.py::build_template_network`,
+`design/trunk_network.py::build_trunk_chains_network`) пишут в
+`network.timing_params` полный набор для повторного построения
+(`template_timing_params`: схема, `origin = "template"`, ступени, фланг,
+замедление в скважине, `include_contour`, `main_kind`, `burning_front_m`,
+параметры электронного режима; ключи — только заданные в запросе; азимут
+бровки не хранится, система — `network.system`). Ручная правка связей и
+стартовых — `origin = "edited"` (`retie.ts::markNetworkEdited`); нет ключа
+(сеть до PR 3) — тоже правленая, и пересчитать её нельзя (`retie_params` /
+`retieRequest` → null, кнопка с подсказкой). `MOVE_HOLES` и `RETURN_TO_NODE`
+ставят непустой сети `timing_params.geometry_stale = true` в той же записи
+отмены; у сети шаблона редьюсер отмечает документ `DesignState.autoRetie`
+(открытие паспорта отметки не даёт, `RECOMPUTE_HOLES` её переносит).
+`useNetworkRetie`: по отметке — `POST /design/tie/generate` с параметрами
+сети (после стрелок — через `MOVE_SERIES_GAP_MS`), ответ —
+`RETIE_NETWORK { base, merge }`: применяется, только если `present === base`;
+автопересчёт вливается в запись сдвига, кнопка — своя запись; смена
+документа отменяет запрос (`AbortController`). Пометка — баннер «Коммутации»
+и бейдж над планом («Скважины сдвинуты после построения коммутации»),
+сводка — `networkChangeSummary`. Паспорт на бурение и проект МВ — «Устарел»
+по `design_sha256` снимка против `designed_sha256` сохранённого проекта или
+несохранённой проектной части (`designParams.ts::designedChanged`,
+`snapshotStale`). План — `Docs/plans/2026-11-13-task-017-pr3.md`.
+
 ## Нумерация скважин
 
 `design/numbering.py::number_by_position`, зовёт `pattern._finish_pattern`.

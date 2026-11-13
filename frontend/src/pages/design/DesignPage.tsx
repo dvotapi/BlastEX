@@ -120,6 +120,7 @@ import { MapStatusBar } from "./MapStatusBar";
 import { HoleContextMenu, type HoleContextMenuState } from "./HoleContextMenu";
 import { CommandPalette, buildCameraCommands, buildPresetCommands, type DesignCommand } from "./CommandPalette";
 import { CadImportDialog, type CadBuildChoice } from "./cadImport/CadImportDialog";
+import { SiteSituationDialog } from "./cadImport/SiteSituationDialog";
 import { SourcesDialog } from "./cadImport/SourcesDialog";
 import { situation3dLines, situationPanelSeries } from "./situationLayer";
 import { situationReference, useSituation, useSituationChoice } from "./useSituation";
@@ -256,6 +257,8 @@ export function DesignPage({
   const [situationHidden, setSituationHidden] = useState<Set<string>>(() => new Set());
   const [situationReload, setSituationReload] = useState(0);
   const [sourcesOpen, setSourcesOpen] = useState(false);
+  // «Ситуация объекта»: undefined — закрыто, null — самый свежий план, иначе — этот план.
+  const [siteSituation, setSiteSituation] = useState<CadSource | null | undefined>(undefined);
   const situationRef = situationReference(document);
   const situation = useSituation(situationRef, situationChoice, situationReload);
   // Окно импорта закрылось — роли, названия и виды могли смениться.
@@ -2823,6 +2826,7 @@ export function DesignPage({
                 onImportBlock={importDrawings}
                 onClear={(kind) => dispatch({ type: "CLEAR_SURFACE", kind })}
                 onOpenSources={() => setSourcesOpen(true)}
+                onOpenSiteSituation={() => setSiteSituation(null)}
                 busy={surfaceBusy}
               />
             </fieldset>
@@ -3423,9 +3427,18 @@ export function DesignPage({
               onClose={() => setSourcesOpen(false)}
               onOpenSource={(source) => {
                 setSourcesOpen(false);
-                setCadSources([source]);
+                // План карьера открывается окном «Ситуация объекта», а не импортом блока.
+                if (source.purpose === "situation") setSiteSituation(source);
+                else setCadSources([source]);
               }}
               onDeleted={() => setSituationReload((current) => current + 1)}
+            />
+          )}
+          {siteSituation !== undefined && (
+            <SiteSituationDialog
+              initialSource={siteSituation}
+              onClose={() => setSiteSituation(undefined)}
+              onChanged={() => setSituationReload((current) => current + 1)}
             />
           )}
           {inspectHole && (

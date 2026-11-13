@@ -175,7 +175,13 @@ export type ProtectedObjectRow = {
 };
 
 export type GraphicsZone = { kind: string; value_m: number; rings: Array<Array<[number, number]>> };
-export type GraphicsSituationLayer = { name: string; kind: string; lines: Array<Array<[number, number]>> };
+export type GraphicsSituationLayer = {
+  name: string;
+  kind: string;
+  lines: Array<Array<[number, number]>>;
+  /** Подписи плана карьера («ДСК», «КПП»); есть только у ситуации объекта. */
+  labels?: Array<{ text: string; point: [number, number] }>;
+};
 export type GraphicsPoint = {
   kind: LayoutPointKind;
   number: number | null;

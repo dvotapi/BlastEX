@@ -199,3 +199,40 @@
 .cad-sources-file { color:#6e7c75; }
 .cad-sources-count { text-align:right; font-variant-numeric:tabular-nums; }
 .cad-sources-actions { display:flex; gap:4px; justify-content:flex-end; }
+
+/* «Ситуация объекта»: план карьера на все блоки объекта, отбор слоёв. */
+.cad-site-situation-dialog { width:min(1180px, calc(100vw - 32px)); height:calc(100vh - 32px); padding:0; border:1px solid #d9e2dd; border-radius:12px; color:#17231d; font-size:var(--fs-base); box-shadow:0 30px 80px rgba(15,35,26,.18); }
+.cad-site-situation-dialog[open] { display:flex; flex-direction:column; gap:8px; padding-bottom:10px; }
+.cad-site-situation-dialog::backdrop { background:rgba(15,26,20,.45); }
+.cad-site-situation-dialog > header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 12px; border-bottom:1px solid #e2e8e5; }
+.cad-site-situation-dialog > header b { font-size:13px; font-weight:var(--font-weight-title); }
+.cad-site-situation-dialog > p { margin:0 12px; }
+.cad-site-situation-upload { display:flex; flex-wrap:wrap; align-items:flex-end; gap:10px; margin:0 12px; padding:10px; border:1px dashed #c9d5cf; border-radius:10px; }
+.cad-site-situation-upload > span { display:flex; flex-direction:column; gap:2px; flex:1 1 260px; }
+.cad-site-situation-upload small, .cad-site-situation-source small { color:#6e7c75; }
+.cad-site-situation-upload label { display:flex; flex-direction:column; gap:2px; color:#6e7c75; font-size:var(--fs-label); }
+.cad-site-situation-body { display:flex; flex-direction:column; gap:8px; flex:1; min-height:0; padding:0 12px; }
+.cad-site-situation-source { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.cad-site-situation-source > span { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.cad-site-situation-main { display:grid; grid-template-columns:minmax(0, 1fr) 440px; gap:10px; flex:1; min-height:0; }
+.cad-site-situation-canvas { position:relative; min-height:320px; border:1px solid #e2e8e5; border-radius:10px; overflow:hidden; background:#fbfcfb; }
+.cad-site-situation-layers { display:flex; flex-direction:column; gap:6px; min-height:0; overflow:auto; }
+.cad-site-situation-tools { display:flex; gap:6px; }
+.cad-site-situation-tools input { flex:1; min-width:0; }
+.cad-site-situation-table { width:100%; border-collapse:collapse; table-layout:fixed; }
+.cad-site-situation-table th { padding:4px 6px; border-bottom:1px solid #e2e8e5; color:#6e7c75; font-size:var(--fs-label); text-align:left; }
+.cad-site-situation-table th:first-child { width:28px; }
+.cad-site-situation-table th:nth-child(3) { width:150px; }
+.cad-site-situation-table th:nth-child(4) { width:70px; }
+.cad-site-situation-table td { padding:3px 6px; border-bottom:1px solid #edf1ef; vertical-align:middle; }
+.cad-site-situation-table tr.is-hover td { background:#f0f6f3; }
+.cad-site-situation-table select { width:100%; }
+.cad-site-situation-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cad-site-situation-badge, .cad-site-situation-origin { margin-left:6px; padding:0 5px; border-radius:6px; font-size:var(--fs-label); }
+.cad-site-situation-badge { background:#f3ece0; color:#7a5a20; }
+.cad-site-situation-origin { background:#edf1ef; color:#6e7c75; }
+.cad-site-situation-footer { display:flex; align-items:center; justify-content:flex-end; gap:12px; }
+.cad-site-situation-saved { color:#2e7d32; }
+@media (max-width: 900px) {
+  .cad-site-situation-main { grid-template-columns:1fr; }
+}

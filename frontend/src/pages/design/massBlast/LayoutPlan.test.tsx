@@ -22,6 +22,26 @@ beforeAll(() => {
 const graphics = validation().context.graphics!;
 
 describe("план Г.5 для точек", () => {
+  it("ситуация — цветом вида, подписи объектов на поверхности и легенда видов без повторов", () => {
+    const withSituation = {
+      ...graphics,
+      has_situation: true,
+      situation: [
+        { name: "Дороги", kind: "road", lines: [[[0, 0], [10, 0]] as Array<[number, number]>] },
+        { name: "Сооружения", kind: "building", lines: [[[0, 5], [5, 5]] as Array<[number, number]>], labels: [{ text: "ДСК", point: [2, 6] as [number, number] }] },
+        { name: "Горизонт +410", kind: "bench", lines: [[[0, 8], [9, 8]] as Array<[number, number]>], labels: [{ text: "420.6", point: [1, 8] as [number, number] }] },
+        { name: "Рельеф", kind: "other", lines: [[[0, 9], [9, 9]] as Array<[number, number]>] },
+        { name: "Слой X", kind: "unknown", lines: [[[0, 10], [9, 10]] as Array<[number, number]>] },
+      ],
+    };
+    render(<LayoutPlan graphics={withSituation} points={[]} kind="guard_post" postRef="" editable={false} onPlace={() => {}} onMove={() => {}} />);
+    expect(screen.getByText("ДСК")).toBeTruthy();
+    // Подписи — только у объектов на поверхности, у уступов — нет.
+    expect(screen.queryByText("420.6")).toBeNull();
+    const legend = [...document.querySelectorAll(".mb-plan-legend span")].map((item) => item.textContent?.trim());
+    expect(legend.slice(0, 4)).toEqual(["— дороги", "— здания и сооружения", "— бровки и откосы", "— прочее"]);
+  });
+
   it("щелчок ставит точку выбранного вида в координатах объекта (север вверх)", () => {
     const onPlace = vi.fn();
     render(<LayoutPlan graphics={graphics} points={[]} kind="guard_post" postRef="2" editable onPlace={onPlace} onMove={() => {}} />);

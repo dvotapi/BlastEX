@@ -4,7 +4,7 @@
 import { faceAngleForImportedBlock } from "../../lib/faceAngle";
 import { renameHoleIds } from "./holeRenumber";
 import { clearMoved, isMovedHole, layoutAxes, markMoved, type LayoutAxes } from "./holeMove";
-import { isNetworkEmpty, markGeometryStale } from "./retie";
+import { isNetworkEmpty, markGeometryStale, networkOrigin, retieRequest } from "./retie";
 import { isRecordFrozen } from "../../lib/lifecycle";
 import { collarZFromSurfaces } from "../../lib/surfaces";
 import type { CadCrs } from "../../types/cad";
@@ -151,6 +151,13 @@ export type DesignState = {
    * не меняет, но начинает новую серию).
    */
   moveSeries?: { at: number; present: BlastDesign; ids: string };
+  /**
+   * Документ, который дал сдвиг скважин при сети шаблона (TASK-017, PR 3):
+   * пока он на экране, страница пересчитывает коммутацию сама. `series` —
+   * сдвиг стрелками: пересчёт ждёт конца серии. Открытие паспорта с уже
+   * помеченной сетью отметки не даёт — пересчёт только от сдвига.
+   */
+  autoRetie?: { present: BlastDesign; series: boolean };
 };
 
 /** Пауза между нажатиями стрелок, после которой сдвиг — новая запись отмены, мс. */
@@ -663,7 +670,26 @@ const UNDOABLE: DesignAction["type"][] = [
   "DELETE_AS_FIRED",
 ];
 
+/** Сеть построена шаблоном, не правлена и её можно пересчитать без формы. */
+function retiesItself(document: BlastDesign): boolean {
+  const network = normalizeNetwork(document.network);
+  return !isNetworkEmpty(network) && networkOrigin(network) === "template" && retieRequest(network) !== null;
+}
+
 export function designReducer(state: DesignState, action: DesignAction): DesignState {
+  const next = reduceState(state, action);
+  if (next === state) return next;
+  if ((action.type === "MOVE_HOLES" || action.type === "RETURN_TO_NODE") && retiesItself(next.present)) {
+    return { ...next, autoRetie: { present: next.present, series: action.type === "MOVE_HOLES" && action.series !== undefined } };
+  }
+  if (action.type === "RECOMPUTE_HOLES" && state.autoRetie?.present === state.present) {
+    // Пересчёт по кровле приходит сам после сдвига — не правка пользователя.
+    return { ...next, autoRetie: { ...state.autoRetie, present: next.present } };
+  }
+  return next;
+}
+
+function reduceState(state: DesignState, action: DesignAction): DesignState {
   if ((action.type === "LOAD" || action.type === "SAVED") && action.base && action.base !== state.saved) {
     // Пока шёл запрос, открыли другой паспорт: ответ о прежнем ему не принадлежит.
     return state;

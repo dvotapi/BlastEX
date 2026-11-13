@@ -101,3 +101,37 @@ describe("RETIE_NETWORK", () => {
     expect(isGeometryStale(undone.present.network)).toBe(true);
   });
 });
+
+describe("autoRetie: когда пересчитывать самим", () => {
+  it("сдвиг сети шаблона ставит отметку на новый документ; стрелки — с серией", () => {
+    const moved = move(start());
+    expect(moved.autoRetie).toEqual({ present: moved.present, series: false });
+    const pressed = designReducer(start(), { type: "MOVE_HOLES", ids: ["1-01"], dx: 1, dy: 0, series: 1000 });
+    expect(pressed.autoRetie?.series).toBe(true);
+  });
+
+  it("правленая сеть, сеть до PR 3 и пустая — без отметки", () => {
+    const edited = { ...TEMPLATE, timing_params: { ...TEMPLATE.timing_params, origin: "edited" } };
+    expect(move(start(edited)).autoRetie).toBeUndefined();
+    const old = { ...TEMPLATE, timing_params: { scheme: "trunk_chains", trunk_ms: 25 } };
+    expect(move(start(old)).autoRetie).toBeUndefined();
+    expect(move(start(emptyNetwork())).autoRetie).toBeUndefined();
+  });
+
+  it("пересчёт по кровле отметку переносит, правка пользователя — нет", () => {
+    const moved = move(start());
+    const lifted = designReducer(moved, {
+      type: "RECOMPUTE_HOLES",
+      holes: moved.present.holes.map((h) => ({ ...h, collar: { ...h.collar, z: 5 } })),
+    });
+    expect(lifted.autoRetie?.present).toBe(lifted.present);
+    const renamed = designReducer(moved, { type: "SET_NAME", name: "Б" });
+    expect(renamed.autoRetie?.present).not.toBe(renamed.present);
+  });
+
+  it("загрузка паспорта с уже помеченной сетью отметки не ставит", () => {
+    const moved = move(start());
+    const loaded = designReducer(moved, { type: "LOAD", design: moved.present });
+    expect(loaded.autoRetie).toBeUndefined();
+  });
+});

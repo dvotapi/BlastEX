@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Mapping, Sequence
 
+from design.geometry import block_area_m2
 from design.models import BlastDesign, is_explosive_deck_kind
 
 __all__ = [
@@ -40,6 +41,9 @@ __all__ = [
 # Источник значения — подпись в окне.
 REFERENCE = "REFERENCE"  # справочник объекта
 DESIGN = "DESIGN"  # проект блока
+
+# Наибольшая площадь блока — предел поля `details.area_m2` в схеме API.
+MAX_BLOCK_AREA_M2 = 1_000_000
 DRILL_PASSPORT = "DRILL_PASSPORT"  # паспорт на бурение блока
 PREVIOUS = "PREVIOUS"  # прошлый проект МВ объекта (у слоёв — прошлый наряд)
 RULE = "RULE"  # правило: дата взрыва, шаблон №, Общество
@@ -387,6 +391,11 @@ def project_defaults(payload: Mapping[str, Any], inputs: DefaultsInputs) -> dict
     for index, design in enumerate(designs):
         _put(result, f"blocks[{index}].details.rock_text", rock_text(design), DESIGN)
         _put(result, f"blocks[{index}].details.hydro_text", hydro_text(design), DESIGN)
+        # Площадь блока — площадь контура, та же, что в паспорте на бурение.
+        # Предел — как у ручного ввода (схема поля): больше — контур не в метрах.
+        area = block_area_m2(design.contour)
+        if area and area <= MAX_BLOCK_AREA_M2:
+            _put(result, f"blocks[{index}].details.area_m2", area, DESIGN)
 
     # 3. Паспорт на бурение блока: долото, люди.
     bits = [_number(passport.get("bit_diameter_mm")) for passport in passports]

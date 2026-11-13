@@ -627,7 +627,10 @@ v2 (`V2_PAYLOAD_KEYS`): пост — по коду `guard_posts`; без точ�
 МВ объекта → правило; № — «{блок}-{гг}/МВ»), считает их сервис
 (`mass_blast_v2.defaults_v2`) при каждой проверке, пустые поля заполняются
 ими перед сборкой контекста (`fill_empty`) — чистый `build_document_context_v2`
-их не знает. `POST /validate` отдаёт `defaults` и `rememberable`; у слоёв —
+их не знает. Площадь блока — площадь его контура
+(`geometry.block_area_m2`, до 0,01 м²), одна с паспортом на бурение; S ср
+съёмки (`contour.cad.area_m2`) площадью блока не считается.
+`POST /validate` отдаёт `defaults` и `rememberable`; у слоёв —
 `view.defaults`, `view.rememberable`, выпуск и предпросмотр слоя берут
 `effective_payload`. Создание проекта копирует только списки людей.
 «Запомнить для объекта» — `POST /{id}/remember` (`require_reference_editor`,

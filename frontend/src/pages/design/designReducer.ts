@@ -88,7 +88,9 @@ export type DesignAction =
     }
   /** Ответ пересчёта по кровле и подошве: новые устья и забои, вне истории отмены. */
   | { type: "RECOMPUTE_HOLES"; holes: Hole[] }
-  | { type: "MOVE_HOLES"; ids: string[]; dx: number; dy: number }
+  // `series` — время нажатия стрелки, мс: нажатия подряд склеиваются в одну
+  // запись отмены (`MOVE_SERIES_GAP_MS`); сдвиг мышью идёт без него.
+  | { type: "MOVE_HOLES"; ids: string[]; dx: number; dy: number; series?: number }
   | { type: "UPDATE_HOLE"; id: string; patch: Partial<Hole> }
   | { type: "ADD_HOLE"; hole: Hole }
   | { type: "DELETE_HOLES"; ids: string[] }
@@ -128,7 +130,16 @@ export type DesignState = {
   future: BlastDesign[];
   /** Паспорт, как он лежит на сервере: последняя загрузка или ответ сохранения. */
   saved: BlastDesign;
+  /**
+   * Последнее нажатие серии стрелок (TASK-017): когда и какой документ оно
+   * дало. Серия продолжается, только пока документ тот же — любое другое
+   * действие, отмена или загрузка меняют `present`, и серия рвётся сама.
+   */
+  moveSeries?: { at: number; present: BlastDesign };
 };
+
+/** Пауза между нажатиями стрелок, после которой сдвиг — новая запись отмены, мс. */
+export const MOVE_SERIES_GAP_MS = 1000;
 
 const HISTORY_LIMIT = 50;
 
@@ -653,6 +664,22 @@ export function designReducer(state: DesignState, action: DesignAction): DesignS
   const current = state.present;
   const nextPresent = reduceDocument(current, action);
   if (nextPresent === state.present) return state;
+
+  if (action.type === "MOVE_HOLES" && action.series !== undefined) {
+    const series = state.moveSeries;
+    const moveSeries = { at: action.series, present: nextPresent };
+    if (series && series.present === current && action.series - series.at <= MOVE_SERIES_GAP_MS) {
+      // Продолжение серии стрелок: шаг истории уже создан первым нажатием.
+      return { ...state, present: nextPresent, moveSeries };
+    }
+    return {
+      ...state,
+      past: [...state.past, current].slice(-HISTORY_LIMIT),
+      present: nextPresent,
+      future: [],
+      moveSeries,
+    };
+  }
 
   if (
     action.type === "SET_PATTERN_PARAMS" ||

@@ -152,15 +152,71 @@ class ManualHoleInOldTemplatesTest(unittest.TestCase):
 
     def test_electronic_timing_mode_keeps_manual_with_first_wave(self) -> None:
         # Режим электронного тайминга программирует время сам (ручные — с первым
-        # рядом); рисунок связей ему не противоречит: у ручной связей нет,
-        # предупреждения нет.
+        # рядом, где бы ни стояли) и предупреждает об этом; рисунок связей ему
+        # не противоречит: у ручной связей нет.
         network, warnings = build_template_network_with_warnings(
             self.holes, "row", {"system": "electronic", "timing_mode": "row", "interval_ms": 17}
         )
-        self.assertEqual(warnings, [])
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("M-1", warnings[0])
+        self.assertIn("первого ряда", warnings[0])
+        first_row = min(network.electronic_times_ms[h.id] for h in self.grid)
+        self.assertEqual(network.electronic_times_ms["M-1"], first_row)
         self.assertIn("M-1", network.electronic_times_ms)
         self.assertIn("M-1", network.starters)
         self.assertFalse([c for c in network.surface_connectors if "M-1" in (c.from_hole, c.to_hole)])
+
+    def test_electronic_modes_without_first_row_anchor_do_not_warn(self) -> None:
+        # «По направлению» время ручной — по её месту: предупреждать не о чем.
+        _network, warnings = build_template_network_with_warnings(
+            self.holes, "row", {"system": "electronic", "timing_mode": "direction", "interval_ms": 17}
+        )
+        self.assertEqual(warnings, [])
+        # Ручной пресплит в порядном режиме получает время стенки, не первого ряда.
+        presplit = replace(self.manual, kind="presplit")
+        network, warnings = build_template_network_with_warnings(
+            self.grid + [presplit], "row", {"system": "electronic", "timing_mode": "row", "interval_ms": 17}
+        )
+        self.assertEqual(warnings, [])
+        first_row = min(network.electronic_times_ms[h.id] for h in self.grid)
+        self.assertLess(network.electronic_times_ms["M-1"], first_row)
+
+    def test_manual_walls_fire_as_walls_in_row_scheme(self) -> None:
+        # Ручная стенка — не «прочая» (решение владельца 14.11.2026): пресплит —
+        # за опережение до первого ряда, буфер и контур — после последнего.
+        for system in SYSTEMS:
+            for kind in ("presplit", "buffer", "contour"):
+                with self.subTest(system=system, kind=kind):
+                    wall = replace(self.manual, kind=kind)
+                    holes = self.grid + [wall]
+                    params = {"system": system, "include_contour": True}
+                    network, warnings = build_template_network_with_warnings(holes, "row", params)
+                    times = resolve_network(network, holes).times_ms
+                    grid_times = [times[h.id] for h in self.grid]
+                    self.assertEqual(warnings, [])
+                    if kind == "presplit":
+                        self.assertEqual(network.starters, ["M-1"])
+                        self.assertLess(times["M-1"], min(grid_times))
+                    else:
+                        self.assertNotIn("M-1", network.starters)
+                        self.assertGreater(times["M-1"], max(grid_times))
+
+    def test_manual_presplit_fires_lead_before_first_row(self) -> None:
+        # СИНВ: опережение 150 мс приводится к ступени НСИ не больше него — 109 мс.
+        holes = self.grid + [replace(self.manual, kind="presplit")]
+        network = build_template_network(holes, "row", {"system": "nonel"})
+        times = resolve_network(network, holes).times_ms
+        self.assertAlmostEqual(min(times[h.id] for h in self.grid) - times["M-1"], 109.0, places=6)
+
+    def test_manual_wall_in_other_schemes_fires_with_first_wave(self) -> None:
+        # У эшелона, V и трапеции особого времени стенок нет: ручная стенка — с
+        # первой волной, как до правила «прочих».
+        for scheme in ("echelon", "diagonal_v", "trapezoid"):
+            with self.subTest(scheme=scheme):
+                holes = self.grid + [replace(self.manual, kind="presplit")]
+                network, warnings = build_template_network_with_warnings(holes, scheme, {"system": "nonel"})
+                self.assertIn("M-1", network.starters)
+                self.assertEqual(warnings, [])
 
     def test_manual_does_not_hang_on_wall(self) -> None:
         # Пресплит стартует до блока: ручная у стенки, подключённая от неё,

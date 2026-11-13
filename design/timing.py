@@ -189,12 +189,15 @@ def _wave_coordinate(hole: Hole, scheme: str, center_col: float, min_col: int, m
     return row
 
 
-def _anchor_manual(holes: list[Hole], coords: dict[str, float]) -> dict[str, float]:
+def _anchor_manual(
+    holes: list[Hole], coords: dict[str, float], keep: set[str] | frozenset[str] = frozenset()
+) -> dict[str, float]:
     """Ручные скважины не задают начало отсчёта: их координата — у самой ранней основной.
 
     Основная — не стенка и не ручная. Иначе ручная скважина (row -1000 и т.п.)
     сдвигала бы весь блок на тысячи интервалов в режимах, где координата берётся
-    из геометрии.
+    из геометрии. `keep` — ручные с уже заданной координатой (стенки порядной
+    схемы: пресплит — до блока, контур и буфер — после), их не трогаем.
     """
     wall_kinds = _WALL_KINDS
     grid_values = [
@@ -204,7 +207,7 @@ def _anchor_manual(holes: list[Hole], coords: dict[str, float]) -> dict[str, flo
     ]
     anchor = min(grid_values) if grid_values else 0.0
     for hole in holes:
-        if hole.source == "manual":
+        if hole.source == "manual" and hole.id not in keep:
             coords[hole.id] = anchor
     return coords
 
@@ -341,16 +344,49 @@ def build_template_network(
 MANUAL_WARNING_IDS = 10
 
 
-def manual_holes_warning(hole_ids: list[str], step_ms: float) -> str:
-    """Предупреждение о ручных скважинах, подключённых к сетке шаблона «прочими»."""
+# Режимы электронного тайминга, где ручная скважина получает время первого ряда
+# (`_anchor_manual`, у порядного — `_block_row_coordinates`).
+_FIRST_ROW_MODES = ("row", "v_pattern", "diagonal")
+
+
+def _shown_ids(hole_ids: list[str]) -> str:
     shown = ", ".join(hole_ids[:MANUAL_WARNING_IDS])
     if len(hole_ids) > MANUAL_WARNING_IDS:
         shown += f" и ещё {len(hole_ids) - MANUAL_WARNING_IDS}"
+    return shown
+
+
+def manual_holes_warning(hole_ids: list[str], step_ms: float) -> str:
+    """Предупреждение о ручных скважинах, подключённых к сетке шаблона «прочими»."""
     if step_ms > 0:
         when = f"через {f'{step_ms:g}'.replace('.', ',')} мс"
     else:
         when = "одновременно с ними"
-    return f"Ручные скважины ({shown}) подключены от ближайших скважин {when} — проверьте их время."
+    return f"Ручные скважины ({_shown_ids(hole_ids)}) подключены от ближайших скважин {when} — проверьте их время."
+
+
+def manual_first_row_warning(hole_ids: list[str]) -> str:
+    """Предупреждение о ручных скважинах в режиме электронного тайминга."""
+    return (
+        f"Ручные скважины ({_shown_ids(hole_ids)}) запрограммированы со временем первого ряда, "
+        "где бы они ни стояли, — проверьте их время."
+    )
+
+
+def _first_row_manual(eligible: list[Hole], mode: str) -> list[str]:
+    """Ручные скважины, которым режим электронного тайминга ставит время первого ряда.
+
+    У порядного режима ручные стенки получают время стенок, у «V» и «диагонали» —
+    все ручные; у остальных режимов время ручной — по её месту или выбору.
+    Без основной сетки якоря нет — предупреждения тоже.
+    """
+    if mode not in _FIRST_ROW_MODES or not any(h.source != "manual" and h.kind not in _WALL_KINDS for h in eligible):
+        return []
+    return [
+        h.id
+        for h in eligible
+        if h.source == "manual" and (mode != "row" or h.kind not in _WALL_KINDS)
+    ]
 
 
 def build_template_network_with_warnings(
@@ -390,6 +426,9 @@ def build_template_network_with_warnings(
             network.connectors = graph.connectors
             network.surface_connectors = graph.surface_connectors
             network.sync_legacy_from_v2()
+        first_row = _first_row_manual(eligible, timing_mode)
+        if first_row:
+            warnings.append(manual_first_row_warning(first_row))
     else:
         network, manual = _build_wave_graph(eligible, scheme, system, params)
         if manual:
@@ -437,17 +476,21 @@ def _build_wave_graph(
 ) -> tuple[InitiationNetwork, list[str]]:
     """Сеть волнами по координате схемы и номера ручных скважин, подключённых «прочими».
 
-    Ручные скважины в волны не входят: стартовой посреди блока они бы стали
-    сами, а сетку вели бы через себя (у ДШ — и через общий шнур). Без сетки
-    подключать их не к чему — тогда они идут волнами, как раньше. Источник
+    Ручные скважины, кроме стенок, в волны не входят: стартовой посреди блока
+    они бы стали сами, а сетку вели бы через себя (у ДШ — и через общий шнур).
+    Ручные стенки — в волнах, как стенки схемы (решение владельца 14.11.2026):
+    у порядной пресплит — за `presplit_lead_ms` до первого ряда, контур и буфер
+    — после последнего; у остальных схем — с первой волной. Без сетки
+    подключать ручные не к чему — тогда они идут волнами, как раньше. Источник
     связи ручной — скважина основной сетки, а не стенка (пресплит стартует до
     блока, контур и буфер — после); стенки — только когда сетки, кроме них,
     нет. `tie_manual = False` (режим электронного тайминга: время ручной
     программируется с первым рядом) — ручные без связей.
     """
-    manual = [hole for hole in eligible if hole.source == "manual"]
-    waves = [hole for hole in eligible if hole.source != "manual"]
-    if not waves:
+    manual = [hole for hole in eligible if hole.source == "manual" and hole.kind not in _WALL_KINDS]
+    if any(hole.source != "manual" for hole in eligible):
+        waves = [hole for hole in eligible if not (hole.source == "manual" and hole.kind not in _WALL_KINDS)]
+    else:
         manual, waves = [], eligible
     interval_ms = float(params.get("interval_ms", DEFAULT_INTERVAL_MS[system]))
     downhole_ms = float(params.get("downhole_delay_ms", DEFAULT_DOWNHOLE_MS[system]))
@@ -472,7 +515,7 @@ def _build_wave_graph(
     wall_coords = _block_row_coordinates(waves, interval_ms, params) if scheme == "row" else {}
     coords = {h.id: _wave_coordinate(h, scheme, center_col, min_col, max_col) for h in waves}
     coords.update(wall_coords)
-    coords = _anchor_manual(waves, coords)
+    coords = _anchor_manual(waves, coords, keep=set(wall_coords))
     scored = [(h, coords[h.id]) for h in waves]
     scored.sort(key=lambda item: item[1])
 

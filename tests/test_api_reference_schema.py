@@ -25,6 +25,7 @@ def _schema(monkeypatch) -> dict:
 
 def test_every_section_with_a_schema_is_published(monkeypatch) -> None:
     monkeypatch.setenv("BLASTEX_MASS_BLAST_V2_ENABLED", "1")
+    monkeypatch.setenv("BLASTEX_MAGEX_INTEGRATION_ENABLED", "1")
     payload = _schema(monkeypatch)
     assert set(payload["sections"]) == set(SECTION_SCHEMAS)
     for code, section in payload["sections"].items():
@@ -36,8 +37,9 @@ def test_section_behind_a_disabled_flag_is_not_published(monkeypatch) -> None:
     """Раздел за флагом (TASK-018, В10): без флага его нет в каталоге схем."""
 
     monkeypatch.setenv("BLASTEX_MASS_BLAST_V2_ENABLED", "0")
+    monkeypatch.setenv("BLASTEX_MAGEX_INTEGRATION_ENABLED", "0")
     gated = {code for code, meta in REFERENCE_SECTION_DEFINITIONS.items() if meta.get("feature")}
-    assert {"blast_safety", "mass_blast_sites", "mass_blast_profiles", "blast_notifications"} <= gated
+    assert {"blast_safety", "mass_blast_sites", "mass_blast_profiles", "blast_notifications", "blasters", "vehicles"} <= gated
     payload = _schema(monkeypatch)
     assert set(payload["sections"]) == set(SECTION_SCHEMAS) - gated
 

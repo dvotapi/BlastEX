@@ -17,6 +17,7 @@ vi.mock("../../../../api/endpoints", () => ({
       layerDocumentUrl: (id: string) => `/doc/${id}`,
       remember: vi.fn(),
       getLayer: vi.fn(),
+      naryadOptions: vi.fn(async () => ({ blasters: [], vehicles: [] })),
     },
   },
 }));

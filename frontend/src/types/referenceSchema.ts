@@ -24,6 +24,8 @@ export type JsonSchemaNode = {
   additionalProperties?: boolean | JsonSchemaNode;
   "x-unit"?: string;
   "x-ref"?: string;
+  /** Значения — списком из внешней системы (например, `magex.materials`), а не ввод идентификатора. */
+  "x-options"?: string;
   "x-internal"?: boolean;
 };
 

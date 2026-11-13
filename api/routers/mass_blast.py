@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse, Response
+from pydantic import BaseModel, Field
 
 from api.schemas.mass_blast import (
     MassBlastAccountSchema,
@@ -681,3 +682,186 @@ def post_suggest_layout(
         return suggest_layout((result.get("context") or {}).get("graphics") or {})
     except Exception as exc:
         raise _layer_errors(exc) from exc
+
+
+# --- Наряд-путёвка ↔ MagEX (TASK-018, PR 7): за флагом `magex_integration` --------
+
+
+class _MagexApproveSchema(BaseModel):
+    expected_version: int = Field(..., ge=1)
+
+
+class _MagexCancelSchema(BaseModel):
+    reason: str = Field(..., min_length=1, max_length=500)
+
+
+def _require_magex() -> None:
+    if not (config.mass_blast_v2_enabled() and config.magex_integration_enabled()):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Интеграция с MagEX не включена.")
+
+
+def _magex_errors(exc: Exception) -> HTTPException:
+    from api.services.magex_naryad_service import MagexValidationError
+
+    if isinstance(exc, MagexValidationError):
+        return HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail={"message": str(exc), "issues": exc.issues},
+        )
+    return _layer_errors(exc)
+
+
+@router.get("/options/naryad", dependencies=[Depends(_require_layers)])
+def get_naryad_options(
+    session: dict[str, object] = Depends(require_internal_access),
+    economics_repository: EconomicsRepository = Depends(get_economics_repository),
+) -> dict[str, list[dict[str, object]]]:
+    """Взрывники и спецавтомобили для выпадающих списков наряда-путёвки (справочники)."""
+
+    organization_id, _ = _identity(session)
+    return layers_service.naryad_options(economics_repository, organization_id)
+
+
+@router.get("/magex/materials", dependencies=[Depends(_require_magex)])
+def get_magex_materials(session: dict[str, object] = Depends(require_internal_access)) -> list[dict[str, str]]:
+    """Позиции номенклатуры MagEX для поля «Позиция MagEX» справочника материалов."""
+
+    from api.services import magex_naryad_service as magex
+    from api.services.magex_client import MagexError
+
+    organization_id, _ = _identity(session)
+    try:
+        return magex.material_options(organization_id)
+    except MagexError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"MagEX недоступен: {exc}") from exc
+    except Exception as exc:
+        raise _magex_errors(exc) from exc
+
+
+@router.get("/magex/warehouses", dependencies=[Depends(_require_magex)])
+def get_magex_warehouses(
+    session: dict[str, object] = Depends(require_internal_access),
+    economics_repository: EconomicsRepository = Depends(get_economics_repository),
+) -> list[dict[str, str]]:
+    from api.services import magex_naryad_service as magex
+
+    organization_id, _ = _identity(session)
+    return magex.warehouse_options(economics_repository, organization_id)
+
+
+@router.get("/magex/keys-in-use", dependencies=[Depends(_require_magex)])
+def get_magex_keys_in_use(
+    session: dict[str, object] = Depends(require_reference_editor),
+    repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
+) -> list[dict[str, object]]:
+    """Ключи подписи, с которыми ходят незакрытые наряд-путёвки: старый ключ убирают, когда его здесь нет."""
+
+    organization_id, _ = _identity(session)
+    try:
+        return repository.magex_keys_in_use(organization_id)
+    except Exception as exc:
+        raise _magex_errors(exc) from exc
+
+
+@router.get("/layers/{layer_id}/magex", dependencies=[Depends(_require_magex)])
+def get_layer_magex(
+    layer_id: str,
+    refresh: bool = False,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
+) -> dict[str, object]:
+    """Состояние наряда в MagEX; `refresh` — прочитать исполнение заново («Обновить»)."""
+
+    from api.services import magex_naryad_service as magex
+
+    organization_id, _ = _identity(session)
+    try:
+        repository.get_layer(organization_id, layer_id)
+        if refresh:
+            return magex.refresh_execution(repository, organization_id, layer_id)
+        return magex.layer_state(repository, organization_id, layer_id)
+    except Exception as exc:
+        raise _magex_errors(exc) from exc
+
+
+@router.get("/layers/{layer_id}/magex/availability", dependencies=[Depends(_require_magex)])
+def get_layer_magex_availability(
+    layer_id: str,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
+    economics_repository: EconomicsRepository = Depends(get_economics_repository),
+) -> dict[str, object]:
+    from api.services import magex_naryad_service as magex
+
+    organization_id, _ = _identity(session)
+    try:
+        return magex.availability(repository, economics_repository, organization_id, layer_id)
+    except Exception as exc:
+        raise _magex_errors(exc) from exc
+
+
+@router.get("/layers/{layer_id}/magex/blaster-status", dependencies=[Depends(_require_magex)])
+def get_layer_magex_blaster_status(
+    layer_id: str,
+    session: dict[str, object] = Depends(require_internal_access),
+    repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
+    economics_repository: EconomicsRepository = Depends(get_economics_repository),
+) -> dict[str, object]:
+    from api.services import magex_naryad_service as magex
+
+    organization_id, _ = _identity(session)
+    try:
+        return magex.blaster_status(repository, economics_repository, organization_id, layer_id)
+    except Exception as exc:
+        raise _magex_errors(exc) from exc
+
+
+@router.post("/layers/{layer_id}/magex/approve", dependencies=[Depends(_require_magex)])
+def post_layer_magex_approve(
+    layer_id: str,
+    payload: _MagexApproveSchema,
+    session: dict[str, object] = Depends(require_human),
+    repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
+    economics_repository: EconomicsRepository = Depends(get_economics_repository),
+) -> dict[str, object]:
+    """«Разрешить»: выписка версией в MagEX; разрешена — только после `200` от MagEX."""
+
+    from api.services import magex_naryad_service as magex
+
+    organization_id, actor = _identity(session)
+    try:
+        return magex.approve(repository, economics_repository, organization_id, actor, layer_id, payload.expected_version)
+    except Exception as exc:
+        raise _magex_errors(exc) from exc
+
+
+@router.post("/layers/{layer_id}/magex/retry", dependencies=[Depends(_require_magex)])
+def post_layer_magex_retry(
+    layer_id: str,
+    session: dict[str, object] = Depends(require_human),
+    repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
+) -> dict[str, object]:
+    from api.services import magex_naryad_service as magex
+
+    organization_id, actor = _identity(session)
+    try:
+        repository.get_layer(organization_id, layer_id)
+        return magex.retry_now(repository, organization_id, actor, layer_id)
+    except Exception as exc:
+        raise _magex_errors(exc) from exc
+
+
+@router.post("/layers/{layer_id}/magex/cancel", dependencies=[Depends(_require_magex)])
+def post_layer_magex_cancel(
+    layer_id: str,
+    payload: _MagexCancelSchema,
+    session: dict[str, object] = Depends(require_human),
+    repository: PostgresMassBlastRepository = Depends(get_mass_blast_repository),
+) -> dict[str, object]:
+    from api.services import magex_naryad_service as magex
+
+    organization_id, actor = _identity(session)
+    try:
+        repository.get_layer(organization_id, layer_id)
+        return magex.cancel(repository, organization_id, actor, layer_id, payload.reason)
+    except Exception as exc:
+        raise _magex_errors(exc) from exc

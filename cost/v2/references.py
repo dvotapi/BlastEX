@@ -140,6 +140,25 @@ REFERENCE_SECTION_DEFINITIONS: dict[str, dict[str, Any]] = {
         "columns": ["name", "site_code", "recipient_position", "channel", "lead_days"],
         "feature": "mass_blast_v2",
     },
+    # Наряд-путёвка: взрывник и спецавтомобиль выбираются списком (TASK-018 PR 7).
+    "blasters": {
+        "group": "blast_design",
+        "label": "Взрывники",
+        "columns": ["name", "blaster_index", "book_number"],
+        "feature": "mass_blast_v2",
+    },
+    "vehicles": {
+        "group": "blast_design",
+        "label": "Спецавтомобили ВМ",
+        "columns": ["name", "vehicle_model", "vehicle_plate", "driver"],
+        "feature": "mass_blast_v2",
+    },
+    "transport_staff": {
+        "group": "blast_design",
+        "label": "Водители и сопровождающие ВМ",
+        "columns": ["name", "role", "position", "document"],
+        "feature": "mass_blast_v2",
+    },
     "drilling_conditions": {
         "group": "drilling", "label": "Условия бурения",
         "view": "matrix",
@@ -393,6 +412,8 @@ def validate_reference_sections(
     issues.extend(_reference_issues(sections))
     issues.extend(_one_per_site_issues(sections, "blast_safety"))
     issues.extend(_one_per_site_issues(sections, "mass_blast_sites"))
+    issues.extend(_unique_blaster_issues(sections))
+    issues.extend(_unique_plate_issues(sections))
     # Локальный импорт: модуль проверок сам берёт `ValidationIssue` отсюда.
     from cost.v2.payroll_checks import payroll_issues
 
@@ -484,6 +505,45 @@ def _one_per_site_issues(sections: Mapping[str, Sequence[ReferenceItem]], sectio
             )
         else:
             seen[site] = item.code
+    return issues
+
+
+def _unique_blaster_issues(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[ValidationIssue]:
+    """Индекс взрывника уникален в организации (без учёта регистра): по нему MagEX узнаёт
+    взрывника, пока нет сотрудника SafetyMAIN (TASK-018 PR 7)."""
+
+    issues: list[ValidationIssue] = []
+    seen: dict[str, str] = {}
+    for item in sections.get("blasters", ()):
+        index = str(item.payload.get("blaster_index") or "").strip().casefold()
+        if not item.is_active or not index:
+            continue
+        if index in seen:
+            issues.append(ValidationIssue(
+                "error", "blasters", item.code,
+                f"Индекс взрывника уже у записи {seen[index]}: индекс — один на взрывника.", field="blaster_index",
+            ))
+        else:
+            seen[index] = item.code
+    return issues
+
+
+def _unique_plate_issues(sections: Mapping[str, Sequence[ReferenceItem]]) -> list[ValidationIssue]:
+    """Гос. номер спецавтомобиля не повторяется (без пробелов и регистра)."""
+
+    issues: list[ValidationIssue] = []
+    seen: dict[str, str] = {}
+    for item in sections.get("vehicles", ()):
+        plate = "".join(str(item.payload.get("vehicle_plate") or "").split()).casefold()
+        if not item.is_active or not plate:
+            continue
+        if plate in seen:
+            issues.append(ValidationIssue(
+                "error", "vehicles", item.code,
+                f"Гос. номер уже у записи {seen[plate]}: один номер — одна машина.", field="vehicle_plate",
+            ))
+        else:
+            seen[plate] = item.code
     return issues
 
 

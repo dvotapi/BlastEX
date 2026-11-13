@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from typing import Literal
+from uuid import UUID
 
 from pydantic import Field
 
@@ -66,6 +67,14 @@ class MaterialPayload(ReferencePayload):
     density_t_m3: Decimal | None = UnitField("т/м³", description="Плотность", default=None)
     chart_label: str | None = Field(
         default=None, title="Подпись на схеме", description="Короткая подпись ВВ на схеме заряда"
+    )
+    # Наряд-путёвка ↔ MagEX (TASK-018 PR 7): позиция номенклатуры MagEX, которой
+    # выписывается этот материал. Список — из MagEX (`x-options`), не ввод UUID.
+    magex_material_id: UUID | None = Field(
+        default=None,
+        title="Позиция MagEX",
+        description="Позиция номенклатуры склада MagEX, которой выписывается материал в наряде-путёвке",
+        json_schema_extra={"x-options": "magex.materials"},
     )
 
 

@@ -92,6 +92,17 @@ describe("описание полей по схеме", () => {
     expect(fields.get("per_diem_applies")?.kind).toBe("boolean");
   });
 
+  it("внешний список (`x-options`) — выбор, а не ввод идентификатора (TASK-018 PR 7)", () => {
+    const field = describeField("magex_material_id", {
+      anyOf: [{ type: "string", format: "uuid" }, { type: "null" }],
+      title: "Позиция MagEX",
+      "x-options": "magex.materials",
+    });
+    expect(field.kind).toBe("external");
+    expect(field.optionsSource).toBe("magex.materials");
+    expect(field.optional).toBe(true);
+  });
+
   it("подпись поля берётся из title каталога схем", () => {
     const fields = new Map(sectionFields(POSITIONS_SCHEMA).map((field) => [field.name, field]));
     expect(fields.get("norm_shifts_per_month")?.title).toBe("Нормативных смен в месяц");

@@ -30,6 +30,7 @@ from design.reporting.mass_blast.common import (
     text,
 )
 from design.reporting.mass_blast.frame import HEADER_H, Margins, Part
+from design.reporting.mass_blast.qr import QrFlowable
 
 LAYER_DOCUMENTS = {
     "READINESS_ACT": ("Акт готовности блока", "Акт готовности блока к заряжанию (приложение № 13 к ФНП 494, п. 413)"),
@@ -281,8 +282,27 @@ def _bar(title: str, width: float) -> Table:
     return table
 
 
+def _permit(payload: Mapping[str, Any]) -> str:
+    """Разрешение на ВР: строкой, как раньше, иначе № и дата (поля MagEX, TASK-018 PR 7)."""
+
+    number, issued = text(payload.get("permit_number")), text(payload.get("permit_date"))
+    composed = " ".join(part for part in (f"№ {number}" if number else "", f"от {date(issued)}" if issued else "") if part)
+    # Раздельные поля — как в подписанной выписке (QR); прежняя строка — когда их нет.
+    return composed or text(payload.get("permit"))
+
+
+def _vehicle(payload: Mapping[str, Any]) -> str:
+    model = text(payload.get("vehicle_model")) or text(payload.get("vehicle"))
+    plate = text(payload.get("vehicle_plate"))
+    if not text(payload.get("vehicle_model")) and not plate:
+        return text(payload.get("vehicle"))
+    return " ".join(part for part in (model, plate) if part)
+
+
 def _info_grid(revision: Mapping[str, Any], width: float) -> Table:
     seed, payload = _seed(revision), _payload(revision)
+    # Взрывник наряда, принятого MagEX, — как в подписанной выписке (справочник «Взрывники»).
+    signed = (revision.get("magex") or {}).get("print") or {}
     project = seed.get("project") or {}
     people = seed.get("people") or {}
     totals = (revision.get("view") or {}).get("totals") or {}
@@ -294,11 +314,13 @@ def _info_grid(revision: Mapping[str, Any], width: float) -> Table:
          "Дата массового взрыва", date(project.get("blast_date"))),
         ("Проект МВ / паспорт БВР", f"Проект массового взрыва № {number}" if number else "", "Всего скважин, шт",
          num(totals.get("blocks_holes"), 0), "Масса зарядов (проект), кг", num(totals.get("blocks_charge_kg"), 0)),
-        ("Взрывник (Ф. И. О.)", person_line(people.get("blaster")), "Индивид. индекс взрывника", text(payload.get("blaster_index")),
+        ("Взрывник (Ф. И. О.)",
+         text(signed.get("blaster_name")) or text(payload.get("blaster_name")) or person_line(people.get("blaster")),
+         "Индивид. индекс взрывника", text(signed.get("blaster_index")) or text(payload.get("blaster_index")),
          "Зав. складом / раздатчик", person_line(people.get("storekeeper"))),
-        ("Склад выдачи ВМ", text(payload.get("warehouse")), "Спецавтомобиль", text(payload.get("vehicle")),
+        ("Склад выдачи ВМ", text(signed.get("warehouse")) or text(payload.get("warehouse")), "Спецавтомобиль", _vehicle(payload),
          "Водитель", text(payload.get("driver"))),
-        ("Разрешение на ведение ВР", text(payload.get("permit")), "", "", "", ""),
+        ("Разрешение на ведение ВР", _permit(payload), "", "", "", ""),
     ]
     data = [[cell(a, "td"), cell(b, "td_b"), cell(c, "td"), cell(d, "td_b"), cell(e, "td"), cell(f, "td_b")] for a, b, c, d, e, f in rows]
     w = width / 3
@@ -437,19 +459,23 @@ def _naryad_signatures(revision: Mapping[str, Any], width: float) -> list:
     seed, payload = _seed(revision), _payload(revision)
     project = seed.get("project") or {}
     people = seed.get("people") or {}
+    # Взрывник — тот же, что в шапке и в выписке MagEX: принятой выписки, выбранный в наряде,
+    # иначе из персонала проекта.
+    chosen = text(((revision.get("magex") or {}).get("print") or {}).get("blaster_name")) or text(payload.get("blaster_name"))
+    blaster = chosen or person_line(people.get("blaster"))
     issue_date = date(payload.get("issue_date")) if payload.get("issue_date") else ""
     blast_date = date(project.get("blast_date")) if project.get("blast_date") else ""
     before = (
         ("Наряд-путёвку выписал (рук. участка / лицо технадзора)", person_line(people.get("site_manager"))),
         ("Перевозку ВМ и ВР разрешаю (руководитель ВР)", person_line(people.get("blast_manager"))),
         ("ВМ выдал (зав. складом / раздатчик ВМ)", person_line(people.get("storekeeper"))),
-        ("ВМ получил (взрывник)", person_line(people.get("blaster"))),
+        ("ВМ получил (взрывник)", blaster),
         ("Работники, привлекаемые к доставке ВМ (Ф. И. О.)", text(payload.get("delivery")) or person_line(people.get("escort"))),
     )
     after = (
-        ("ВМ израсходовал (взрывник)", person_line(people.get("blaster"))),
+        ("ВМ израсходовал (взрывник)", blaster),
         ("Расход ВМ подтверждаю (руководитель ВР смены)", person_line(people.get("blast_manager"))),
-        ("Остаток ВМ сдал (взрывник)", person_line(people.get("blaster"))),
+        ("Остаток ВМ сдал (взрывник)", blaster),
         ("Остаток ВМ принял (зав. складом / раздатчик ВМ)", person_line(people.get("storekeeper"))),
         ("Наряд-путёвку принял на склад (дата сдачи путёвки)", person_line(people.get("storekeeper"))),
     )
@@ -475,23 +501,65 @@ NARYAD_NOTE = (
 )
 
 
-def naryad_story(revision: Mapping[str, Any], width: float) -> list:
+def _naryad_head(revision: Mapping[str, Any], width: float, *, offline: str = "") -> Table:
     seed, payload = _seed(revision), _payload(revision)
     _customer, contractor = _parties(seed)
     number = text(payload.get("number"))
+    form = [p("Форма 4", "body_r"), p("форма 4 приказа Общества (приложение № 18 к ФНП 494)", "small")]
+    if offline:
+        form.append(p(offline, "small"))
     head = Table([[
         [p(contractor, "bold"), p("Организация-исполнитель", "small")],
         [p(f"НАРЯД-ПУТЁВКА № {number}" if number else "НАРЯД-ПУТЁВКА № ______", "bold_c"),
          p("на производство взрывных работ взрывнику", "body_c")],
-        [p("Форма 4", "body_r"), p("форма 4 приказа Общества (приложение № 18 к ФНП 494)", "small")],
+        form,
     ]], colWidths=[width * 0.3, width * 0.4, width * 0.3])
     head.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
                               ("VALIGN", (0, 0), (-1, -1), "TOP")]))
-    story: list = [head, spacer(1.5), _info_grid(revision, width), spacer(2)]
-    story += _naryad_blocks(revision, width) + [spacer(2)]
-    story += _naryad_materials(revision, width) + [spacer(2)]
-    story += _naryad_signatures(revision, width) + [spacer(1.5), p(NARYAD_NOTE, "small")]
-    return [KeepInFrame(width, frame.landscape(frame.A4)[1] - 23 * mm, story, mode="shrink")]
+    return head
+
+
+def _qr_caption(revision: Mapping[str, Any]) -> str:
+    magex = revision.get("magex") or {}
+    warehouse = (text((magex.get("print") or {}).get("warehouse")) or text(_payload(revision).get("warehouse"))
+                 or text(magex.get("wh"))[:8])
+    return f"№ {text(magex.get('num'))} / версия {magex.get('ver')} / {warehouse}"
+
+
+def _naryad_top(revision: Mapping[str, Any], width: float) -> list:
+    """Шапка и сведения формы 4; у наряда, принятого MagEX, справа — QR той же строки JWS
+    (TASK-018 PR 7, §6): 40 × 40 мм, уровень L, под ним «№ / версия / склад»."""
+
+    magex = revision.get("magex") or {}
+    if magex.get("mode") == "ONLINE" and magex.get("jws"):
+        code = QrFlowable(str(magex["jws"]))
+        side = code.width
+        left = width - side - 2 * mm
+        block = Table(
+            [[[_naryad_head(revision, left), spacer(1.5), _info_grid(revision, left)],
+              [code, p(_qr_caption(revision), "small_c")]]],
+            colWidths=[left + 2 * mm, side],
+        )
+        block.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                                   ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                                   ("VALIGN", (0, 0), (-1, -1), "TOP")]))
+        return [block, spacer(2)]
+    offline = "вне учёта MagEX" if magex.get("mode") == "OFFLINE" else ""
+    return [_naryad_head(revision, width, offline=offline), spacer(1.5), _info_grid(revision, width), spacer(2)]
+
+
+def naryad_story(revision: Mapping[str, Any], width: float) -> list:
+    height = frame.landscape(frame.A4)[1] - 23 * mm
+    top = _naryad_top(revision, width)
+    rest = _naryad_blocks(revision, width) + [spacer(2)]
+    rest += _naryad_materials(revision, width) + [spacer(2)]
+    rest += _naryad_signatures(revision, width) + [spacer(1.5), p(NARYAD_NOTE, "small")]
+    if (revision.get("magex") or {}).get("mode") == "ONLINE" and (revision.get("magex") or {}).get("jws"):
+        # QR не сжимается вместе с формой: 40 × 40 мм при любом числе блоков и позиций —
+        # сжимается только то, что ниже шапки (замечание Codex).
+        _, top_height = top[0].wrap(width, height)
+        return [*top, KeepInFrame(width, height - top_height - 2 * mm, rest, mode="shrink")]
+    return [KeepInFrame(width, height, top + rest, mode="shrink")]
 
 
 # --- 9. талон-допуск -------------------------------------------------------
@@ -636,6 +704,13 @@ def acceptance_story(revision: Mapping[str, Any], width: float) -> list:
             q_label = "Удельный расход ВМ (к объёму по контуру), кг/м³"
         rows = [[p("", "body", markup=f'<font color="{RED_HEX}"><b>3.</b></font> Израсходовано ВВ, кг'),
                  p(kg_text(fact.get("explosive_kg")) or DASH, "bold_c")]]
+    elif fact.get("explosive_source") == "MAGEX":
+        # TASK-018 PR 7: слоя «Факт» нет, а расход ВВ по нарядам внесён в MagEX — сетка по проекту.
+        q = fact.get("q_kg_m3")
+        if fact.get("volume_basis") == "CONTOUR":
+            q_label = "Удельный расход ВМ (к объёму по контуру), кг/м³"
+        rows = [[p("", "body", markup=f'<font color="{RED_HEX}"><b>3.</b></font> Израсходовано ВВ, кг'),
+                 p(kg_text(fact.get("explosive_kg")) or DASH, "bold_c")]]
     params = Table([
         [p("", "body", markup=f'<font color="{RED_HEX}"><b>1.</b></font> Сетка скважин, м'), p(grid or DASH, "bold_c")],
         [p("", "body", markup=f'<font color="{RED_HEX}"><b>2.</b></font> {q_label}'),
@@ -708,6 +783,8 @@ def layer_part(revision: Mapping[str, Any]) -> Part:
         story=lambda: STORIES[kind](revision, width), numbering="own", landscape=landscape,
         header_pages="none" if landscape else "first", margins=margins,
         draw_extra=_talon_extra if kind == "TALON" else None,
+        # QR наряда (PR 7) — в фактическом размере: просмотрщик не «вписывает» лист.
+        actual_size=kind == "NARYAD" and bool((revision.get("magex") or {}).get("jws")),
     )
 
 

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../../../api/endpoints";
 import type {
   LayerAvailability,
+  MagexApproveResult,
   LayerChange,
   LayerKind,
   MassBlastLayer,
@@ -15,6 +16,7 @@ import type {
 import { sameAsReference } from "../form";
 import { download, errorText, Issues, openPdf, type RememberControl } from "../ui";
 import { draftFromPayload, LAYER_FORMS, payloadFromDraft, type LayerDraft } from "./LayerForms";
+import { canDownload, isOnline, MagexPanel } from "./MagexPanel";
 
 const ORDER: LayerKind[] = ["NARYAD", "NOTIFICATION", "READINESS_ACT", "TALON", "ACCEPTANCE_ACT", "EXECUTION"];
 const REFRESH_CODES = new Set(["layer_stale", "fact_changed", "fact_layer_stale"]);
@@ -48,6 +50,8 @@ function LayerCard({
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
   const [changes, setChanges] = useState<LayerChange[] | null>(null);
   const [revisionNo, setRevisionNo] = useState<number | null>(null);
+  const [rejection, setRejection] = useState<MagexApproveResult["rejection"] | null>(null);
+  const online = isOnline(layer);
   const { payload, errors } = payloadFromDraft(layer.kind, draft);
   const hasInputErrors = Object.keys(errors).length > 0;
   const needsRefresh = layer.stale || layer.issues.some((issue) => REFRESH_CODES.has(issue.code));
@@ -150,6 +154,27 @@ function LayerCard({
     setMessage({ text: `Выпущена ревизия слоя № ${revision.revision_no}.`, error: false });
   }, "Не удалось выпустить ревизию слоя.");
 
+  // Наряд в учёте MagEX (TASK-018 PR 7): «Разрешить» — выписка версией, печать — после 200 MagEX.
+  const onApprove = () => run(async () => {
+    const saved = await save();
+    if (!saved) return;
+    setRejection(null);
+    const result = await api.massBlast.magexApprove(saved.id, { expected_version: saved.version });
+    await onIssued();
+    const texts: Record<MagexApproveResult["outcome"], string> = {
+      ACCEPTED: `Разрешена: MagEX принял версию ${result.accepted_ver}, ВМ зарезервированы. Можно печатать.`,
+      UNCHANGED: "Изменений нет: MagEX подтвердил принятую версию.",
+      UNCHANGED_UNREACHABLE: "Изменений нет; MagEX сейчас не ответил.",
+      PENDING: "MagEX недоступен: версия в очереди повтора, печать — после приёма.",
+      REJECTED: "MagEX не принял наряд-путёвку — см. причину выше.",
+      NOTHING_PENDING: "",
+    };
+    if (result.outcome === "REJECTED") setRejection(result.rejection ?? null);
+    const reprint = result.reprinted ? " Выпущена ревизия для печати с данными исполнения." : "";
+    const warnings = (result.warnings ?? []).map((item) => ` ${item.message}`).join("");
+    setMessage({ text: texts[result.outcome] + reprint + warnings, error: result.outcome === "REJECTED" });
+  }, "Не удалось разрешить наряд-путёвку.");
+
   const onDownload = () => run(async () => {
     if (!layer.current_revision_id) return;
     const warning = await download(api.massBlast.layerDocumentUrl(layer.current_revision_id), `${layer.kind.toLowerCase()}.pdf`);
@@ -185,6 +210,10 @@ function LayerCard({
       </small>
       <Form layer={layer} draft={draft} set={set} disabled={busy} errors={errors} afterBlast={AFTER_BLAST.has(projectStatus)} remember={remember} />
       <Issues issues={layer.issues} />
+      {layer.kind === "NARYAD" && (
+        <MagexPanel layer={layer} rejection={rejection} busy={busy} setBusy={setBusy}
+          onState={async () => onChange(await api.massBlast.getLayer(layer.id))} />
+      )}
       {changes && changes.length > 0 && (
         <div className="mb-diff">
           <b>Что изменится при переносе</b>
@@ -210,8 +239,13 @@ function LayerCard({
       <div className="plans-actions">
         <button type="button" className="secondary-button" disabled={busy || (!dirty && !rememberPending)} onClick={() => void onSave()}>Сохранить</button>
         <button type="button" className="secondary-button" disabled={busy || (!dirty && blocking)} onClick={() => void onPreview()}>Предпросмотр</button>
-        <button type="button" className="calculate-button" disabled={busy || (!dirty && blocking)} onClick={() => void onIssue()}>Выпустить ревизию</button>
-        {layer.current_revision_id && (
+        {online ? (
+          <button type="button" className="calculate-button" disabled={busy || (!dirty && blocking)} onClick={() => void onApprove()}
+            title="Отправить выписку в MagEX: разрешена — только после того, как MagEX её примет">Разрешить</button>
+        ) : (
+          <button type="button" className="calculate-button" disabled={busy || (!dirty && blocking)} onClick={() => void onIssue()}>Выпустить ревизию</button>
+        )}
+        {canDownload(layer) && (
           <button type="button" className="secondary-button" disabled={busy} onClick={() => void onDownload()}>Скачать PDF</button>
         )}
         {needsRefresh && (

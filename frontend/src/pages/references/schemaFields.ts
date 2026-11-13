@@ -11,7 +11,7 @@ import type {
   ReferenceSectionSchema,
 } from "../../types/referenceSchema";
 
-export type FieldKind = "number" | "text" | "enum" | "boolean" | "date" | "ref" | "list";
+export type FieldKind = "number" | "text" | "enum" | "boolean" | "date" | "ref" | "list" | "external";
 
 export type FieldDescriptor = {
   name: string;
@@ -21,6 +21,8 @@ export type FieldDescriptor = {
   unit: string;
   /** Раздел, на записи которого ссылается поле (`x-ref`). */
   ref: string;
+  /** Внешний список значений (`x-options`, например `magex.materials`). */
+  optionsSource: string;
   options: string[];
   optional: boolean;
   internal: boolean;
@@ -100,12 +102,14 @@ export function describeField(
 ): FieldDescriptor {
   const unit = pick(node, (variant) => variant["x-unit"]) ?? node["x-unit"] ?? "";
   const ref = pick(node, (variant) => variant["x-ref"]) ?? node["x-ref"] ?? "";
+  const optionsSource = pick(node, (variant) => variant["x-options"]) ?? node["x-options"] ?? "";
   const options = pick(node, (variant) => variant.enum) ?? node.enum ?? [];
   const type = pick(node, (variant) => (variant.type === "null" ? undefined : variant.type));
   const format = pick(node, (variant) => variant.format);
 
   let kind: FieldKind = "text";
   if (ref) kind = "ref";
+  else if (optionsSource) kind = "external";
   else if (options.length) kind = "enum";
   else if (type === "array") kind = "list";
   else if (type === "boolean") kind = "boolean";
@@ -124,6 +128,7 @@ export function describeField(
     kind,
     unit,
     ref,
+    optionsSource,
     options: [...options],
     optional: isOptional(node),
     internal: node["x-internal"] === true,

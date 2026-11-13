@@ -1,7 +1,7 @@
 """PostgreSQL persistence for immutable mass-blast project revisions."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Sequence
 from uuid import uuid4
 
@@ -217,8 +217,67 @@ class MassBlastLayerRevisionRow(Base):
     created_by: Mapped[str] = mapped_column(String(320), nullable=False)
 
 
+class MassBlastMagexVersionRow(Base):
+    """Версия выписки наряда-путёвки в MagEX (TASK-018, PR 7)."""
+
+    __tablename__ = "mass_blast_magex_versions"
+    __table_args__ = (
+        UniqueConstraint("layer_id", "ver", name="uq_mass_blast_magex_version"),
+        Index("ix_mass_blast_magex_version_due", "status", "next_attempt_at"),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    organization_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    layer_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey(f"{SCHEMA}.mass_blast_layers.id", ondelete="RESTRICT"), nullable=False
+    )
+    ver: Mapped[int] = mapped_column(Integer, nullable=False)
+    layer_revision_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey(f"{SCHEMA}.mass_blast_layer_revisions.id", ondelete="SET NULL"), nullable=True
+    )
+    jws: Mapped[str] = mapped_column(Text, nullable=False)
+    kid: Mapped[str] = mapped_column(String(200), nullable=False)
+    payload_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    response_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    response: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False, default=dict)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(320), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class MassBlastMagexNaryadRow(Base):
+    """Последнее прочитанное исполнение наряда в MagEX (TASK-018, PR 7)."""
+
+    __tablename__ = "mass_blast_magex_naryads"
+    __table_args__ = {"schema": SCHEMA}
+
+    layer_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey(f"{SCHEMA}.mass_blast_layers.id", ondelete="RESTRICT"), primary_key=True
+    )
+    organization_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    status: Mapped[str] = mapped_column(String(40), nullable=False)
+    execution: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False, default=dict)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc).replace(microsecond=0)
+
+
+def _printable(context: dict[str, Any] | None, statuses: dict[int, str]) -> bool:
+    """Ревизия слоя печатается: она без MagEX или её версия выписки принята MagEX."""
+
+    magex = (context or {}).get("magex") or {}
+    return magex.get("mode") != "ONLINE" or statuses.get(magex.get("ver")) == "ACCEPTED"
+
+
+# Сколько «Разрешить» считается идущим (версия SENDING): дольше — процесс упал, версия заменима.
+MAGEX_SENDING_GUARD_S = 120
 
 
 class PostgresMassBlastRepository:
@@ -816,7 +875,12 @@ class PostgresMassBlastRepository:
     def create_layer_revision(
         self, organization_id: str, actor: str, layer_id: str, *, expected_version: int,
         context: dict[str, Any], content_sha256: str,
+        magex_activation: tuple[str, datetime] | None = None,
     ) -> dict[str, Any]:
+        """Ревизия слоя. `magex_activation` — (версия выписки, срок попытки): версия встаёт в очередь
+        с этой ревизией в той же транзакции (TASK-018 PR 7) — упавший процесс не оставит ревизию
+        без версии в очереди."""
+
         now = _now()
         with self.session_factory() as session, session.begin():
             row = self._layer_row(session, organization_id, layer_id, lock=True)
@@ -840,7 +904,235 @@ class PostgresMassBlastRepository:
             row.updated_at = now
             row.updated_by = actor
             self._audit(session, organization_id, actor, "ISSUE_MASS_BLAST_LAYER", row.project_id, None, {"layer_id": layer_id, "revision_id": revision.id}, now)
+            if magex_activation is not None:
+                session.flush()
+                self._activate(session, magex_activation[0], revision.id, magex_activation[1], now)
             return self._layer_revision(revision)
+
+    def discard_layer_revision(self, organization_id: str, actor: str, layer_id: str, revision_id: str) -> dict[str, Any]:
+        """Убрать ревизию наряда, которую MagEX отклонил (TASK-018, PR 7, §5.2): как и в MagEX,
+        отказ ничего не оставляет. Текущей становится прежняя ревизия слоя (или слой — черновик)."""
+
+        now = _now()
+        with self.session_factory() as session, session.begin():
+            row = self._layer_row(session, organization_id, layer_id, lock=True)
+            revision = session.get(MassBlastLayerRevisionRow, revision_id)
+            if revision is None or revision.layer_id != layer_id:
+                raise MassBlastNotFoundError(f"Ревизия слоя {revision_id} не найдена.")
+            for version in session.scalars(
+                select(MassBlastMagexVersionRow).where(MassBlastMagexVersionRow.layer_revision_id == revision_id)
+            ):
+                version.layer_revision_id = None
+            session.flush()
+            session.delete(revision)
+            session.flush()
+            if row.current_revision_id == revision_id:
+                # Текущей — последняя ревизия, которую можно печатать: без MagEX или с принятой
+                # версией (ревизия заменённой или ожидающей версии — нет, замечание Codex).
+                statuses = {
+                    item.ver: item.status
+                    for item in session.scalars(select(MassBlastMagexVersionRow).where(MassBlastMagexVersionRow.layer_id == layer_id))
+                }
+                previous = next(
+                    (
+                        item for item in session.scalars(
+                            select(MassBlastLayerRevisionRow)
+                            .where(MassBlastLayerRevisionRow.layer_id == layer_id)
+                            .order_by(desc(MassBlastLayerRevisionRow.revision_no))
+                        )
+                        if _printable(item.context, statuses)
+                    ),
+                    None,
+                )
+                row.current_revision_id = previous.id if previous else None
+                row.status = "issued" if previous else "draft"
+            row.version += 1
+            row.updated_at = now
+            row.updated_by = actor
+            self._audit(
+                session, organization_id, actor, "DISCARD_MASS_BLAST_LAYER_REVISION", row.project_id, None,
+                {"layer_id": layer_id, "revision_id": revision_id}, now,
+            )
+        return self.get_layer(organization_id, layer_id)
+
+    # --- MagEX: версии выписки и исполнение (TASK-018, PR 7) ----------------
+
+    @staticmethod
+    def _magex_version(row: MassBlastMagexVersionRow) -> dict[str, Any]:
+        return {
+            "id": row.id,
+            "layer_id": row.layer_id,
+            "ver": row.ver,
+            "layer_revision_id": row.layer_revision_id,
+            "jws": row.jws,
+            "kid": row.kid,
+            "payload_sha256": row.payload_sha256,
+            "status": row.status,
+            "response_code": row.response_code,
+            "response": dict(row.response or {}),
+            "attempts": row.attempts,
+            "next_attempt_at": row.next_attempt_at.isoformat() if row.next_attempt_at else None,
+            "created_at": row.created_at.isoformat(),
+            "created_by": row.created_by,
+            "updated_at": row.updated_at.isoformat(),
+            "accepted_at": row.accepted_at.isoformat() if row.accepted_at else None,
+            "organization_id": row.organization_id,
+        }
+
+    def create_magex_version(
+        self, organization_id: str, actor: str, layer_id: str, build: Any, *, expected_version: int | None = None,
+    ) -> dict[str, Any]:
+        """Новая версия выписки (`SENDING`): `ver` — наибольшая в слое + 1 под блокировкой слоя (два
+        нажатия не получат один номер); `build(ver)` подписывает и возвращает `(jws, kid, payload_sha256)`.
+
+        Прежние версии здесь не заменяются — только `activate_magex_version`, когда у новой есть
+        ревизия слоя: сорвавшийся выпуск не снимает из очереди принятую к отправке версию. Слой
+        изменён (`expected_version`) или другое «Разрешить» ещё отправляется — конфликт.
+        """
+
+        now = _now()
+        with self.session_factory() as session, session.begin():
+            layer = self._layer_row(session, organization_id, layer_id, lock=True)
+            if expected_version is not None and layer.version != expected_version:
+                raise MassBlastConflictError("Слой изменён другим пользователем. Обновите данные.")
+            rows = session.scalars(
+                select(MassBlastMagexVersionRow).where(MassBlastMagexVersionRow.layer_id == layer_id)
+            ).all()
+            if any(item.status == "SENDING" and item.updated_at > now - timedelta(seconds=MAGEX_SENDING_GUARD_S) for item in rows):
+                raise MassBlastConflictError("Разрешение этой наряд-путёвки уже отправляется в MagEX: обновите окно.")
+            ver = max((item.ver for item in rows), default=0) + 1
+            jws, kid, payload_sha256 = build(ver)
+            row = MassBlastMagexVersionRow(
+                id=str(uuid4()), organization_id=organization_id, layer_id=layer_id, ver=ver, layer_revision_id=None,
+                jws=jws, kid=kid, payload_sha256=payload_sha256, status="SENDING", response_code=None, response={},
+                attempts=0, next_attempt_at=None, created_at=now, created_by=actor, updated_at=now, accepted_at=None,
+            )
+            session.add(row)
+            session.flush()
+            return self._magex_version(row)
+
+    def _activate(self, session: Session, version_id: str, layer_revision_id: str, next_attempt_at: datetime, now: datetime) -> MassBlastMagexVersionRow:
+        row = session.get(MassBlastMagexVersionRow, version_id, with_for_update=True)
+        if row is None:
+            raise MassBlastNotFoundError(f"Версия выписки {version_id} не найдена.")
+        for item in session.scalars(
+            select(MassBlastMagexVersionRow)
+            .where(MassBlastMagexVersionRow.layer_id == row.layer_id, MassBlastMagexVersionRow.id != version_id)
+            .with_for_update()
+        ):
+            if item.status in ("PENDING", "SENDING"):
+                item.status = "SUPERSEDED"
+                item.next_attempt_at = None
+                item.updated_at = now
+        row.layer_revision_id = layer_revision_id
+        row.status = "PENDING"
+        row.next_attempt_at = next_attempt_at
+        row.updated_at = now
+        return row
+
+    def activate_magex_version(self, version_id: str, layer_revision_id: str, next_attempt_at: datetime) -> dict[str, Any]:
+        """Версия с ревизией слоя — в очередь (`PENDING`, срок аренды); прежние ожидающие той же
+        наряд-путёвки заменяются ею (`SUPERSEDED`) в той же транзакции."""
+
+        with self.session_factory() as session, session.begin():
+            return self._magex_version(self._activate(session, version_id, layer_revision_id, next_attempt_at, _now()))
+
+    def update_magex_version(self, version_id: str, *, only_from: tuple[str, ...] | None = None, **changes: Any) -> dict[str, Any]:
+        """Результат отправки: состояние, ответ, ревизия слоя, попытки, срок следующей.
+
+        `only_from` — обновить, только если версия ещё в одном из этих состояний (замену,
+        пришедшую во время отправки, ответ отправки не отменяет); иначе — версия как есть."""
+
+        allowed = {"status", "response_code", "response", "layer_revision_id", "attempts", "next_attempt_at", "accepted_at"}
+        unknown = set(changes) - allowed
+        if unknown:
+            raise ValueError(f"Поля версии MagEX не меняются: {sorted(unknown)}")
+        with self.session_factory() as session, session.begin():
+            row = session.get(MassBlastMagexVersionRow, version_id, with_for_update=True)
+            if row is None:
+                raise MassBlastNotFoundError(f"Версия выписки {version_id} не найдена.")
+            if only_from is not None and row.status not in only_from:
+                return self._magex_version(row)
+            for key, value in changes.items():
+                setattr(row, key, value)
+            row.updated_at = _now()
+            return self._magex_version(row)
+
+    def list_magex_versions(self, organization_id: str, layer_id: str) -> list[dict[str, Any]]:
+        with self.session_factory() as session:
+            self._layer_row(session, organization_id, layer_id)
+            rows = session.scalars(
+                select(MassBlastMagexVersionRow)
+                .where(MassBlastMagexVersionRow.layer_id == layer_id)
+                .order_by(MassBlastMagexVersionRow.ver)
+            ).all()
+            return [self._magex_version(row) for row in rows]
+
+    def claim_due_magex_versions(self, now: datetime, lease_s: int, limit: int = 20) -> list[dict[str, Any]]:
+        """Версии в очереди повтора со сроком попытки: срок сдвигается на `lease_s`
+        (`FOR UPDATE SKIP LOCKED` — несколько процессов API не возьмут одну версию)."""
+
+        with self.session_factory() as session, session.begin():
+            rows = session.scalars(
+                select(MassBlastMagexVersionRow)
+                .where(MassBlastMagexVersionRow.status == "PENDING", MassBlastMagexVersionRow.next_attempt_at <= now)
+                .order_by(MassBlastMagexVersionRow.next_attempt_at)
+                .limit(limit)
+                .with_for_update(skip_locked=True)
+            ).all()
+            for row in rows:
+                row.next_attempt_at = now + timedelta(seconds=lease_s)
+            return [self._magex_version(row) for row in rows]
+
+    def save_magex_execution(self, organization_id: str, layer_id: str, execution: dict[str, Any]) -> dict[str, Any]:
+        now = _now()
+        with self.session_factory() as session, session.begin():
+            self._layer_row(session, organization_id, layer_id)
+            row = session.get(MassBlastMagexNaryadRow, layer_id, with_for_update=True)
+            if row is None:
+                row = MassBlastMagexNaryadRow(layer_id=layer_id, organization_id=organization_id, status="", execution={}, fetched_at=now)
+                session.add(row)
+            row.status = str(execution.get("status") or "")
+            row.execution = execution
+            row.fetched_at = now
+            return {"status": row.status, "execution": dict(row.execution), "fetched_at": now.isoformat()}
+
+    def magex_execution(self, organization_id: str, layer_id: str) -> dict[str, Any] | None:
+        with self.session_factory() as session:
+            row = session.get(MassBlastMagexNaryadRow, layer_id)
+            if row is None or row.organization_id != organization_id:
+                return None
+            return {"status": row.status, "execution": dict(row.execution or {}), "fetched_at": row.fetched_at.isoformat()}
+
+    def magex_keys_in_use(self, organization_id: str) -> list[dict[str, Any]]:
+        """`kid`, без которых пока нельзя: принятые версии незакрытых (по последнему известному
+        статусу) нарядов и версии в очереди или в отправке — их строки ещё уйдут в MagEX."""
+
+        with self.session_factory() as session:
+            rows = session.execute(
+                select(
+                    MassBlastMagexVersionRow.kid, MassBlastMagexVersionRow.layer_id, MassBlastMagexVersionRow.status,
+                    MassBlastMagexNaryadRow.status,
+                )
+                .join(MassBlastMagexNaryadRow, MassBlastMagexNaryadRow.layer_id == MassBlastMagexVersionRow.layer_id, isouter=True)
+                .where(
+                    MassBlastMagexVersionRow.organization_id == organization_id,
+                    MassBlastMagexVersionRow.status.in_(("ACCEPTED", "PENDING", "SENDING")),
+                )
+            ).all()
+        open_layers: dict[str, set[str]] = {}
+        queued: dict[str, int] = {}
+        for kid, layer_id, version_status, naryad_status in rows:
+            if version_status in ("PENDING", "SENDING"):
+                queued[kid] = queued.get(kid, 0) + 1
+                continue
+            if naryad_status in ("closed", "cancelled"):
+                continue
+            open_layers.setdefault(kid, set()).add(layer_id)
+        return [
+            {"kid": kid, "open_naryads": len(open_layers.get(kid, ())), "queued_versions": queued.get(kid, 0)}
+            for kid in sorted(set(open_layers) | set(queued))
+        ]
 
     @staticmethod
     def _project_row(session: Session, organization_id: str, project_id: str) -> MassBlastProjectRow:

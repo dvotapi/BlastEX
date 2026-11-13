@@ -1,0 +1,479 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://magex.complex-services.ru/contracts/blastex/naryad.v1.schema.json",
+  "additionalProperties": false,
+  "description": "Содержимое JWS наряд-путёвки (`typ` = `naryad-v1`). Неизвестные поля — отказ.",
+  "properties": {
+    "iss": {
+      "const": "blastex",
+      "type": "string"
+    },
+    "sub": {
+      "description": "Идентификатор наряд-путёвки (UUID BlastEX)",
+      "format": "uuid",
+      "type": "string"
+    },
+    "ver": {
+      "description": "Версия выписки; растёт с 1",
+      "maximum": 2147483647,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "iat": {
+      "description": "Момент подписи, секунды Unix; в хэш содержимого не входит",
+      "maximum": 4102444800,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "org": {
+      "description": "Организация",
+      "format": "uuid",
+      "type": "string"
+    },
+    "wh": {
+      "description": "Склад выдачи (идентификатор склада в MagEX)",
+      "format": "uuid",
+      "type": "string"
+    },
+    "num": {
+      "description": "Номер наряд-путёвки",
+      "maxLength": 50,
+      "minLength": 1,
+      "type": "string"
+    },
+    "on": {
+      "description": "Дата выписки наряд-путёвки",
+      "format": "date",
+      "type": "string"
+    },
+    "blast_on": {
+      "anyOf": [
+        {
+          "format": "date",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Плановая дата массового взрыва; не раньше `on`"
+    },
+    "project": {
+      "anyOf": [
+        {
+          "maxLength": 100,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Проект МВ / паспорт БВР (номер)"
+    },
+    "site": {
+      "$ref": "#/$defs/Site"
+    },
+    "permit_vr": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PermitVR"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "blaster": {
+      "$ref": "#/$defs/Blaster"
+    },
+    "approved": {
+      "$ref": "#/$defs/Approval"
+    },
+    "vehicle": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Vehicle"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "driver": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Driver"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "delivery": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/DeliveryPerson"
+          },
+          "maxItems": 10,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Работники, привлекаемые к доставке ВМ"
+    },
+    "blocks": {
+      "description": "Блоки по проекту, от 0 до 50; коды не повторяются",
+      "items": {
+        "$ref": "#/$defs/Block"
+      },
+      "maxItems": 50,
+      "type": "array"
+    },
+    "lines": {
+      "description": "Позиции «выписано», от 1 до 40; позиция не повторяется",
+      "items": {
+        "$ref": "#/$defs/Line"
+      },
+      "maxItems": 40,
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": [
+    "iss",
+    "sub",
+    "ver",
+    "iat",
+    "org",
+    "wh",
+    "num",
+    "on",
+    "site",
+    "blaster",
+    "approved",
+    "blocks",
+    "lines"
+  ],
+  "title": "Наряд-путёвка BlastEX → MagEX: содержимое JWS (naryad-v1)",
+  "type": "object",
+  "$defs": {
+    "Approval": {
+      "additionalProperties": false,
+      "description": "Кто и когда разрешил перевозку ВМ и взрывные работы.",
+      "properties": {
+        "name": {
+          "description": "ФИО",
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        },
+        "position": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Должность"
+        },
+        "at": {
+          "description": "Момент разрешения; обязателен часовой пояс",
+          "format": "date-time",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "at"
+      ],
+      "title": "Approval",
+      "type": "object"
+    },
+    "Blaster": {
+      "additionalProperties": false,
+      "description": "Взрывник.",
+      "properties": {
+        "ref": {
+          "description": "Постоянный идентификатор сотрудника (SafetyMAIN / hr_form)",
+          "format": "uuid",
+          "type": "string"
+        },
+        "name": {
+          "description": "ФИО",
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        },
+        "index": {
+          "description": "Индивидуальный индекс взрывника (единая книжка взрывника)",
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref",
+        "name",
+        "index"
+      ],
+      "title": "Blaster",
+      "type": "object"
+    },
+    "Block": {
+      "additionalProperties": false,
+      "description": "Блок (выработка, уступ) — раздел 1 формы: по проекту; факт после взрыва вносится в MagEX (PR 4).",
+      "properties": {
+        "code": {
+          "description": "Код блока; в наряд-путёвке не повторяется",
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        },
+        "horizon": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Горизонт, например «+482»"
+        },
+        "holes": {
+          "anyOf": [
+            {
+              "maximum": 1000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Скважин (шпуров) по проекту, шт."
+        },
+        "charge_kg": {
+          "anyOf": [
+            {
+              "pattern": "^(0|[1-9][0-9]{0,12})\\.[0-9]{3}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Масса зарядов по проекту, кг: строка «220.000» (три знака, без ведущих нулей)"
+        }
+      },
+      "required": [
+        "code",
+        "name"
+      ],
+      "title": "Block",
+      "type": "object"
+    },
+    "DeliveryPerson": {
+      "additionalProperties": false,
+      "description": "Работник, привлекаемый к доставке ВМ.",
+      "properties": {
+        "ref": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "name": {
+          "description": "ФИО",
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "DeliveryPerson",
+      "type": "object"
+    },
+    "Driver": {
+      "additionalProperties": false,
+      "description": "Водитель: текстом; `ref` — когда в SafetyMAIN появятся водители.",
+      "properties": {
+        "ref": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ФИО"
+        }
+      },
+      "title": "Driver",
+      "type": "object"
+    },
+    "Line": {
+      "additionalProperties": false,
+      "description": "Позиция «выписано» (раздел 2 формы): партий и распределения по блокам в контракте нет.",
+      "properties": {
+        "material_id": {
+          "description": "Позиция номенклатуры MagEX; в наряд-путёвке не повторяется",
+          "format": "uuid",
+          "type": "string"
+        },
+        "qty": {
+          "description": "Количество в единице учёта позиции — строка «320.000» (три знака), больше нуля",
+          "pattern": "^(0|[1-9][0-9]{0,12})\\.[0-9]{3}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "material_id",
+        "qty"
+      ],
+      "title": "Line",
+      "type": "object"
+    },
+    "PermitVR": {
+      "additionalProperties": false,
+      "description": "Разрешение на ведение взрывных работ: в форме компании его нет, нужно для 2-ВМ.",
+      "properties": {
+        "number": {
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        },
+        "date": {
+          "format": "date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "number",
+        "date"
+      ],
+      "title": "PermitVR",
+      "type": "object"
+    },
+    "Site": {
+      "additionalProperties": false,
+      "description": "Место работ (объект).",
+      "properties": {
+        "id": {
+          "description": "Идентификатор объекта в BlastEX",
+          "format": "uuid",
+          "type": "string"
+        },
+        "name": {
+          "description": "Наименование объекта",
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "title": "Site",
+      "type": "object"
+    },
+    "Vehicle": {
+      "additionalProperties": false,
+      "description": "Спецавтомобиль: текстом; `ref` — когда в SafetyMAIN появятся транспортные средства.",
+      "properties": {
+        "ref": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "plate": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Государственный номер"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Марка"
+        }
+      },
+      "title": "Vehicle",
+      "type": "object"
+    }
+  }
+}

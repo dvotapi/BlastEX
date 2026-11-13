@@ -1,0 +1,123 @@
+{
+  "description": "Строки наряд-путёвки и ожидаемый результат проверки (план PR 10, решение Б.9): ok или код ошибки API. Ключи — keys, предел длины — max_length (VM_NARYAD_JWS_MAX_LENGTH по умолчанию). Файл вектора — ровно строка JWS, без перевода строки.",
+  "keys": "../keys/jwks.json",
+  "max_length": 2000,
+  "vectors": [
+    {
+      "id": "valid",
+      "file": "valid.jws",
+      "case": "Верная строка: подписана тестовым ключом",
+      "expected": "ok",
+      "payload": "../naryads/sample.json"
+    },
+    {
+      "id": "foreign-key-same-kid",
+      "file": "foreign-key-same-kid.jws",
+      "case": "Подписана чужим ключом с тем же kid",
+      "expected": "NARYAD_SIGNATURE_INVALID"
+    },
+    {
+      "id": "broken-signature",
+      "file": "broken-signature.jws",
+      "case": "Испорчена подпись: один бит R‖S",
+      "expected": "NARYAD_SIGNATURE_INVALID"
+    },
+    {
+      "id": "tampered-content",
+      "file": "tampered-content.jws",
+      "case": "Испорчено содержимое: другое количество первой позиции под прежней подписью",
+      "expected": "NARYAD_SIGNATURE_INVALID"
+    },
+    {
+      "id": "unknown-kid",
+      "file": "unknown-kid.jws",
+      "case": "Неизвестный kid",
+      "expected": "NARYAD_SIGNATURE_INVALID"
+    },
+    {
+      "id": "alg-none",
+      "file": "alg-none.jws",
+      "case": "alg = none, подписи нет",
+      "expected": "NARYAD_SIGNATURE_INVALID"
+    },
+    {
+      "id": "alg-hs256-public-key",
+      "file": "alg-hs256-public-key.jws",
+      "case": "alg = HS256, секрет HMAC — открытый ключ (PEM)",
+      "expected": "NARYAD_SIGNATURE_INVALID"
+    },
+    {
+      "id": "foreign-typ",
+      "file": "foreign-typ.jws",
+      "case": "Чужой typ (JWT)",
+      "expected": "NARYAD_SIGNATURE_INVALID"
+    },
+    {
+      "id": "too-long",
+      "file": "too-long.jws",
+      "case": "Длиннее предела: больше 2953 символов — при любом допустимом пределе",
+      "expected": "NARYAD_PAYLOAD_TOO_LARGE"
+    },
+    {
+      "id": "truncated-deflate",
+      "file": "truncated-deflate.jws",
+      "case": "Обрыв сжатого потока (подпись верна)",
+      "expected": "NARYAD_SCHEMA_INVALID"
+    },
+    {
+      "id": "inflate-over-64k",
+      "file": "inflate-over-64k.jws",
+      "case": "Распаковка больше 64 КиБ: 1 МиБ из килобайта (подпись верна)",
+      "expected": "NARYAD_PAYLOAD_TOO_LARGE"
+    },
+    {
+      "id": "inflate-over-64k-broken-signature",
+      "file": "inflate-over-64k-broken-signature.jws",
+      "case": "Распаковка больше 64 КиБ и испорчена подпись — отказ по подписи: распаковка только после неё",
+      "expected": "NARYAD_SIGNATURE_INVALID"
+    },
+    {
+      "id": "data-after-stream-end",
+      "file": "data-after-stream-end.jws",
+      "case": "Байты после конца сжатого потока (подпись верна)",
+      "expected": "NARYAD_SCHEMA_INVALID"
+    },
+    {
+      "id": "duplicate-key-in-content",
+      "file": "duplicate-key-in-content.jws",
+      "case": "Повтор ключа ver в JSON содержимого («последний побеждает» дал бы годную версию 1)",
+      "expected": "NARYAD_SCHEMA_INVALID"
+    },
+    {
+      "id": "crit-header",
+      "file": "crit-header.jws",
+      "case": "Заголовок с crit (подпись верна)",
+      "expected": "NARYAD_SIGNATURE_INVALID"
+    },
+    {
+      "id": "non-canonical-base64url",
+      "file": "non-canonical-base64url.jws",
+      "case": "Подпись в неканонической записи base64url: те же 64 байта",
+      "expected": "NARYAD_SIGNATURE_INVALID"
+    },
+    {
+      "id": "typ-uppercase",
+      "file": "typ-uppercase.jws",
+      "case": "typ в другом регистре (NARYAD-V1)",
+      "expected": "NARYAD_SIGNATURE_INVALID"
+    },
+    {
+      "id": "inflate-exactly-64k",
+      "file": "inflate-exactly-64k.jws",
+      "case": "Ровно 64 КиБ распакованного: пример № 1 и пробелы в конце JSON — принимается",
+      "expected": "ok",
+      "payload": "../naryads/sample.json"
+    },
+    {
+      "id": "inflate-64k-plus-one",
+      "file": "inflate-64k-plus-one.jws",
+      "case": "64 КиБ и ещё один пробел — отказ по размеру",
+      "expected": "NARYAD_PAYLOAD_TOO_LARGE"
+    }
+  ]
+}

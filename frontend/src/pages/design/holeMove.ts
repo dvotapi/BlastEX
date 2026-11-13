@@ -3,6 +3,7 @@
 // Только интерактивная геометрия — раскладку по-прежнему строит сервер.
 import { localBasis, type Vec2 } from "../../lib/geometry2d";
 import type { BlockContour, Hole, PatternParams } from "../../types/design";
+import { isSquarePattern } from "./designParams";
 
 /** Шаг привязки по одной оси: выкл, 0,1 м, четверть шага a или b. */
 export type AxisSnap = "off" | "0.1" | "a4" | "b4";
@@ -19,20 +20,17 @@ export const FINE_STEP_M = 0.1;
 
 // Шаг a квадратной сетки без `spacing_a_m` — как `DEFAULT_SQUARE_SPACING_M` сервера.
 const DEFAULT_SQUARE_SPACING_M = 5;
-// Сетки со своим шагом рядов b (`design/toe_line.py::_OWN_BURDEN_PATTERNS`).
-const OWN_BURDEN_PATTERNS = new Set(["rectangular", "staggered", "variable", "domain_dependent"]);
-
 type GridParams = Partial<PatternParams> | Record<string, unknown> | null | undefined;
 
-function positive(value: unknown): number | null {
+/** Положительное конечное число (как `_positive` сервера); иначе null. */
+export function positive(value: unknown): number | null {
   const number = typeof value === "number" ? value : typeof value === "string" && value !== "" ? Number(value) : NaN;
   return Number.isFinite(number) && number > 0 ? number : null;
 }
 
 /** Квадратная ли сетка — как `_is_square` сервера (нет ключа или неизвестный вид — квадратная). */
 export function isSquareGrid(params: GridParams): boolean {
-  const pattern = (params as Record<string, unknown> | null | undefined)?.pattern;
-  return !OWN_BURDEN_PATTERNS.has(String(pattern ?? "square"));
+  return isSquarePattern((params as Record<string, unknown> | null | undefined)?.pattern);
 }
 
 /** Шаги сетки (a, b) — порт `design/toe_line.py::grid_steps_m`. */

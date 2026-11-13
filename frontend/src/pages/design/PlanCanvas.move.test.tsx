@@ -35,10 +35,10 @@ const noop = () => {};
 const SCALE = 40;
 const VIEW = { width: 800, height: 520 };
 
-function setup(item: Case, center: string, selected: string[] = []) {
+function setup(item: Case, center: string, selected: string[] = [], scale = SCALE) {
   const holes = item.holes;
   const c = holes.find((h) => h.id === center)!.collar;
-  const camera = { x: c.x, y: c.y, scale: SCALE };
+  const camera = { x: c.x, y: c.y, scale };
   const onMoveHoles = vi.fn();
   const onCameraChange = vi.fn();
   const view = render(
@@ -64,8 +64,8 @@ function setup(item: Case, center: string, selected: string[] = []) {
     />,
   );
   const toScreen = (x: number, y: number) => ({
-    clientX: VIEW.width / 2 + (x - camera.x) * SCALE,
-    clientY: VIEW.height / 2 - (y - camera.y) * SCALE,
+    clientX: VIEW.width / 2 + (x - camera.x) * scale,
+    clientY: VIEW.height / 2 - (y - camera.y) * scale,
   });
   const at = (id: string) => {
     const h = holes.find((hole) => hole.id === id)!;
@@ -120,6 +120,29 @@ describe("PlanCanvas: сдвиг скважин в осях сетки", () => {
     const second = setup(pair, "4-01T");
     drag(second.plan, second.at("4-01T"), fromAxes(1.25, 0, axes));
     expect(second.onMoveHoles.mock.calls[0][0]).toEqual(["4-01T"]);
+  });
+
+  it("мелкий масштаб: нажатие на вертикальную берёт её, а не пару в метре от неё", () => {
+    // 8 px/м: пара в 8 px — внутри радиуса попадания 12 px.
+    const { plan, at, onMoveHoles } = setup(pair, "4-01", [], 8);
+    const from = at("4-01");
+    fireEvent.pointerDown(plan, { ...from, button: 0 });
+    fireEvent.pointerMove(plan, { clientX: from.clientX + 20, clientY: from.clientY });
+    fireEvent.pointerUp(plan, { clientX: from.clientX + 20, clientY: from.clientY });
+    expect(onMoveHoles.mock.calls[0][0]).toEqual(["4-01", "4-01T"]);
+  });
+
+  it("вертикальная с парой — размерные линии до соседей остаются", () => {
+    const { view, plan, at } = setup(pair, "4-02");
+    drag(plan, at("4-02"), fromAxes(1.25, 0, axes), { release: false });
+    expect(view.container.querySelectorAll("g.dimension").length).toBeGreaterThan(0);
+    cleanup();
+    const withPair = setup(pair, "4-01");
+    drag(withPair.plan, withPair.at("4-01"), fromAxes(1.25, 0, axes), { release: false });
+    const labels = [...withPair.view.container.querySelectorAll("g.dimension text")].map((t) => t.textContent);
+    expect(labels.length).toBeGreaterThan(0);
+    // До своей пары, которая едет вместе, линии нет (она была бы 1,00 м).
+    expect(labels).not.toContain("1,00 м");
   });
 
   it("у курсора — Δ, сосед и ЛСП/W; первый ряд вглубь — красное кольцо", () => {

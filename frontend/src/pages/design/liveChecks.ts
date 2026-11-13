@@ -8,7 +8,8 @@
 import { projectOnSegment, type Vec2 } from "../../lib/geometry2d";
 import { ruNumber } from "../../lib/format";
 import type { BlockContour, Hole, PatternParams, ToeLine } from "../../types/design";
-import { facePairPartnerId, gridSteps, isSquareGrid } from "./holeMove";
+import { facePairPartnerId, gridSteps, isSquareGrid, positive } from "./holeMove";
+import { pointInPolygon } from "./holeHealth";
 
 type Params = Partial<PatternParams> | Record<string, unknown> | null | undefined;
 
@@ -25,11 +26,6 @@ export const NEIGHBOUR_MIN_RATIO = 0.5;
 // Ряды: ниже этого номера — ряды впереди первого; −1000 — ручные (`FRONT_ROW_BASE`).
 const FRONT_ROW_BASE = -1000;
 const OWN_ROW_FAMILY_KINDS = new Set(["contour", "presplit", "trim", "buffer"]);
-
-function positive(value: unknown): number | null {
-  const number = typeof value === "number" ? value : typeof value === "string" && value !== "" ? Number(value) : NaN;
-  return Number.isFinite(number) && number > 0 ? number : null;
-}
 
 /** Проектная W — порт `design_burden_m`; null — не задана. */
 export function designBurdenM(params: Params): number | null {
@@ -72,7 +68,7 @@ export function inMainGrid(hole: Hole): boolean {
   return rowFamily(hole.kind) === "grid" || isLatticeHole(hole);
 }
 
-function measured(hole: Hole, mainKind: string): boolean {
+function isMeasured(hole: Hole, mainKind: string): boolean {
   if (hole.kind === "production" || hole.kind === mainKind) return true;
   return rowFamily(hole.kind) !== "grid" && isLatticeHole(hole);
 }
@@ -123,17 +119,119 @@ function crestSegments(contour: BlockContour): Segment[] {
   return segments;
 }
 
-function pointInPolygon(p: Vec2, polygon: Vec2[]): boolean {
-  let inside = false;
-  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
-    const a = polygon[i];
-    const b = polygon[j];
-    if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
-  }
-  return inside;
+export type LiveFloorBurden = { valueM: number; allowedM: number | null; excess: boolean };
+
+/** Сосед с точкой на подошве `q` закрывает точку `p` на пути к `toe` (`corridor_blockers`). */
+function blocks(p: Vec2, toe: Vec2, value: number, q: Vec2, minAdvance: number, reach: number): boolean {
+  const dx = (toe.x - p.x) / value;
+  const dy = (toe.y - p.y) / value;
+  const vx = q.x - p.x;
+  const vy = q.y - p.y;
+  const advance = vx * dx + vy * dy;
+  const lateral = Math.abs(vx * dy - vy * dx);
+  return advance >= minAdvance - SHADOW_ADVANCE_TOLERANCE_M && advance < value && lateral <= reach;
 }
 
-export type LiveFloorBurden = { valueM: number; allowedM: number | null; excess: boolean };
+/**
+ * ЛСП раскладки до сдвига со всем, что нужно пересчитать её после сдвига без
+ * полного перебора пар: у каждой меряемой скважины — расстояние, точка
+ * подошвы и закрывающие её соседи.
+ */
+export type FloorBase = {
+  grid: Hole[];
+  points: Vec2[];
+  segments: Segment[];
+  allowed: number | null;
+  minAdvance: number;
+  reach: number;
+  /** Меряемые скважины (индексы `grid`): расстояние, точка подошвы, закрывающие (индексы `grid`). */
+  measured: Map<number, { value: number; toe: Vec2; blockers: number[] }>;
+};
+
+/** Разбор раскладки для ЛСП; null — нет линии подошвы или скважин сетки. */
+export function floorBase(holes: Hole[], toeLine: ToeLine | null | undefined, params: Params): FloorBase | null {
+  const segments = toeLine ? toeSegments(toeLine) : [];
+  if (!segments.length) return null;
+  const grid = holes.filter((h) => h.enabled && inMainGrid(h));
+  if (!grid.length) return null;
+  const mainKind = mainGridKind(params);
+  const { a, b } = gridSteps(params);
+  const minAdvance = SHADOW_ADVANCE_RATIO * Math.min(a, b);
+  const reach = SHADOW_REACH_RATIO * Math.max(a, b);
+  const points = grid.map(floorPoint);
+  const paired = new Set<string>();
+  for (const h of grid) {
+    const partner = facePairPartnerId(h);
+    if (partner !== null) paired.add(partner);
+  }
+  const measured: FloorBase["measured"] = new Map();
+  grid.forEach((hole, i) => {
+    if (!(isMeasured(hole, mainKind) || hole.kind === "face_toe") || paired.has(hole.id)) return;
+    const nearest = nearestOnSegments(points[i], segments);
+    if (!nearest) return;
+    const blockers: number[] = [];
+    if (nearest.distance > 0) {
+      grid.forEach((other, j) => {
+        if (j !== i && other.kind !== "face_toe" && blocks(points[i], nearest.point, nearest.distance, points[j], minAdvance, reach)) {
+          blockers.push(j);
+        }
+      });
+    }
+    measured.set(i, { value: nearest.distance, toe: nearest.point, blockers });
+  });
+  return { grid, points, segments, allowed: allowedFloorBurdenM(params), minAdvance, reach, measured };
+}
+
+function burdenOf(value: number, allowed: number | null): LiveFloorBurden {
+  // Допуск 1 мкм — как у сервера (ошибка округления не даёт превышения).
+  return { valueM: value, allowedM: allowed, excess: allowed !== null && value > allowed + 1e-6 };
+}
+
+/** ЛСП раскладки `base` как есть. */
+export function baseFloorBurdens(base: FloorBase | null): Record<string, LiveFloorBurden> {
+  const result: Record<string, LiveFloorBurden> = {};
+  if (!base) return result;
+  for (const [i, item] of base.measured) {
+    if (!item.blockers.length) result[base.grid[i].id] = burdenOf(item.value, base.allowed);
+  }
+  return result;
+}
+
+/**
+ * ЛСП после сдвига скважин `moved` на `delta` (м). Сдвигаемые меряются заново
+ * со всеми соседями; у остальных точка и линия подошвы те же, поэтому
+ * закрывает их по-прежнему любой несдвинутый сосед, а сдвинутые проверяются
+ * в новых точках. Работа — порядка n·m на движение мыши, а не n².
+ */
+export function floorBurdensAfterMove(base: FloorBase | null, moved: Set<string>, delta: Vec2): Record<string, LiveFloorBurden> {
+  const result: Record<string, LiveFloorBurden> = {};
+  if (!base) return result;
+  const { grid, minAdvance, reach } = base;
+  const movedIndex = new Set<number>();
+  grid.forEach((h, i) => {
+    if (moved.has(h.id)) movedIndex.add(i);
+  });
+  const points = base.points.map((p, i) => (movedIndex.has(i) ? { x: p.x + delta.x, y: p.y + delta.y } : p));
+  for (const [i, item] of base.measured) {
+    let value = item.value;
+    let blocked: boolean;
+    if (movedIndex.has(i)) {
+      const nearest = nearestOnSegments(points[i], base.segments);
+      if (!nearest) continue;
+      value = nearest.distance;
+      blocked =
+        value > 0 &&
+        grid.some((other, j) => j !== i && other.kind !== "face_toe" && blocks(points[i], nearest.point, value, points[j], minAdvance, reach));
+    } else {
+      blocked =
+        item.blockers.some((j) => !movedIndex.has(j)) ||
+        (value > 0 &&
+          [...movedIndex].some((j) => j !== i && grid[j].kind !== "face_toe" && blocks(points[i], item.toe, value, points[j], minAdvance, reach)));
+    }
+    if (!blocked) result[grid[i].id] = burdenOf(value, base.allowed);
+  }
+  return result;
+}
 
 /**
  * ЛСП включённых скважин основной сетки и пар у откоса — порт `floor_burdens`
@@ -147,45 +245,7 @@ export function liveFloorBurdens(
   toeLine: ToeLine | null | undefined,
   params: Params,
 ): Record<string, LiveFloorBurden> {
-  const segments = toeLine ? toeSegments(toeLine) : [];
-  if (!segments.length) return {};
-  const grid = holes.filter((h) => h.enabled && inMainGrid(h));
-  if (!grid.length) return {};
-  const mainKind = mainGridKind(params);
-  const allowed = allowedFloorBurdenM(params);
-  const { a, b } = gridSteps(params);
-  const minAdvance = SHADOW_ADVANCE_RATIO * Math.min(a, b);
-  const reach = SHADOW_REACH_RATIO * Math.max(a, b);
-  const points = grid.map(floorPoint);
-  const paired = new Set<string>();
-  for (const h of grid) {
-    const partner = facePairPartnerId(h);
-    if (partner !== null) paired.add(partner);
-  }
-  const result: Record<string, LiveFloorBurden> = {};
-  grid.forEach((hole, i) => {
-    if (!(measured(hole, mainKind) || hole.kind === "face_toe") || paired.has(hole.id)) return;
-    const nearest = nearestOnSegments(points[i], segments);
-    if (!nearest) return;
-    const value = nearest.distance;
-    if (value > 0) {
-      const p = points[i];
-      const dx = (nearest.point.x - p.x) / value;
-      const dy = (nearest.point.y - p.y) / value;
-      const blocked = grid.some((other, j) => {
-        if (j === i || other.kind === "face_toe") return false;
-        const vx = points[j].x - p.x;
-        const vy = points[j].y - p.y;
-        const advance = vx * dx + vy * dy;
-        const lateral = Math.abs(vx * dy - vy * dx);
-        return advance >= minAdvance - SHADOW_ADVANCE_TOLERANCE_M && advance < value && lateral <= reach;
-      });
-      if (blocked) return;
-    }
-    // Допуск 1 мкм — как у сервера (ошибка округления не даёт превышения).
-    result[hole.id] = { valueM: value, allowedM: allowed, excess: allowed !== null && value > allowed + 1e-6 };
-  });
-  return result;
+  return baseFloorBurdens(floorBase(holes, toeLine, params));
 }
 
 export type LiveViolationCode =
@@ -222,17 +282,26 @@ function offsetLabel(value: number): string {
  * запрещает: результат только подсвечивается.
  */
 export function liveCheck(input: {
-  holes: Hole[];
+  /** Скважины до сдвига. */
   base: Hole[];
   moved: Set<string>;
+  /** Сдвиг `moved`, м. */
+  delta: Vec2;
   contour: BlockContour;
   toeLine: ToeLine | null | undefined;
   params: Params;
-  baseBurdens?: Record<string, LiveFloorBurden>;
+  /** `floorBase(base, …)`, если уже посчитан (на весь жест — один раз). */
+  floor?: FloorBase | null;
 }): LiveCheckResult {
-  const { holes, moved, contour, toeLine, params } = input;
-  const burdens = liveFloorBurdens(holes, toeLine, params);
-  const before = input.baseBurdens ?? liveFloorBurdens(input.base, toeLine, params);
+  const { moved, delta, contour, toeLine, params } = input;
+  const floor = input.floor !== undefined ? input.floor : floorBase(input.base, toeLine, params);
+  const burdens = floorBurdensAfterMove(floor, moved, delta);
+  const before = baseFloorBurdens(floor);
+  const holes = input.base.map((h) =>
+    moved.has(h.id)
+      ? { ...h, collar: { ...h.collar, x: h.collar.x + delta.x, y: h.collar.y + delta.y }, toe: { ...h.toe, x: h.toe.x + delta.x, y: h.toe.y + delta.y } }
+      : h,
+  );
   const { a, b } = gridSteps(params);
   const neighbourMin = NEIGHBOUR_MIN_RATIO * Math.min(a, b);
   const crestMin = minCrestOffsetM(params);

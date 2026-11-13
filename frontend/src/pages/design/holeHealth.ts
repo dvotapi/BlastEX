@@ -89,7 +89,8 @@ export type HealthSummary = {
   issues: Array<{ holeId: string; code: HoleHealthCode; label: string }>;
 };
 
-function pointInPolygon(point: { x: number; y: number }, vertices: Point3[]): boolean {
+/** Точка внутри контура (лучом); контур меньше трёх вершин — «внутри». */
+export function pointInPolygon(point: { x: number; y: number }, vertices: Point3[]): boolean {
   if (vertices.length < 3) return true;
   let inside = false;
   for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i, i += 1) {

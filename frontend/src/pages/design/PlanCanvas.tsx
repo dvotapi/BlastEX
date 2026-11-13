@@ -43,7 +43,7 @@ import {
   type ArrowKey,
   type AxisSnap,
 } from "./holeMove";
-import { designBurdenM, liveCheck, liveFloorBurdens } from "./liveChecks";
+import { designBurdenM, floorBase, liveCheck } from "./liveChecks";
 import {
   holeMarkerRadiusPx,
   labelsVisibleAtScale,
@@ -606,12 +606,20 @@ export function PlanCanvas({
   }
 
   function hitHole(screen: Vec2): Hole | null {
+    // Ближайшая скважина в радиусе попадания, а не верхняя: пара у откоса
+    // стоит в метре от своей вертикальной, и при обычном масштабе верхняя
+    // («…T») перехватывала бы нажатие на вертикальную. При равенстве — верхняя.
+    let best: Hole | null = null;
+    let bestDistance = Infinity;
     for (let i = holes.length - 1; i >= 0; i -= 1) {
       const h = holes[i];
-      const p = toScreen({ x: h.collar.x, y: h.collar.y });
-      if (distance(p, screen) <= HOLE_HIT_RADIUS_PX) return h;
+      const d = distance(toScreen({ x: h.collar.x, y: h.collar.y }), screen);
+      if (d <= HOLE_HIT_RADIUS_PX && d < bestDistance) {
+        best = h;
+        bestDistance = d;
+      }
     }
-    return null;
+    return best;
   }
 
   function hitVertex(screen: Vec2): number | null {
@@ -1190,35 +1198,41 @@ export function PlanCanvas({
   const scaleBarMeters = niceStep(120 / camera.scale);
   const scaleBarPx = scaleBarMeters * camera.scale;
 
+  // Размерные линии — когда тянут одну скважину (вертикальную — вместе с её
+  // парой у откоса); до сдвигаемых вместе с ней линий нет.
   const draggedSingleHole =
-    drag.kind === "holes" && drag.ids.length === 1 ? holes.find((h) => h.id === drag.ids[0]) : null;
-  const dimensionLines = draggedSingleHole
-    ? buildDimensionLines(draggedSingleHole, drag.kind === "holes" ? drag.deltaWorld : { x: 0, y: 0 }, holes, spacingHint)
+    drag.kind === "holes" && drag.ids.filter((id) => id !== `${drag.anchorId}T`).length === 1
+      ? holes.find((h) => h.id === drag.anchorId)
+      : null;
+  const dimensionLines = draggedSingleHole && drag.kind === "holes"
+    ? buildDimensionLines(draggedSingleHole, drag.deltaWorld, holes, spacingHint, new Set(drag.ids))
     : [];
 
   // Живая проверка сдвига (TASK-017): на клиенте, без запроса к серверу.
   // ЛСП до жеста считается один раз — скважины во время жеста не меняются.
   const holeDragActive = drag.kind === "holes";
-  const baseBurdens = useMemo(
-    () => (holeDragActive ? liveFloorBurdens(holes, floorToeLine, patternParams) : null),
+  const baseFloor = useMemo(
+    () => (holeDragActive ? floorBase(holes, floorToeLine, patternParams) : null),
     [holeDragActive, holes, floorToeLine, patternParams],
   );
   const liveMove = useMemo(() => {
-    if (drag.kind !== "holes" || !drag.moved || !baseBurdens) return null;
+    if (drag.kind !== "holes" || !drag.moved) return null;
     const moved = new Set(drag.ids);
-    const { x: dx, y: dy } = drag.deltaWorld;
-    const preview = holes.map((h) =>
-      moved.has(h.id)
-        ? { ...h, collar: { ...h.collar, x: h.collar.x + dx, y: h.collar.y + dy }, toe: { ...h.toe, x: h.toe.x + dx, y: h.toe.y + dy } }
-        : h,
-    );
-    const result = liveCheck({ holes: preview, base: holes, moved, contour, toeLine: floorToeLine, params: patternParams, baseBurdens });
+    const result = liveCheck({
+      base: holes,
+      moved,
+      delta: drag.deltaWorld,
+      contour,
+      toeLine: floorToeLine,
+      params: patternParams,
+      floor: baseFloor,
+    });
     const parts = toAxes(drag.deltaWorld, moveAxes);
     // ЛСП ведущей скважины, а у вертикальной, закрытой своей парой, — пары.
     const pairId = `${drag.anchorId}T`;
     const anchorBurden = result.burdens[drag.anchorId] ?? (moved.has(pairId) ? result.burdens[pairId] : undefined);
     return { ...result, along: parts.along, across: parts.across, anchorBurden, ids: drag.ids };
-  }, [drag, baseBurdens, holes, contour, floorToeLine, patternParams, moveAxes]);
+  }, [drag, baseFloor, holes, contour, floorToeLine, patternParams, moveAxes]);
   const designW = designBurdenM(patternParams);
 
   const origin = toScreen({ x: 0, y: 0 });
@@ -1312,8 +1326,11 @@ export function PlanCanvas({
         <label className="plan-toggle" title="Показывать координатную сетку">
           <input type="checkbox" checked={showGrid} onChange={(e) => setShowGrid(e.target.checked)} /> Сетка
         </label>
-        <label className="plan-toggle" title="Привязка координат к шагу">
-          Привязка
+        <label
+          className="plan-toggle"
+          title={mode === "holes" ? "Привязка новой скважины к мировой сетке; сдвиг скважин — привязкой по осям сетки справа" : "Привязка координат к шагу"}
+        >
+          {mode === "holes" ? "Привязка новой" : "Привязка"}
           <select value={snapStep} onChange={(e) => setSnapStep(Number(e.target.value))}>
             {SNAP_OPTIONS.map((step) => (
               <option key={step} value={step}>{step === 0 ? "выкл" : `${formatMeters(step)} м`}</option>
@@ -1981,9 +1998,10 @@ function buildDimensionLines(
   delta: Vec2,
   holes: Hole[],
   spacingHint: { a: number; b: number },
+  moving: Set<string>,
 ): { from: Vec2; to: Vec2; distance: number; warn: boolean }[] {
   const current = { x: dragged.collar.x + delta.x, y: dragged.collar.y + delta.y };
-  const others = holes.filter((h) => h.id !== dragged.id && h.enabled);
+  const others = holes.filter((h) => !moving.has(h.id) && h.enabled);
   const withDistance = others
     .map((h) => ({ hole: h, d: distance(current, { x: h.collar.x, y: h.collar.y }) }))
     .sort((a, b) => a.d - b.d)

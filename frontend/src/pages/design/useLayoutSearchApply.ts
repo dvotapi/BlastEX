@@ -30,6 +30,7 @@ import {
   fingerprintOfJson,
   layoutFingerprint,
   layoutSearchInputs,
+  movedHoleKeys,
   stableJson,
   useLayoutSearch,
   wiredContourHoles,
@@ -147,12 +148,17 @@ export function useLayoutSearchApply({
     () => wiredContourHoles(document.holes, document.network).join("\n"),
     [document.holes, document.network],
   );
+  // Сдвиги от узлов (TASK-017, PR 2) — так же: строкой, по значению.
+  const movedKey = useMemo(() => stableJson(movedHoleKeys(document.holes)), [document.holes]);
   const networkSystem = document.network?.system ?? null;
   const inputsJson = useMemo(
-    () => stableJson(layoutSearchInputs(document, formParams, wiredKey ? wiredKey.split("\n") : [])),
-    // Сеть и скважины входят только системой и списком связанных контурных.
+    () =>
+      stableJson(
+        layoutSearchInputs(document, formParams, wiredKey ? wiredKey.split("\n") : [], JSON.parse(movedKey) as ReturnType<typeof movedHoleKeys>),
+      ),
+    // Сеть и скважины входят только системой, списком связанных контурных и сдвигами.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [document.contour, document.surfaces, document.domains, formParams, document.rock_name, networkSystem, wiredKey],
+    [document.contour, document.surfaces, document.domains, formParams, document.rock_name, networkSystem, wiredKey, movedKey],
   );
   const [inputsFingerprint, setInputsFingerprint] = useState<string | null>(null);
   useEffect(() => {

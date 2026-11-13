@@ -664,3 +664,10 @@
 .plan-drag-tip { position:absolute; z-index:5; max-width:320px; padding:6px 9px; border-radius:8px; background:rgba(16,41,31,.9); color:#eaf3ef; font-size:11px; line-height:1.45; pointer-events:none; white-space:nowrap; box-shadow:0 4px 14px rgba(16,41,31,.25); }
 .plan-drag-tip.warn { box-shadow:0 0 0 2px #c0392b, 0 4px 14px rgba(16,41,31,.25); }
 .plan-drag-tip .bad { color:#ffb4a8; font-weight:var(--font-weight-strong); white-space:normal; }
+
+/* «Построить сетку» при сдвинутых скважинах (TASK-017, PR 2). */
+.moved-holes-backdrop { position:fixed; inset:0; z-index:30; display:grid; place-items:center; padding:16px; background:rgba(16,41,31,.35); }
+.moved-holes-dialog { max-width:440px; padding:18px 20px; border-radius:12px; background:#fff; box-shadow:0 12px 40px rgba(16,41,31,.25); }
+.moved-holes-dialog h2 { margin:0 0 8px; font-size:var(--fs-large, 16px); }
+.moved-holes-dialog p { margin:0 0 14px; color:#4a5c54; font-size:var(--fs-small); line-height:1.45; }
+.moved-holes-actions { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; }

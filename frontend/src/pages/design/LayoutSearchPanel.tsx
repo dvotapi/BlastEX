@@ -11,6 +11,7 @@ import type {
   LayoutSearchVariant,
 } from "../../types/design";
 import { backOffsetDefaultM, isSquarePattern } from "./designParams";
+import { movedResetConfirmText } from "./MovedHolesDialog";
 import { RoleBadge } from "./RoleBadge";
 
 const STATE_LABELS: Record<LayoutSearchState, string> = {
@@ -173,6 +174,7 @@ export function LayoutSearchPanel({
   stale,
   error,
   manualCount,
+  movedCount = 0,
   locked,
   previewIndex,
   backAnchored,
@@ -189,6 +191,8 @@ export function LayoutSearchPanel({
   error: string | null;
   /** Ручных скважин в блоке: применение их заменит. */
   manualCount: number;
+  /** Скважин, сдвинутых от узла (TASK-017, PR 2): применение сбросит сдвиги. */
+  movedCount?: number;
   /** Проектную часть паспорта править нельзя (статус «утверждён» и дальше). */
   locked: boolean;
   previewIndex: number | null;
@@ -230,6 +234,7 @@ export function LayoutSearchPanel({
       : STALE_TEXT;
 
   function apply(variant: LayoutSearchVariant) {
+    if (movedCount > 0 && !window.confirm(movedResetConfirmText(movedCount))) return;
     if (manualCount > 0 && !window.confirm(`Ручные правки (${manualCount}) будут потеряны. Применить вариант?`)) return;
     if (stale && !window.confirm(`${staleText}. Применить вариант?`)) return;
     onApply(variant);

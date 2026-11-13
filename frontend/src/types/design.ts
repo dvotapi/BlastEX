@@ -1009,6 +1009,8 @@ export type PatternGenerateResponse = {
   holes: Hole[];
   hole_count: number;
   block_volume_m3: number;
+  /** Сдвинутые скважины без узла в новой сетке — оставлены ручными (TASK-017, PR 2). */
+  warnings?: string[];
 };
 
 export type DeckingType = "continuous" | "spaced";

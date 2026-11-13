@@ -691,6 +691,27 @@ b/4, умолчание a/4 и b/4, от положения до жеста; Shi
 (`tests/test_live_lsp_fixture.py`, перезапись — `BLASTEX_WRITE_FIXTURES=1`).
 План — `Docs/plans/2026-11-13-task-017-pr1.md`.
 
+## Пометка сдвига (TASK-017, PR 2)
+
+Сдвинутая скважина сетки (`source = "generated"`) — `manual: ["xy"]` и
+`manual_offset = {node_x, node_y, along, across}`: узел — где её поставил
+генератор (устье до первого сдвига), смещение — в осях раскладки
+(`holeMove.ts::markMoved`, копится; вернулась в узел — пометка снимается);
+`source` не меняется. Оси — `geometry.layout_axes` = `holeMove.layoutAxes`
+(«поперёк» при свободной поверхности — к откосу, без неё — `advance_dir`;
+совпадение держит поле `axes` фикстуры `liveLspFixture.json`). Ключи — только
+у сдвинутой (хэш утверждённых паспортов — `tests/test_manual_offset.py`).
+Перестроение — `pattern.carry_moved_holes`: новая скважина сетки не дальше
+`NODE_TOLERANCE_M` (0,05 м) от узла (ключ — координаты, не `col`/`id`; узел —
+одной, ближайшей) встаёт в узел + смещение (`recompute_hole`), номер — по узлу
+(и в `renumber.renumber_map`); узла нет — прежняя скважина ручная `M-<n>` и
+предупреждение (`warnings` в `POST /design/pattern`). «Построить сетку» при
+сдвигах — `MovedHolesDialog` (сохранить / сбросить: `patternRequestHoles`),
+«Применить» вариант — `confirm` и сброс (отмена `APPLY_LAYOUT` возвращает);
+«Вернуть в узел сетки» — меню скважины, `RETURN_TO_NODE`; на плане —
+`hole-moved`; сдвиги — в отпечатке подбора ключом `moved_holes` (только когда
+есть). План — `Docs/plans/2026-11-13-task-017-pr2.md`.
+
 ## Нумерация скважин
 
 `design/numbering.py::number_by_position`, зовёт `pattern._finish_pattern`.

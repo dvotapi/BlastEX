@@ -254,3 +254,11 @@ export function returnToNodeIds(holeId: string, selected: ReadonlySet<string>, h
   const ids = selected.has(holeId) ? selected : new Set([holeId]);
   return holes.filter((hole) => ids.has(hole.id) && isMovedHole(hole)).map((hole) => hole.id);
 }
+
+/**
+ * Скважины для «Построить сетку»: `keep` — как есть (сдвиги сервер перенесёт в
+ * новые узлы), иначе — без сдвигов (сгенерированные без них сервер отбросит).
+ */
+export function patternRequestHoles(holes: Hole[], keep: boolean): Hole[] {
+  return keep ? holes : holes.map((hole) => (isMovedHole(hole) ? clearMoved(hole) : hole));
+}

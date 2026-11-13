@@ -118,7 +118,8 @@ import { StageInspector } from "./StageInspector";
 import { VisibilityPanel } from "./VisibilityPanel";
 import { MapStatusBar } from "./MapStatusBar";
 import { HoleContextMenu, type HoleContextMenuState } from "./HoleContextMenu";
-import { layoutAxes, returnToNodeIds } from "./holeMove";
+import { isMovedHole, layoutAxes, patternRequestHoles, returnToNodeIds } from "./holeMove";
+import { MovedHolesDialog } from "./MovedHolesDialog";
 import { CommandPalette, buildCameraCommands, buildPresetCommands, type DesignCommand } from "./CommandPalette";
 import { CadImportDialog, type CadBuildChoice } from "./cadImport/CadImportDialog";
 import { SiteSituationDialog } from "./cadImport/SiteSituationDialog";
@@ -741,17 +742,34 @@ export function DesignPage({
     }
   }
 
-  async function generatePattern() {
+  // «Построить сетку» при сдвинутых скважинах — сначала вопрос (TASK-017, PR 2).
+  const [movedPrompt, setMovedPrompt] = useState(false);
+  const movedHoleCount = useMemo(() => document.holes.filter(isMovedHole).length, [document.holes]);
+
+  function generatePattern() {
     if (rejectLocked("designed")) return;
     if (document.contour.vertices.length < 3) {
       setError("Нарисуйте контур блока (не менее трёх точек) перед раскладкой сетки.");
       return;
     }
+    if (movedHoleCount > 0) {
+      setMovedPrompt(true);
+      return;
+    }
+    void buildPattern(true);
+  }
+
+  /** `keepMoved` — сдвинутые скважины встают в новые узлы с тем же смещением; иначе — в узлы. */
+  async function buildPattern(keepMoved: boolean) {
+    setMovedPrompt(false);
+    if (rejectLocked("designed")) return;
     setPatternBusy(true);
     setError("");
     try {
-      const result = await api.design.pattern(document.contour, patternParams, document.holes, document.surfaces, document.domains);
+      const existing = patternRequestHoles(document.holes, keepMoved);
+      const result = await api.design.pattern(document.contour, patternParams, existing, document.surfaces, document.domains);
       dispatch({ type: "SET_HOLES", holes: result.holes });
+      if (result.warnings?.length) setNotice(result.warnings.join(" "));
       setBlockVolumeM3(result.block_volume_m3);
       setFragResult(null);
       setAsDrilledResult(null);
@@ -2878,6 +2896,7 @@ export function DesignPage({
               stale={layout.stale}
               error={layout.search.error}
               manualCount={document.holes.filter((hole) => hole.source === "manual").length}
+              movedCount={movedHoleCount}
               locked={designedLocked}
               previewIndex={layout.previewIndex}
               backAnchored={patternParams.layout_anchor === "back"}
@@ -3423,6 +3442,14 @@ export function DesignPage({
             enabled={holeMenu ? (document.holes.find((h) => h.id === holeMenu.holeId)?.enabled ?? true) : true}
           />
           <CommandPalette open={commandOpen} commands={designCommands} onClose={() => setCommandOpen(false)} />
+          {movedPrompt && (
+            <MovedHolesDialog
+              count={movedHoleCount}
+              onKeep={() => void buildPattern(true)}
+              onReset={() => void buildPattern(false)}
+              onCancel={() => setMovedPrompt(false)}
+            />
+          )}
           {cadSources && (
             <CadImportDialog
               sources={cadSources}

@@ -122,3 +122,18 @@ describe("RETURN_TO_NODE", () => {
     expect(state.past).toHaveLength(0);
   });
 });
+
+describe("APPLY_LAYOUT и сдвиги", () => {
+  it("применение варианта сбрасывает сдвиги, отмена их возвращает", () => {
+    const moved = move(start(), ["1-01"], 1, 0);
+    const applied = designReducer(moved, {
+      type: "APPLY_LAYOUT",
+      holes: [hole("1-01", 12, 20)],
+      network: moved.present.network,
+      pattern_params: { row_azimuth_deg: 90 },
+    });
+    expect(applied.present.holes.some(isMovedHole)).toBe(false);
+    const undone = designReducer(applied, { type: "UNDO" });
+    expect(isMovedHole(undone.present.holes[0])).toBe(true);
+  });
+});

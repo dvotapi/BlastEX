@@ -27,6 +27,8 @@ export type TieEditResult = {
   /** Связи, которые не поставлены: цель уже срабатывает раньше источника. */
   cycles: TieCycle[];
   changed: boolean;
+  /** Скважины, которых правка не коснулась: их время задаёт электронная программа. */
+  skipped?: string[];
 };
 
 function unchanged(network: InitiationNetwork, cycles: TieCycle[] = []): TieEditResult {
@@ -218,7 +220,13 @@ export function toggleStarter(network: InitiationNetwork, holeId: string): TieEd
  * `downhole_delay_ms`, в соединитель скважины (`downhole_connectors`, без деки
  * и боевика — его читает расчёт времён первым) и в скважинный детонатор, если он есть.
  */
-export function setDownholeDelay(network: InitiationNetwork, holeIds: string[], delayMs: number): TieEditResult {
+export function setDownholeDelay(network: InitiationNetwork, requested: string[], delayMs: number): TieEditResult {
+  // Время скважины с электронной программой (канал или `electronic_times_ms`)
+  // задаёт программа, а не замедление в скважине: такие не правим.
+  const programmed = electronicTimedHoles(network);
+  const holeIds = requested.filter((id) => !programmed.has(id));
+  const skipped = requested.filter((id) => programmed.has(id));
+  if (!holeIds.length) return { ...unchanged(network), skipped };
   const chosen = new Set(holeIds);
   const holeLevel = (item: { hole_id: string; deck_index: number | null; primer_index: number | null }) =>
     chosen.has(item.hole_id) && item.deck_index == null && item.primer_index == null;
@@ -229,7 +237,7 @@ export function setDownholeDelay(network: InitiationNetwork, holeIds: string[], 
     holeIds.some((id) => map[id] !== delayMs || !connectors.some((item) => holeLevel(item) && item.hole_id === id))
     || connectors.some((item) => holeLevel(item) && item.delay_ms !== delayMs)
     || detonators.some((item) => holeLevel(item) && item.delay_ms !== delayMs);
-  if (!changed) return unchanged(network);
+  if (!changed) return { ...unchanged(network), skipped };
   const kind = network.system === "electronic" ? "electronic" : "downhole_nsi";
   const nextConnectors: DownholeConnector[] = connectors.map((item) => (holeLevel(item) ? { ...item, delay_ms: delayMs } : item));
   for (const id of holeIds) {
@@ -247,7 +255,17 @@ export function setDownholeDelay(network: InitiationNetwork, holeIds: string[], 
     replaced: [],
     cycles: [],
     changed: true,
+    skipped,
   };
+}
+
+/** Скважины, время которых задаёт электронная программа (как в `resolve_network`). */
+function electronicTimedHoles(network: InitiationNetwork): Set<string> {
+  const ids = new Set(Object.keys(network.electronic_times_ms ?? {}));
+  for (const item of network.electronic_channels ?? []) {
+    if (item.deck_index == null && item.primer_index == null) ids.add(item.hole_id);
+  }
+  return ids;
 }
 
 /** Подсказка после правки: заменённые связи и не поставленные из-за цикла. */
@@ -260,6 +278,14 @@ export function tieEditNotice(result: TieEditResult): string {
     parts.push(`Заменено связей: ${result.replaced.length}`);
   }
   if (result.cycles.length) parts.push(`Цикл: скважина ${result.cycles[0].to} уже срабатывает раньше`);
+  if (result.skipped?.length) {
+    const [first] = result.skipped;
+    parts.push(
+      result.skipped.length === 1
+        ? `Скважина ${first}: время задаёт электронная программа — замедление в скважине не изменено`
+        : `Скважин с электронной программой: ${result.skipped.length} — замедление в скважине у них не изменено`,
+    );
+  }
   return parts.join(" · ");
 }
 

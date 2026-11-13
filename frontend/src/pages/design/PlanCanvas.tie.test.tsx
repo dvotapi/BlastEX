@@ -18,7 +18,18 @@ beforeAll(() => {
     disconnect() {}
   } as unknown as typeof ResizeObserver;
   const globals = globalThis as unknown as Record<string, unknown>;
-  if (!globals.PointerEvent) globals.PointerEvent = globals.MouseEvent;
+  // jsdom без PointerEvent: событие мыши с номером и видом указателя (тачскрин).
+  if (!globals.PointerEvent) {
+    globals.PointerEvent = class extends MouseEvent {
+      pointerId: number;
+      pointerType: string;
+      constructor(type: string, init: PointerEventInit = {}) {
+        super(type, init);
+        this.pointerId = init.pointerId ?? 1;
+        this.pointerType = init.pointerType ?? "mouse";
+      }
+    };
+  }
   Element.prototype.setPointerCapture ??= () => {};
 });
 
@@ -239,6 +250,21 @@ describe("PlanCanvas: правка коммутации", () => {
     const { plan } = setup({ onHoleInspect });
     fireEvent.doubleClick(plan, at("c"));
     expect(onHoleInspect).toHaveBeenCalledWith("c");
+  });
+
+  it("тачскрин: «Стартер» правит сеть только при отпускании пальца, щипок — не правит", () => {
+    const { plan, tieEdit } = setup();
+    fireEvent.keyDown(plan, { key: "s" });
+    fireEvent.pointerDown(plan, { ...at("c"), button: 0, pointerId: 1, pointerType: "touch" });
+    expect(tieEdit.onEdit).not.toHaveBeenCalled();
+    fireEvent.pointerUp(plan, { ...at("c"), pointerId: 1, pointerType: "touch" });
+    expect(tieEdit.onEdit).toHaveBeenCalledWith({ type: "starter", holeId: "c" });
+    (tieEdit.onEdit as ReturnType<typeof vi.fn>).mockClear();
+    fireEvent.pointerDown(plan, { ...at("d"), button: 0, pointerId: 2, pointerType: "touch" });
+    fireEvent.pointerDown(plan, { ...point(12, 3), button: 0, pointerId: 3, pointerType: "touch" });
+    fireEvent.pointerUp(plan, { ...at("d"), pointerId: 2, pointerType: "touch" });
+    fireEvent.pointerUp(plan, { ...point(12, 3), pointerId: 3, pointerType: "touch" });
+    expect(tieEdit.onEdit).not.toHaveBeenCalled();
   });
 });
 

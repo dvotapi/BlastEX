@@ -160,3 +160,21 @@ describe("счётчики ступеней", () => {
     expect(Object.fromEntries(stepCounts(net([tie("a", "b", 25), tie("b", "c", 42), tie("c", "d", 42)])))).toEqual({ 25: 1, 42: 2 });
   });
 });
+
+describe("электронная программа времени", () => {
+  it("«В скважине» не трогает скважины с каналом или временем программы", () => {
+    const base = normalizeNetwork({
+      ...net([]),
+      system: "electronic",
+      electronic_times_ms: { a: 17 },
+      electronic_channels: [{ id: "ch-b", hole_id: "b", time_ms: 34, deck_index: null, primer_index: null, label: "" }],
+    });
+    const result = setDownholeDelay(base, ["a", "b", "c"], 5);
+    expect(result.network.downhole_delay_ms).toEqual({ c: 5 });
+    expect(result.skipped).toEqual(["a", "b"]);
+    expect(tieEditNotice(result)).toBe("Скважин с электронной программой: 2 — замедление в скважине у них не изменено");
+    const only = setDownholeDelay(base, ["a"], 5);
+    expect(only.changed).toBe(false);
+    expect(tieEditNotice(only)).toBe("Скважина a: время задаёт электронная программа — замедление в скважине не изменено");
+  });
+});

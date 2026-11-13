@@ -763,6 +763,25 @@ export function PlanCanvas({
     });
   }
 
+  /**
+   * Клик инструментом коммутации по скважине или линии (в любом инструменте
+   * клик по линии выделяет связь, «Ступень» ставит ей номинал). Не попал —
+   * false. На тачскрине зовётся только при отпускании пальца: начатый щипок
+   * сеть не правит.
+   */
+  function tieTap(screen: Vec2, additive: boolean): boolean {
+    const hole = hitHole(screen);
+    if (hole) {
+      tieHoleTap(hole, additive);
+      return true;
+    }
+    const tie = hitTieAt(screen);
+    if (!tie) return false;
+    selectTie(tie.id, additive);
+    if (tool === "step") editTies({ type: "delay", ids: [tie.id] });
+    return true;
+  }
+
   /** Клик по скважине инструментом коммутации. */
   function tieHoleTap(hole: Hole, additive: boolean) {
     if (!tieEdit) return;
@@ -899,6 +918,14 @@ export function PlanCanvas({
       addMeasurePoint(screen);
       return;
     }
+    if (mode === "tie") {
+      if (tool === "pan" || !tieEdit) return;
+      if (!tieTap(screen, false)) {
+        setPendingTieFrom(null);
+        setSelectedTies(new Set());
+      }
+      return;
+    }
     if (mode === "contour") {
       const vertexIndex = hitVertex(screen);
       const edge = hitEdge(screen);
@@ -952,9 +979,11 @@ export function PlanCanvas({
       // Первый палец щипка не должен ставить точку или помечать откос: тянем
       // холст, а действие инструмента выполняем при отпускании — если второй
       // палец так и не появился и палец остался на месте.
+      // В коммутации сразу захватываются только жесты, которые правят сеть
+      // при отпускании (протяжка, перецепка); клики правят сразу — их ждём.
       const grabsObject =
         mode === "tie"
-          ? tool !== "pan" && tool !== "measure" && (hitHole(screen) !== null || hitTieAt(screen) !== null)
+          ? Boolean(tieEdit) && ((tool === "tie" && hitHole(screen) !== null) || selectedTieEndAt(screen) !== null)
           : tool === "select" && (mode === "contour" ? hitVertex(screen) !== null : hitHole(screen) !== null);
       if (!grabsObject && tool !== "pan") {
         pendingTapRef.current = { pointerId: e.pointerId, screen };
@@ -1052,21 +1081,11 @@ export function PlanCanvas({
         return;
       }
       const tieHole = hitHole(screen);
-      if (tieHole) {
-        if (tool === "tie") {
-          setDrag({ kind: "chain", pointerId: e.pointerId, path: [tieHole.id], startScreen: screen, cursor: screen, moved: false });
-          return;
-        }
-        tieHoleTap(tieHole, additive);
+      if (tieHole && tool === "tie") {
+        setDrag({ kind: "chain", pointerId: e.pointerId, path: [tieHole.id], startScreen: screen, cursor: screen, moved: false });
         return;
       }
-      const tie = hitTieAt(screen);
-      if (tie) {
-        // В любом инструменте клик по линии выделяет связь; «Ступень» ставит ей номинал.
-        selectTie(tie.id, additive);
-        if (tool === "step") editTies({ type: "delay", ids: [tie.id] });
-        return;
-      }
+      if (tieTap(screen, additive)) return;
       setPendingTieFrom(null);
       if (!additive) setSelectedTies(new Set());
       if (tool === "tie" || tool === "starter") {

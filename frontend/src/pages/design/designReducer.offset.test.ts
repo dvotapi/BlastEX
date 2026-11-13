@@ -153,3 +153,12 @@ describe("смещение без накопления округления", ()
     expect(Math.abs(y - h.collar.y)).toBeLessThan(1e-5);
   });
 });
+
+describe("смена азимута между сдвигами", () => {
+  it("туда при 90°, обратно при 0° — скважина в узле и без пометки", () => {
+    const there = designReducer(start(), { type: "MOVE_HOLES", ids: ["1-01"], dx: 1, dy: 0, axes: layoutAxes(90, contour) });
+    const back = designReducer(there, { type: "MOVE_HOLES", ids: ["1-01"], dx: -1, dy: 0, axes: layoutAxes(0, contour) });
+    expect(isMovedHole(back.present.holes[0])).toBe(false);
+    expect("manual_offset" in back.present.holes[0]).toBe(false);
+  });
+});

@@ -1055,6 +1055,20 @@ class TieGenerateResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class TieSystemCatalogSchema(BaseModel):
+    surface_ms: list[float]
+    downhole_ms: list[float]
+    downhole_default_ms: float
+    custom_surface: bool = False
+
+
+class TieCatalogResponse(BaseModel):
+    """Номиналы ступеней систем инициирования (`design/timing.py::tie_catalog`)."""
+
+    systems: dict[str, TieSystemCatalogSchema]
+    detcord_velocity_m_s: float
+
+
 class ValidationWarningSchema(BaseModel):
     code: str
     hole_id: str | None = None

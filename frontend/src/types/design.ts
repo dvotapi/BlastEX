@@ -1098,11 +1098,26 @@ export type DesignSummary = {
 
 export type SchemeType = "row" | "echelon" | "diagonal_v" | "trapezoid" | "trunk_chains";
 
-// Ступени поверхностных замедлений НСИ, мс.
-export const SURFACE_NSI_MS_OPTIONS = [17, 25, 42, 67, 109] as const;
-// Номиналы пиротехнических реле ДШ, мс (design/timing.py::DETCORD_RELAY_MS_OPTIONS).
-export const DETCORD_RELAY_MS_OPTIONS = [10, 20, 25, 35, 42] as const;
+/** Шаблоны связей, которые строит сервер (`design/timing.py::SCHEME_TYPES`). */
+export const SCHEME_TYPES: ReadonlySet<string> = new Set<SchemeType>(["row", "echelon", "diagonal_v", "trapezoid", "trunk_chains"]);
+
 export type SystemType = InitiationNetwork["system"];
+
+/** Номиналы системы инициирования (`GET /design/tie/catalog`, `design/timing.py::tie_catalog`). */
+export type TieSystemCatalog = {
+  /** Поверхностные ступени, мс (НСИ, реле ДШ). */
+  surface_ms: number[];
+  /** Номиналы внутрискважинных детонаторов, мс; пусто — только своё значение. */
+  downhole_ms: number[];
+  downhole_default_ms: number;
+  /** Ступень — любое своё значение (электронные детонаторы). */
+  custom_surface: boolean;
+};
+
+export type TieCatalog = {
+  systems: Record<SystemType, TieSystemCatalog>;
+  detcord_velocity_m_s: number;
+};
 
 export type TieParams = {
   system: SystemType;

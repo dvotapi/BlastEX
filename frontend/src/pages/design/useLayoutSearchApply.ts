@@ -17,6 +17,7 @@ import {
   DEFAULT_PATTERN_PARAMS,
   DEFAULT_TIE_PARAMS,
   normalizeNetwork,
+  SCHEME_TYPES,
   type Hole,
   type InitiationNetwork,
   type LayoutSearchVariant,
@@ -44,7 +45,6 @@ function definedParams(params: PatternParams): Record<string, unknown> {
 
 export type { ChargeGrid };
 
-const SCHEMES: ReadonlySet<string> = new Set<SchemeType>(["row", "echelon", "diagonal_v", "trapezoid", "trunk_chains"]);
 
 function finite(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -61,7 +61,7 @@ export function tieFormFromNetwork(
   prev: TieParams,
 ): { scheme: SchemeType; params: TieParams } | null {
   const timing = network.timing_params ?? {};
-  if (typeof timing.scheme !== "string" || !SCHEMES.has(timing.scheme)) return null;
+  if (typeof timing.scheme !== "string" || !SCHEME_TYPES.has(timing.scheme)) return null;
   const scheme = timing.scheme as SchemeType;
   const flank = timing.cut_flank === "left" || timing.cut_flank === "right" ? timing.cut_flank : DEFAULT_TIE_PARAMS.cut_flank;
   return {

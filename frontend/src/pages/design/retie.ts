@@ -6,7 +6,7 @@
 // Сдвиг скважин ставит в непустую сеть пометку `geometry_stale`: сеть
 // построена для прежних устьев. Пересчёт — тот же `POST /design/tie/generate`
 // с параметрами из сети (`retieRequest` — порт `design/timing.py::retie_params`).
-import { networkTies, type InitiationNetwork, type SchemeType } from "../../types/design";
+import { networkTies, SCHEME_TYPES, type InitiationNetwork, type SchemeType } from "../../types/design";
 
 export type NetworkOrigin = "template" | "edited";
 
@@ -17,7 +17,6 @@ export const RETIE_INCOMPLETE_HINT =
   "Сеть построена до сохранения параметров схемы — постройте её заново во вкладке „Коммутация“";
 export const RETIE_EDITED_CONFIRM = "Ручные правки коммутации будут потеряны. Пересчитать коммутацию?";
 
-const SCHEMES: ReadonlySet<string> = new Set<SchemeType>(["row", "echelon", "diagonal_v", "trapezoid", "trunk_chains"]);
 const SERVICE_KEYS: ReadonlySet<string> = new Set(["scheme", "origin", GEOMETRY_STALE_KEY]);
 
 /** Происхождение сети; нет ключа (сеть до PR 3) — правленая: автопересчёта нет. */
@@ -35,7 +34,7 @@ export function markNetworkEdited(network: InitiationNetwork): InitiationNetwork
 /** Схема и параметры повторного построения; параметров не хватает — null. */
 export function retieRequest(network: InitiationNetwork): { scheme: SchemeType; params: Record<string, unknown> } | null {
   const timing = network.timing_params ?? {};
-  if (!("origin" in timing) || typeof timing.scheme !== "string" || !SCHEMES.has(timing.scheme)) return null;
+  if (!("origin" in timing) || typeof timing.scheme !== "string" || !SCHEME_TYPES.has(timing.scheme)) return null;
   const params = Object.fromEntries(Object.entries(timing).filter(([key]) => !SERVICE_KEYS.has(key)));
   return { scheme: timing.scheme as SchemeType, params: { ...params, system: network.system } };
 }

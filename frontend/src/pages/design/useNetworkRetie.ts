@@ -25,6 +25,8 @@ import {
 } from "./retie";
 import { networkKey } from "./useStaleAnalysis";
 
+export const RETIE_DOCUMENT_CHANGED = "Проект изменился, пока пересчитывалась коммутация, — пересчитайте ещё раз.";
+
 export type RetieFetcher = (
   ...args: Parameters<typeof api.design.tie>
 ) => Promise<TieGenerateResponse>;
@@ -68,6 +70,7 @@ export function useNetworkRetie({
   const onAppliedRef = useRef(onApplied);
   onAppliedRef.current = onApplied;
   const controller = useRef<AbortController | null>(null);
+  const manual = useRef<AbortController | null>(null);
   // Запрос и ошибка — со своим документом: после смены документа не видны.
   const [pendingFor, setPendingFor] = useState<BlastDesign | null>(null);
   const [failure, setFailure] = useState<{ base: BlastDesign; text: string } | null>(null);
@@ -78,24 +81,38 @@ export function useNetworkRetie({
       const request = retieRequest(normalizeNetwork(base.network));
       if (!request || !base.holes.length) return;
       controller.current?.abort();
+      manual.current?.abort();
       const own = new AbortController();
-      controller.current = own;
+      // Автопересчёт отменяется любой сменой документа; ручной — только
+      // следующим запросом.
+      controller.current = merge ? own : null;
+      manual.current = merge ? null : own;
       setPendingFor(base);
       setFailure(null);
       fetcher(base.holes, request.scheme, request.params as Parameters<RetieFetcher>[2], base.contour, { signal: own.signal })
         .then((response) => {
-          if (own.signal.aborted || latest.current !== base) return;
+          if (own.signal.aborted) return;
+          if (latest.current !== base) {
+            // Ручной пересчёт не отменяется сменой документа (пересчёт по
+            // кровле, сохранение): сказать, что он не применён.
+            if (!merge && latest.current.design_id === base.design_id) {
+              setFailure({ base: latest.current, text: RETIE_DOCUMENT_CHANGED });
+            }
+            return;
+          }
           const next = normalizeNetwork(response.network);
           setSummary({ key: networkKey(next), text: retieSummaryText(networkChangeSummary(normalizeNetwork(base.network), next)) });
           dispatch({ type: "RETIE_NETWORK", network: next, base, merge });
           onAppliedRef.current?.(next, response.warnings ?? []);
         })
         .catch((reason) => {
-          if (own.signal.aborted || latest.current !== base) return;
-          setFailure({ base, text: reason instanceof Error ? reason.message : "Не удалось пересчитать коммутацию." });
+          if (own.signal.aborted) return;
+          if (latest.current !== base && (merge || latest.current.design_id !== base.design_id)) return;
+          setFailure({ base: latest.current, text: reason instanceof Error ? reason.message : "Не удалось пересчитать коммутацию." });
         })
         .finally(() => {
           if (controller.current === own) controller.current = null;
+          if (manual.current === own) manual.current = null;
           setPendingFor((current) => (current === base ? null : current));
         });
     },
@@ -126,7 +143,8 @@ export function useNetworkRetie({
     origin: networkOrigin(network),
     canRecompute: editable && complete && present.holes.length > 0 && pendingFor !== present,
     hint: complete ? "" : RETIE_INCOMPLETE_HINT,
-    pending: pendingFor === present,
+    // Ручной пересчёт идёт, пока не ответил, и после смены документа.
+    pending: pendingFor !== null && (pendingFor === present || manual.current !== null),
     error: failure?.base === present ? failure.text : "",
     summary: summary?.key === currentKey ? summary.text : "",
     recompute: () => run(latest.current, false),

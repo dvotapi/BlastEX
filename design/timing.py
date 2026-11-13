@@ -85,7 +85,18 @@ _ELECTRONIC_PARAM_KEYS = (
     "gradient_to_ms",
     "selected_hole_ids",
 )
-_TRUNK_PARAM_KEYS = ("trunk_ms", "chain_ms", "cut_flank", "downhole_delay_ms", "include_contour", "main_kind", "burning_front_m")
+# `timing_mode` у «Магистраль + цепочки» не применяется, но даёт предупреждение
+# построения — хранится, чтобы пересчёт его повторил.
+_TRUNK_PARAM_KEYS = (
+    "trunk_ms",
+    "chain_ms",
+    "cut_flank",
+    "downhole_delay_ms",
+    "include_contour",
+    "main_kind",
+    "burning_front_m",
+    "timing_mode",
+)
 _SERVICE_KEYS = ("scheme", "origin", GEOMETRY_STALE_KEY)
 
 

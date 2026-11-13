@@ -159,4 +159,22 @@ describe("useNetworkRetie", () => {
     expect(view.result.current.state.past).toHaveLength(2);
     expect(view.result.current.retie.pending).toBe(false);
   });
+
+  it("ручной пересчёт: документ сменился сам до ответа — сообщение, а не тишина", async () => {
+    const { view, calls, move } = setup("edited");
+    move();
+    act(() => view.result.current.retie.recompute());
+    const present = view.result.current.state.present;
+    act(() =>
+      view.result.current.dispatch({
+        type: "RECOMPUTE_HOLES",
+        holes: present.holes.map((h) => ({ ...h, collar: { ...h.collar, z: 7 } })),
+      }),
+    );
+    expect(calls[0].signal?.aborted).toBe(false);
+    calls[0].resolve(reply());
+    await flush();
+    expect(view.result.current.state.present.network.starters).toEqual(["a"]);
+    expect(view.result.current.retie.error).toBe("Проект изменился, пока пересчитывалась коммутация, — пересчитайте ещё раз.");
+  });
 });

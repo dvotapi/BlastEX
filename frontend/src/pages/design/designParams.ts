@@ -101,29 +101,43 @@ function sameJson(a: unknown, b: unknown): boolean {
 }
 
 /**
- * Есть ли то, что «Сохранить» записало бы в паспорт. Формы сравниваются с
- * тем, что они показали после загрузки: умолчания поверх пустых ключей
- * правкой не считаются; замороженное в статусе паспорта не в счёт вовсе —
- * сохранить его нельзя, и переход из-за него не должен запираться.
+ * Что изменено против сохранённого: `any` — есть ли то, что «Сохранить»
+ * записало бы в паспорт; `designed` — изменена ли проектная часть (то, что
+ * входит в `designed_sha256`: сдвиг скважин, правка сети — TASK-017, PR 3).
+ * Формы сравниваются с тем, что они показали после загрузки: умолчания поверх
+ * пустых ключей правкой не считаются; замороженное в статусе паспорта не в
+ * счёт вовсе — сохранить его нельзя, и переход из-за него не должен
+ * запираться. Один проход: проектная часть сравнивается один раз.
  */
-export function hasUnsavedChanges(state: Pick<DesignState, "present" | "saved">, params: DesignParams, defaultExplosiveKey: string): boolean {
+export function unsavedChanges(
+  state: Pick<DesignState, "present" | "saved">,
+  params: DesignParams,
+  defaultExplosiveKey: string,
+): { any: boolean; designed: boolean } {
   const stored = { present: state.saved, saved: state.saved };
-  return !sameJson(designWithParams(state, params), designWithParams(stored, paramsFromDesign(state.saved, defaultExplosiveKey)));
+  const current = designWithParams(state, params) as unknown as Record<string, unknown>;
+  const saved = designWithParams(stored, paramsFromDesign(state.saved, defaultExplosiveKey)) as unknown as Record<string, unknown>;
+  const designedKeys = new Set<string>(MUTATION_PAYLOAD_KEYS.designed);
+  const split = (design: Record<string, unknown>) => {
+    const designed: Record<string, unknown> = {};
+    const rest: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(design)) (designedKeys.has(key) ? designed : rest)[key] = value;
+    return { designed, rest };
+  };
+  const a = split(current);
+  const b = split(saved);
+  const designed = !sameJson(a.designed, b.designed);
+  return { any: designed || !sameJson(a.rest, b.rest), designed };
 }
 
-/**
- * Изменена ли проектная часть (то, что входит в `designed_sha256`) против
- * сохранённой: как `hasUnsavedChanges`, но без названия, исполнения и замеров.
- * Сдвиг скважин и правка сети — изменения проектной части (TASK-017, PR 3).
- */
+/** Есть ли то, что «Сохранить» записало бы в паспорт (`unsavedChanges().any`). */
+export function hasUnsavedChanges(state: Pick<DesignState, "present" | "saved">, params: DesignParams, defaultExplosiveKey: string): boolean {
+  return unsavedChanges(state, params, defaultExplosiveKey).any;
+}
+
+/** Изменена ли проектная часть (`unsavedChanges().designed`). */
 export function designedChanged(state: Pick<DesignState, "present" | "saved">, params: DesignParams, defaultExplosiveKey: string): boolean {
-  const keys = MUTATION_PAYLOAD_KEYS.designed;
-  const pick = (design: BlastDesign) => Object.fromEntries(keys.map((key) => [key, design[key]]));
-  const stored = { present: state.saved, saved: state.saved };
-  return !sameJson(
-    pick(designWithParams(state, params)),
-    pick(designWithParams(stored, paramsFromDesign(state.saved, defaultExplosiveKey))),
-  );
+  return unsavedChanges(state, params, defaultExplosiveKey).designed;
 }
 
 /**

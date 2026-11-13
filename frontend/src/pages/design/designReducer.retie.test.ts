@@ -135,3 +135,16 @@ describe("autoRetie: когда пересчитывать самим", () => {
     expect(loaded.autoRetie).toBeUndefined();
   });
 });
+
+describe("autoRetie и сохранение", () => {
+  it("сохранение сразу после сдвига отметку не теряет", () => {
+    const moved = move(start());
+    const saved = designReducer(moved, { type: "SAVED", design: { ...moved.present, version: 2 } });
+    expect(saved.autoRetie?.present).toBe(saved.present);
+  });
+
+  it("сохранение без сдвига отметки не даёт", () => {
+    const saved = designReducer(start(), { type: "SAVED", design: { ...start().present, version: 2 } });
+    expect(saved.autoRetie).toBeUndefined();
+  });
+});

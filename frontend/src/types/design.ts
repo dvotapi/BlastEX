@@ -1098,6 +1098,9 @@ export type DesignSummary = {
 
 export type SchemeType = "row" | "echelon" | "diagonal_v" | "trapezoid" | "trunk_chains";
 
+/** Шаблоны связей, которые строит сервер (`design/timing.py::SCHEME_TYPES`). */
+export const SCHEME_TYPES: ReadonlySet<string> = new Set<SchemeType>(["row", "echelon", "diagonal_v", "trapezoid", "trunk_chains"]);
+
 // Ступени поверхностных замедлений НСИ, мс.
 export const SURFACE_NSI_MS_OPTIONS = [17, 25, 42, 67, 109] as const;
 // Номиналы пиротехнических реле ДШ, мс (design/timing.py::DETCORD_RELAY_MS_OPTIONS).

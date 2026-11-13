@@ -682,8 +682,9 @@ export function designReducer(state: DesignState, action: DesignAction): DesignS
   if ((action.type === "MOVE_HOLES" || action.type === "RETURN_TO_NODE") && retiesItself(next.present)) {
     return { ...next, autoRetie: { present: next.present, series: action.type === "MOVE_HOLES" && action.series !== undefined } };
   }
-  if (action.type === "RECOMPUTE_HOLES" && state.autoRetie?.present === state.present) {
-    // Пересчёт по кровле приходит сам после сдвига — не правка пользователя.
+  if ((action.type === "RECOMPUTE_HOLES" || action.type === "SAVED") && state.autoRetie?.present === state.present) {
+    // Пересчёт по кровле приходит сам после сдвига, сохранение правок не
+    // меняет — пересчёт коммутации всё ещё нужен.
     return { ...next, autoRetie: { ...state.autoRetie, present: next.present } };
   }
   return next;

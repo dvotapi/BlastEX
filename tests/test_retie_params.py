@@ -112,6 +112,14 @@ class RetieParamsTest(unittest.TestCase):
         self.assertNotIn("trunk_ms", row)
         self.assertNotIn("timing_mode", row)
 
+    def test_trunk_keeps_ignored_electronic_mode_warning(self):
+        holes = _holes()
+        first = _generate(holes, "trunk_chains", {**FORM, "system": "electronic", "timing_mode": "row"})
+        network = InitiationNetwork.from_dict(first.network.model_dump())
+        again = _generate(holes, *retie_params(network))
+        self.assertEqual(again.warnings, first.warnings)
+        self.assertTrue(first.warnings)
+
     def test_network_without_origin_has_no_retie_params(self):
         old = InitiationNetwork(system="nonel", timing_params={"scheme": "trunk_chains", "trunk_ms": 25.0})
         self.assertIsNone(retie_params(old))

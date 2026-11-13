@@ -104,9 +104,9 @@ import { useFeatures } from "../../app/useFeatures";
 import { ChargePanel } from "./ChargePanel";
 import { changedAxes, designReducer, historyLocked, initDesignState } from "./designReducer";
 import { tieWarningsFor, withTieWarnings, type StoredTieWarnings } from "./tieWarnings";
-import { markNetworkEdited, RETIE_EDITED_CONFIRM } from "./retie";
+import { isNetworkEmpty, markNetworkEdited, RETIE_EDITED_CONFIRM } from "./retie";
 import { useNetworkRetie } from "./useNetworkRetie";
-import { benchPatchFromObjectAngle, chargeGridOf, designedChanged, designWithParams, hasUnsavedChanges, paramsFromDesign, rockNameFromTransfer, tieRequestParams, type DesignParams } from "./designParams";
+import { benchPatchFromObjectAngle, chargeGridOf, designWithParams, paramsFromDesign, rockNameFromTransfer, tieRequestParams, unsavedChanges as unsavedChangesOf, type DesignParams } from "./designParams";
 import { FragmentationPanel } from "./FragmentationPanel";
 import { exampleLayeredDomains, GeologyPanel } from "./GeologyPanel";
 import { HoleInspector } from "./HoleInspector";
@@ -305,14 +305,10 @@ export function DesignPage({
   const [chargeRules, setChargeRules] = useState<ChargeRules>(DEFAULT_CHARGE_RULES);
   const [chargeBusy, setChargeBusy] = useState(false);
   // Статус и ревизия берутся из сохранённой версии: с несохранёнными правками обе закрыты.
-  const unsavedChanges = useMemo(
-    () => hasUnsavedChanges(state, { patternParams, chargeRules, explosiveKey }, defaultExplosiveKey),
-    [state, patternParams, chargeRules, explosiveKey, defaultExplosiveKey],
-  );
-  // Проектная часть изменена и не сохранена: документы, выпущенные по
-  // сохранённому проекту (паспорт на бурение, проект МВ), уже устарели.
-  const designedDirty = useMemo(
-    () => designedChanged(state, { patternParams, chargeRules, explosiveKey }, defaultExplosiveKey),
+  // Проектная часть изменена и не сохранена (`designedDirty`): документы,
+  // выпущенные по сохранённому проекту (паспорт на бурение, проект МВ), уже устарели.
+  const { any: unsavedChanges, designed: designedDirty } = useMemo(
+    () => unsavedChangesOf(state, { patternParams, chargeRules, explosiveKey }, defaultExplosiveKey),
     [state, patternParams, chargeRules, explosiveKey, defaultExplosiveKey],
   );
   const [selectedRow, setSelectedRow] = useState<string | null>(null);
@@ -1257,15 +1253,7 @@ export function DesignPage({
 
   async function runAnalyze() {
     const network = normalizeNetwork(document.network);
-    const hasNetwork = Boolean(
-      network.starters.length
-      || network.starter_items.length
-      || network.connectors.length
-      || network.surface_connectors.length
-      || Object.keys(network.electronic_times_ms).length
-      || network.electronic_channels.length,
-    );
-    if (!hasNetwork) {
+    if (isNetworkEmpty(network)) {
       setError("Сначала постройте схему коммутации.");
       return;
     }
@@ -2870,6 +2858,7 @@ export function DesignPage({
                 >
                   {retie.pending ? "Пересчитываем…" : "Пересчитать коммутацию"}
                 </button>
+                {retie.hint && <small>{retie.hint}</small>}
               </>
             ) : (
               <>

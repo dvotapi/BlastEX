@@ -1,10 +1,10 @@
-// Пересчёт коммутации после сдвига скважин (TASK-017, PR 3).
+// Пересчёт коммутации после смены скважин (TASK-017, PR 3 и PR 5).
 //
 // Построитель сети пишет в `timing_params` полный набор параметров
 // повторного построения и `origin = "template"` (`design/timing.py::
 // template_timing_params`); ручная правка связей ставит `origin = "edited"`.
-// Сдвиг скважин ставит в непустую сеть пометку `geometry_stale`: сеть
-// построена для прежних устьев. Пересчёт — тот же `POST /design/tie/generate`
+// Сдвиг, добавление, удаление, исключение скважины и смена её вида ставят в
+// непустую сеть пометку `geometry_stale`: сеть построена для прежних скважин. Пересчёт — тот же `POST /design/tie/generate`
 // с параметрами из сети (`retieRequest` — порт `design/timing.py::retie_params`).
 import { networkTies, SCHEME_TYPES, type InitiationNetwork, type SchemeType } from "../../types/design";
 
@@ -12,7 +12,7 @@ export type NetworkOrigin = "template" | "edited";
 
 export const GEOMETRY_STALE_KEY = "geometry_stale";
 
-export const GEOMETRY_STALE_TEXT = "Скважины сдвинуты после построения коммутации";
+export const GEOMETRY_STALE_TEXT = "Скважины изменены после построения коммутации";
 export const RETIE_INCOMPLETE_HINT =
   "Сеть построена до сохранения параметров схемы — постройте её заново во вкладке „Коммутация“";
 export const RETIE_EDITED_CONFIRM = "Ручные правки коммутации будут потеряны. Пересчитать коммутацию?";

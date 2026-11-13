@@ -44,6 +44,20 @@ class TimingApiTests(unittest.TestCase):
         self.assertTrue(response.network.surface_connectors)
         self.assertTrue(response.network.detonators)
 
+    def test_tie_generate_old_template_warns_on_manual_hole(self):
+        # Ручная скважина в старом шаблоне — «прочая»: не стартовая, связь от
+        # ближайшей ступенью схемы, предупреждение в ответе генерации.
+        payload = [h.model_dump() for h in self._holes()]
+        manual = {**payload[0], "id": "M-1", "source": "manual", "row": -1000, "col": 0}
+        manual["collar"] = {**manual["collar"], "x": manual["collar"]["x"] + 1.0, "y": manual["collar"]["y"] + 2.0}
+        manual["toe"] = {**manual["toe"], "x": manual["toe"]["x"] + 1.0, "y": manual["toe"]["y"] + 2.0}
+        response = design_service.generate_tie(
+            TieGenerateRequest(holes=payload + [manual], scheme="echelon", params={"system": "nonel"})
+        )
+        self.assertNotIn("M-1", response.network.starters)
+        self.assertEqual(len(response.warnings), 1)
+        self.assertIn("M-1", response.warnings[0])
+
     def test_electronic_expression_and_analyze_events(self):
         holes = self._holes()
         tie = design_service.generate_tie(

@@ -32,6 +32,7 @@ import {
   type FragmentationPredictResponse,
   type Hole,
   type HoleKind,
+  type InitiationNetwork,
   type HoleLoad,
   type OverlayMetric,
   type PatternParams,
@@ -104,8 +105,13 @@ import { useFeatures } from "../../app/useFeatures";
 import { ChargePanel } from "./ChargePanel";
 import { changedAxes, designReducer, historyLocked, initDesignState } from "./designReducer";
 import { tieWarningsFor, withTieWarnings, type StoredTieWarnings } from "./tieWarnings";
-import { isNetworkEmpty, markNetworkEdited, RETIE_EDITED_CONFIRM } from "./retie";
+import { isNetworkEmpty, RETIE_EDITED_CONFIRM } from "./retie";
 import { useNetworkRetie } from "./useNetworkRetie";
+import { useTieCatalog } from "./useTieCatalog";
+import { addTies, reconnectTie, removeTies, reverseTie, setDownholeDelay, setTiesDelay, tieEditNotice, toggleStarter, toggleStarters, type TieEditResult } from "./tieEdits";
+import { defaultActiveStep, defaultDownhole, systemCatalog } from "./tieSteps";
+import { resolveNetworkTimes } from "./networkTimes";
+import { TieContextMenu, type TieContextMenuState } from "./TieContextMenu";
 import { benchPatchFromObjectAngle, chargeGridOf, designWithParams, paramsFromDesign, rockNameFromTransfer, tieRequestParams, unsavedChanges as unsavedChangesOf, type DesignParams } from "./designParams";
 import { FragmentationPanel } from "./FragmentationPanel";
 import { exampleLayeredDomains, GeologyPanel } from "./GeologyPanel";
@@ -114,7 +120,7 @@ import { layersToMapLegend } from "./MapLegend";
 import { PatternPanel } from "./PatternPanel";
 import { LayoutSearchPanel } from "./LayoutSearchPanel";
 import { useLayoutSearchApply, type ChargeGrid } from "./useLayoutSearchApply";
-import { PlanCanvas, type PlanMeasureState } from "./PlanCanvas";
+import { PlanCanvas, type PlanMeasureState, type TieEditAction, type TieNotice } from "./PlanCanvas";
 import { hasSurveyToe, toeLineWarning } from "./toeLineText";
 import { StageInspector } from "./StageInspector";
 import { VisibilityPanel } from "./VisibilityPanel";
@@ -319,7 +325,37 @@ export function DesignPage({
   const [tieWarnings, setTieWarnings] = useState<StoredTieWarnings | null>(null);
   const visibleTieWarnings = useMemo(() => tieWarningsFor(tieWarnings, document.network), [tieWarnings, document.network]);
   const [tieBusy, setTieBusy] = useState(false);
-  // Пересчёт коммутации после сдвига скважин (TASK-017, PR 3).
+  const tieCatalog = useTieCatalog();
+  // Палитра правки коммутации (TASK-017, PR 4): активная ступень и замедление в скважине.
+  const [tieActiveMs, setTieActiveMs] = useState(25);
+  const [tieDownholeMs, setTieDownholeMs] = useState(500);
+  const [tieNotice, setTieNotice] = useState<TieNotice | null>(null);
+  const [tieMenu, setTieMenu] = useState<TieContextMenuState>(null);
+  const tieNetwork = useMemo(() => normalizeNetwork(document.network), [document.network]);
+  const tieSystem = systemCatalog(tieCatalog, tieNetwork.system);
+  // Времена и «без сигнала» сразу после правки — клиентский расчёт, как
+  // `resolve_network` (TASK-017, PR 4); серверный анализ — по кнопке.
+  const clientTimes = useMemo(
+    () => resolveNetworkTimes(tieNetwork, document.holes, tieCatalog?.detcord_velocity_m_s),
+    [tieNetwork, document.holes, tieCatalog],
+  );
+  const tieNetworkEmpty = isNetworkEmpty(tieNetwork);
+  const unsignaledIds = useMemo(
+    () => new Set(tieNetworkEmpty ? [] : clientTimes.unsignaled),
+    [tieNetworkEmpty, clientTimes],
+  );
+
+  // Открыли режим коммутации (или другой паспорт, другую систему) — активная
+  // ступень = магистраль сети (по умолчанию 25 мс), замедление в скважине — из сети.
+  const tieModeOn = mode === "tie";
+  useEffect(() => {
+    if (!tieModeOn) return;
+    setTieActiveMs(defaultActiveStep(tieNetwork));
+    if (tieSystem) setTieDownholeMs(defaultDownhole(tieNetwork, tieSystem));
+    setTieMenu(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tieModeOn, document.design_id, tieNetwork.system, tieSystem]);
+  // Пересчёт коммутации после смены скважин (TASK-017, PR 3 и PR 5).
   const retie = useNetworkRetie({
     state,
     dispatch,
@@ -328,8 +364,9 @@ export function DesignPage({
   });
   // Сводка пересчёта на плане скрыта крестиком — до следующей сети.
   const [retieBadgeHiddenFor, setRetieBadgeHiddenFor] = useState<unknown>(null);
-  const [pendingTieFromId, setPendingTieFromId] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
+  // Расчёт тайминга сброшен правкой — панель «Тайминг» просит пересчитать (TASK-017, PR 4).
+  const [analysisStale, setAnalysisStale] = useState(false);
   const [analyzeBusy, setAnalyzeBusy] = useState(false);
   const [isolineStepMs, setIsolineStepMs] = useState(25);
   const [showIsolines, setShowIsolines] = useState(true);
@@ -444,6 +481,7 @@ export function DesignPage({
   // Сброс результата «Рассчитать тайминг» с остановкой анимации: тайминг,
   // изолинии и темп отбойки относятся к прежним скважинам, породе, a × b или сети.
   function clearAnalysis() {
+    if (analysis) setAnalysisStale(true);
     setAnalysis(null);
     setPlaying(false);
     setCurrentMs(0);
@@ -490,6 +528,10 @@ export function DesignPage({
       refreshMapsRef.current();
     },
   });
+
+  // Времена на плане: расчёт тайминга, а до него (или после правки сети,
+  // сбросившей расчёт) — клиентские по связям.
+  const planTimesMs = analysis?.times_ms ?? (tieNetworkEmpty ? undefined : clientTimes.times);
 
   const maxAnimationMs = useMemo(() => {
     const values = analysis ? Object.values(analysis.times_ms) : [];
@@ -615,9 +657,10 @@ export function DesignPage({
     function onKeyDown(e: KeyboardEvent) {
       const target = e.target as HTMLElement;
       const typing = target.tagName === "INPUT" || target.tagName === "SELECT" || target.tagName === "TEXTAREA";
-      // В режиме контура Delete относится к вершинам блока (их обрабатывает
-      // сам холст), и выделенные ранее скважины трогать нельзя.
-      if ((e.key === "Delete" || e.key === "Backspace") && !typing && mode !== "contour" && selected.size > 0) {
+      // В режиме контура Delete относится к вершинам блока, в режиме
+      // коммутации — к выделенным связям (их обрабатывает сам холст), и
+      // выделенные ранее скважины трогать нельзя.
+      if ((e.key === "Delete" || e.key === "Backspace") && !typing && mode !== "contour" && mode !== "tie" && selected.size > 0) {
         e.preventDefault();
         deleteSelected();
       }
@@ -647,7 +690,7 @@ export function DesignPage({
     if (next === "survey" || next === "geology") setMode("contour");
     else if (next === "pattern") setMode("holes");
     else if (next === "charge") setMode("charge");
-    else if (next === "timing") setMode("timing");
+    else if (next === "timing") setMode("tie");
     else setMode("holes");
   }
 
@@ -676,22 +719,37 @@ export function DesignPage({
   }
 
   function toggleStarterForHole(holeId: string) {
+    applyTieEdit({ type: "starter", holeId });
+  }
+
+  /**
+   * Правка коммутации на плане (TASK-017, PR 4): одна правка — один
+   * `SET_NETWORK` (одна запись отмены), сеть помечается правленой
+   * (`tieEdits.ts` → `markNetworkEdited`). Замена прежней связи и отказ из-за
+   * цикла — подсказкой внизу плана.
+   */
+  function applyTieEdit(action: TieEditAction) {
     if (rejectLocked("designed")) return;
     const network = normalizeNetwork(document.network);
-    const starterItems = network.starter_items.length
-      ? [...network.starter_items]
-      : network.starters.map((id) => ({ id: `st-${id}`, hole_id: id, delay_ms: 0, kind: "starter" }));
-    const index = starterItems.findIndex((item) => item.hole_id === holeId);
-    if (index >= 0) starterItems.splice(index, 1);
-    else starterItems.push({ id: `st-${holeId}`, hole_id: holeId, delay_ms: 0, kind: "starter" });
-    dispatch({
-      type: "SET_NETWORK",
-      network: markNetworkEdited({
-        ...network,
-        starter_items: starterItems,
-        starters: starterItems.map((item) => item.hole_id),
-      }),
-    });
+    const result =
+      action.type === "add" ? addTies(network, action.path, tieActiveMs)
+      : action.type === "delay" ? setTiesDelay(network, action.ids, tieActiveMs)
+      : action.type === "remove" ? removeTies(network, action.ids)
+      : action.type === "reconnect" ? reconnectTie(network, action.id, action.end, action.holeId)
+      : action.type === "starter" ? toggleStarter(network, action.holeId)
+      : setDownholeDelay(network, action.holeIds, tieDownholeMs);
+    commitTieEdit(result);
+  }
+
+  function commitTieEdit(result: TieEditResult) {
+    if (result.changed) dispatch({ type: "SET_NETWORK", network: result.network });
+    const text = tieEditNotice(result);
+    if (text) setTieNotice({ text, flash: result.replaced, tick: Date.now() });
+  }
+
+  function editTieFromMenu(edit: (network: InitiationNetwork) => TieEditResult) {
+    if (rejectLocked("designed")) return;
+    commitTieEdit(edit(normalizeNetwork(document.network)));
   }
 
   async function refreshPlans() {
@@ -739,7 +797,6 @@ export function DesignPage({
       // сравнения с фактом — как при перестроении сетки.
       setSelected((previous) => new Set(remapHoleIds(previous, mapping)));
       setInspectHoleId((previous) => remapHoleId(previous, mapping));
-      setPendingTieFromId((previous) => remapHoleId(previous, mapping));
       setMeasureState((previous) => ({ ...previous, holeIds: remapHoleIds(previous.holeIds, mapping) }));
       setHoleMenu(null);
       setAsDrilledResult(null);
@@ -1145,77 +1202,11 @@ export function DesignPage({
     }
   }
 
-  function addManualTie(fromId: string, toId: string) {
-    if (rejectLocked("designed")) return;
-    const network = normalizeNetwork(document.network);
-    const delay = tieParams.interval_ms || 25;
-    const kind = network.system === "detcord" ? "ds_relay" : network.system === "electronic" ? "electronic" : "surface_nsi";
-    const id = `sc-${fromId}-${toId}`;
-    const nextTies = networkTies(network).filter((item) => !(item.from_hole === fromId && item.to_hole === toId));
-    nextTies.push({ id, from_hole: fromId, to_hole: toId, delay_ms: delay, kind, product: "" });
-    const starterItems = network.starter_items.length ? [...network.starter_items] : network.starters.map((holeId) => ({ id: `st-${holeId}`, hole_id: holeId, delay_ms: 0, kind: "starter" }));
-    if (!starterItems.some((item) => item.hole_id === fromId) && !nextTies.some((item) => item.to_hole === fromId)) {
-      starterItems.push({ id: `st-${fromId}`, hole_id: fromId, delay_ms: 0, kind: "starter" });
-    }
-    dispatch({
-      type: "SET_NETWORK",
-      network: markNetworkEdited({
-        ...network,
-        surface_connectors: nextTies,
-        connectors: nextTies.map((item) => ({ from_hole: item.from_hole, to_hole: item.to_hole, delay_ms: item.delay_ms, kind: item.kind })),
-        starter_items: starterItems,
-        starters: starterItems.map((item) => item.hole_id),
-      }),
-    });
-    setPendingTieFromId(null);
-  }
-
-  function updateManualTie(tie: SurfaceConnector, delayMs: number) {
-    if (rejectLocked("designed")) return;
-    const network = normalizeNetwork(document.network);
-    const nextTies = networkTies(network).map((item) => (item.id === tie.id ? { ...item, delay_ms: delayMs } : item));
-    dispatch({
-      type: "SET_NETWORK",
-      network: markNetworkEdited({
-        ...network,
-        surface_connectors: nextTies,
-        connectors: nextTies.map((item) => ({ from_hole: item.from_hole, to_hole: item.to_hole, delay_ms: item.delay_ms, kind: item.kind })),
-      }),
-    });
-  }
-
-  function removeManualTie(connectorId: string) {
-    if (rejectLocked("designed")) return;
-    const network = normalizeNetwork(document.network);
-    const nextTies = networkTies(network).filter((item) => item.id !== connectorId);
-    dispatch({
-      type: "SET_NETWORK",
-      network: markNetworkEdited({
-        ...network,
-        surface_connectors: nextTies,
-        connectors: nextTies.map((item) => ({ from_hole: item.from_hole, to_hole: item.to_hole, delay_ms: item.delay_ms, kind: item.kind })),
-      }),
-    });
-  }
-
   function toggleStartersFromSelection() {
     if (rejectLocked("designed")) return;
     if (!selected.size) return;
-    const network = normalizeNetwork(document.network);
-    const current = new Set(
-      (network.starter_items.length ? network.starter_items.map((item) => item.hole_id) : network.starters),
-    );
-    const selectedIds = Array.from(selected);
-    const allSelectedAreStarters = selectedIds.every((id) => current.has(id));
-    for (const id of selectedIds) {
-      if (allSelectedAreStarters) current.delete(id);
-      else current.add(id);
-    }
-    const starterItems = Array.from(current).map((holeId) => ({ id: `st-${holeId}`, hole_id: holeId, delay_ms: 0, kind: "starter" }));
-    dispatch({
-      type: "SET_NETWORK",
-      network: markNetworkEdited({ ...network, starter_items: starterItems, starters: starterItems.map((item) => item.hole_id) }),
-    });
+    // Как «Стартер» на плане: правленая сеть, у ДШ — без общего шнура (PR 5).
+    commitTieEdit(toggleStarters(normalizeNetwork(document.network), Array.from(selected)));
   }
 
   /** «Пересчитать коммутацию»: по параметрам из сети; правленую — после подтверждения. */
@@ -1243,7 +1234,6 @@ export function DesignPage({
       );
       dispatch({ type: "SET_NETWORK", network: result.network });
       setTieWarnings(withTieWarnings(result.network, result.warnings ?? []));
-      setPendingTieFromId(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось построить схему коммутации.");
     } finally {
@@ -1275,6 +1265,7 @@ export function DesignPage({
       const use = responseUse();
       if (!use.analysis) return;
       setAnalysis(result);
+      setAnalysisStale(false);
       if (result.firing_events) {
         dispatch({ type: "SET_NETWORK", network: { ...normalizeNetwork(document.network), firing_events: result.firing_events } });
       }
@@ -2543,6 +2534,7 @@ export function DesignPage({
       setSelected(new Set());
       setSelectedRow(null);
       setAnalysis(null);
+      setAnalysisStale(false);
       setCurrentMs(0);
       setPlaying(false);
       setCostResult(null);
@@ -2553,7 +2545,6 @@ export function DesignPage({
       setVibResult(null);
       setSelectedReceptorId(design.receptors[0]?.id ?? null);
       setPlacingReceptor(false);
-      setPendingTieFromId(null);
       setAsDrilledResult(null);
       setAsChargedResult(null);
       setAsFiredResult(null);
@@ -2605,6 +2596,7 @@ export function DesignPage({
     setSelected(new Set());
     setSelectedRow(null);
     setAnalysis(null);
+    setAnalysisStale(false);
     setCurrentMs(0);
     setPlaying(false);
     setCostResult(null);
@@ -2615,7 +2607,6 @@ export function DesignPage({
     setVibResult(null);
     setSelectedReceptorId(null);
     setPlacingReceptor(false);
-    setPendingTieFromId(null);
     setAsDrilledResult(null);
     setAsChargedResult(null);
     setAsFiredResult(null);
@@ -2968,7 +2959,6 @@ export function DesignPage({
                 params={tieParams}
                 network={document.network}
                 selectedCount={selected.size}
-                pendingFromId={pendingTieFromId}
                 warnings={visibleTieWarnings}
                 onSchemeChange={(next) => {
                   setTieScheme(next);
@@ -2976,12 +2966,14 @@ export function DesignPage({
                 }}
                 onParamsChange={(patch) => setTieParams((prev) => ({ ...prev, ...patch }))}
                 onGenerate={generateTie}
-                onUpdateTie={updateManualTie}
-                onRemoveTie={removeManualTie}
                 onToggleStarters={toggleStartersFromSelection}
                 busy={tieBusy}
                 retie={retie}
                 onRecompute={recomputeTie}
+                catalog={tieCatalog}
+                activeMs={tieActiveMs}
+                onActiveMsChange={setTieActiveMs}
+                unsignaledCount={tieNetworkEmpty ? 0 : clientTimes.unsignaled.length}
               />
               <TimingPanel
                 analysis={analysis}
@@ -2998,6 +2990,7 @@ export function DesignPage({
                 currentMs={currentMs}
                 maxMs={maxAnimationMs}
                 onScrub={scrub}
+                stale={analysisStale}
               />
             </fieldset>
           )}
@@ -3367,9 +3360,6 @@ export function DesignPage({
               selected={selected}
               onSelectedChange={(ids) => {
                 setSelected(ids);
-                if (mode === "tie" && ids.size === 1 && !pendingTieFromId) {
-                  setPendingTieFromId(Array.from(ids)[0]);
-                }
               }}
               onContourChange={onContourChange}
               onToggleFreeFace={onToggleFreeFace}
@@ -3387,11 +3377,20 @@ export function DesignPage({
               network={designView.layers.network ? document.network : undefined}
               isolines={designView.layers.isolines && showIsolines ? analysis?.isolines : undefined}
               relief={designView.layers.relief ? analysis?.relief : undefined}
-              timesMs={analysis?.times_ms ?? undefined}
-              animationMs={mode === "timing" && analysis ? currentMs : undefined}
-              pendingTieFromId={mode === "tie" ? pendingTieFromId : null}
-              onTieHoles={addManualTie}
-              onClearPendingTie={() => setPendingTieFromId(null)}
+              timesMs={planTimesMs}
+              animationMs={workflowStage === "timing" && analysis ? currentMs : undefined}
+              tieEdit={mode === "tie" ? {
+                catalog: tieSystem,
+                activeMs: tieActiveMs,
+                onActiveMsChange: setTieActiveMs,
+                downholeMs: tieDownholeMs,
+                onDownholeMsChange: setTieDownholeMs,
+                onEdit: applyTieEdit,
+                onTieContextMenu: (tie, x, y) => setTieMenu({ tieId: tie.id, fromHole: tie.from_hole, toHole: tie.to_hole, delayMs: tie.delay_ms, x, y }),
+                notice: tieNotice,
+              } : null}
+              tieNominals={tieSystem?.surface_ms ?? []}
+              unsignaledIds={unsignaledIds}
               domains={document.domains}
               drawingDomainId={drawingDomain && selectedDomainId && (mode === "contour" || mode === "holes") && !placingReceptor ? selectedDomainId : null}
               onDomainVertexAdd={addDomainVertex}
@@ -3484,6 +3483,14 @@ export function DesignPage({
               ),
             )}
             enabled={holeMenu ? (document.holes.find((h) => h.id === holeMenu.holeId)?.enabled ?? true) : true}
+          />
+          <TieContextMenu
+            menu={tieMenu}
+            nominals={tieSystem?.surface_ms ?? []}
+            onClose={() => setTieMenu(null)}
+            onSetDelay={(id, ms) => editTieFromMenu((network) => setTiesDelay(network, [id], ms))}
+            onReverse={(id) => editTieFromMenu((network) => reverseTie(network, id))}
+            onRemove={(id) => editTieFromMenu((network) => removeTies(network, [id]))}
           />
           <CommandPalette open={commandOpen} commands={designCommands} onClose={() => setCommandOpen(false)} />
           {movedPrompt && (

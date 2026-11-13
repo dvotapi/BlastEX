@@ -70,6 +70,7 @@ from design.timing import (
     _populate_v2_from_graph,
     _snap,
     template_timing_params,
+    tie_to_nearest,
 )
 
 TRUNK_SCHEME = "trunk_chains"
@@ -395,19 +396,9 @@ def plan_trunk_chains(
 
     # Прочие — по возрастанию расстояния до ближайшей привязанной (жадно, как Прим).
     tied = [by_id[i] for i in starters] + [by_id[i] for i in incoming]
-    best_dist: dict[str, tuple[float, str]] = {}
-    for h in others:
-        near = min(tied, key=lambda t: (math.hypot(t.collar.x - h.collar.x, t.collar.y - h.collar.y), t.id))
-        best_dist[h.id] = (math.hypot(near.collar.x - h.collar.x, near.collar.y - h.collar.y), near.id)
-    pending = {h.id: h for h in others}
-    while pending:
-        hid = min(pending, key=lambda i: (best_dist[i][0], i))
-        hole = pending.pop(hid)
-        incoming[hid] = (best_dist[hid][1], chain)
-        for other in pending.values():
-            d = math.hypot(other.collar.x - hole.collar.x, other.collar.y - hole.collar.y)
-            if d < best_dist[other.id][0]:
-                best_dist[other.id] = (d, hid)
+    if others:
+        for frm, to in tie_to_nearest(others, tied):
+            incoming[to] = (frm, chain)
 
     ties = [(frm, to, ms) for to, (frm, ms) in incoming.items()]
     surface_ms = _times_from_starters(starters, ties)

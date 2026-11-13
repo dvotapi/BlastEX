@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { emptyNetwork, normalizeNetwork, type Hole, type InitiationNetwork } from "../../types/design";
 import { resolveNetworkTimes } from "./networkTimes";
+import { removeTies } from "./tieEdits";
 import fixture from "./testing/networkTimesFixture.json";
 
 type Case = {
@@ -12,6 +13,8 @@ type Case = {
   network: Partial<InitiationNetwork>;
   times: Record<string, number>;
   unsignaled: string[];
+  /** Связь, снятая правкой на плане (случай правленой сети). */
+  removed_tie?: string;
 };
 
 const cases = (fixture as unknown as { cases: Case[] }).cases;
@@ -46,5 +49,20 @@ describe("клиентские времена = resolve_network", () => {
     const result = resolveNetworkTimes(network, [hole("a", 0, 0), hole("b", 5, 0, false), hole("c", 10, 0)]);
     expect(result.times).toEqual({ a: 0, c: 42 });
     expect(result.unsignaled).toEqual([]);
+  });
+});
+
+// TASK-017, PR 5: правка связи у порядной ДШ на клиенте даёт ту же сеть, что
+// сервер считает в случае `row_detcord_edited`: шнур снят, время — по реле.
+describe("правка связей ДШ: клиент = сервер", () => {
+  it("removeTies на порядной ДШ — времена случая row_detcord_edited", () => {
+    const source = cases.find((item) => item.name === "row_detcord_cord")!;
+    const target = cases.find((item) => item.name === "row_detcord_edited")!;
+    const edit = removeTies(normalizeNetwork(source.network), [target.removed_tie!]);
+    expect(edit.cordRemoved).toBe(true);
+    const result = resolveNetworkTimes(edit.network, source.holes as unknown as Hole[], 7000);
+    expect(Object.keys(result.times).sort()).toEqual(Object.keys(target.times).sort());
+    for (const [id, value] of Object.entries(target.times)) expect(result.times[id]).toBeCloseTo(value, 6);
+    expect(result.unsignaled).toEqual(target.unsignaled);
   });
 });

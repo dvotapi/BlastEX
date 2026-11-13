@@ -9928,6 +9928,1694 @@
    "unsignaled": []
   },
   {
+   "name": "row_detcord_edited",
+   "holes": [
+    {
+     "id": "1-01",
+     "collar": {
+      "x": -0.0,
+      "y": 2.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "2-01",
+     "collar": {
+      "x": 5.0,
+      "y": 2.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "3-01",
+     "collar": {
+      "x": 10.0,
+      "y": 2.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "4-01",
+     "collar": {
+      "x": 15.0,
+      "y": 2.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "5-01",
+     "collar": {
+      "x": 20.0,
+      "y": 2.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "6-01",
+     "collar": {
+      "x": 25.0,
+      "y": 2.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "7-01",
+     "collar": {
+      "x": 30.0,
+      "y": 2.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "8-01",
+     "collar": {
+      "x": 35.0,
+      "y": 2.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "9-01",
+     "collar": {
+      "x": 40.0,
+      "y": 2.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "1-02",
+     "collar": {
+      "x": -0.0,
+      "y": 6.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "2-02",
+     "collar": {
+      "x": 5.0,
+      "y": 6.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "3-02",
+     "collar": {
+      "x": 10.0,
+      "y": 6.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "4-02",
+     "collar": {
+      "x": 15.0,
+      "y": 6.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "5-02",
+     "collar": {
+      "x": 20.0,
+      "y": 6.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "6-02",
+     "collar": {
+      "x": 25.0,
+      "y": 6.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "7-02",
+     "collar": {
+      "x": 30.0,
+      "y": 6.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "8-02",
+     "collar": {
+      "x": 35.0,
+      "y": 6.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "9-02",
+     "collar": {
+      "x": 40.0,
+      "y": 6.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "1-03",
+     "collar": {
+      "x": -0.0,
+      "y": 10.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "2-03",
+     "collar": {
+      "x": 5.0,
+      "y": 10.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "3-03",
+     "collar": {
+      "x": 10.0,
+      "y": 10.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "4-03",
+     "collar": {
+      "x": 15.0,
+      "y": 10.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "5-03",
+     "collar": {
+      "x": 20.0,
+      "y": 10.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "6-03",
+     "collar": {
+      "x": 25.0,
+      "y": 10.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "7-03",
+     "collar": {
+      "x": 30.0,
+      "y": 10.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "8-03",
+     "collar": {
+      "x": 35.0,
+      "y": 10.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "9-03",
+     "collar": {
+      "x": 40.0,
+      "y": 10.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "1-04",
+     "collar": {
+      "x": -0.0,
+      "y": 14.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "2-04",
+     "collar": {
+      "x": 5.0,
+      "y": 14.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "3-04",
+     "collar": {
+      "x": 10.0,
+      "y": 14.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "4-04",
+     "collar": {
+      "x": 15.0,
+      "y": 14.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "5-04",
+     "collar": {
+      "x": 20.0,
+      "y": 14.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "6-04",
+     "collar": {
+      "x": 25.0,
+      "y": 14.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "7-04",
+     "collar": {
+      "x": 30.0,
+      "y": 14.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "8-04",
+     "collar": {
+      "x": 35.0,
+      "y": 14.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "9-04",
+     "collar": {
+      "x": 40.0,
+      "y": 14.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "1-05",
+     "collar": {
+      "x": -0.0,
+      "y": 18.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "2-05",
+     "collar": {
+      "x": 5.0,
+      "y": 18.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "3-05",
+     "collar": {
+      "x": 10.0,
+      "y": 18.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "4-05",
+     "collar": {
+      "x": 15.0,
+      "y": 18.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "5-05",
+     "collar": {
+      "x": 20.0,
+      "y": 18.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "6-05",
+     "collar": {
+      "x": 25.0,
+      "y": 18.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "7-05",
+     "collar": {
+      "x": 30.0,
+      "y": 18.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "8-05",
+     "collar": {
+      "x": 35.0,
+      "y": 18.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "9-05",
+     "collar": {
+      "x": 40.0,
+      "y": 18.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "1-06",
+     "collar": {
+      "x": -0.0,
+      "y": 22.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "2-06",
+     "collar": {
+      "x": 5.0,
+      "y": 22.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "3-06",
+     "collar": {
+      "x": 10.0,
+      "y": 22.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "4-06",
+     "collar": {
+      "x": 15.0,
+      "y": 22.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "5-06",
+     "collar": {
+      "x": 20.0,
+      "y": 22.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "6-06",
+     "collar": {
+      "x": 25.0,
+      "y": 22.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "7-06",
+     "collar": {
+      "x": 30.0,
+      "y": 22.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "8-06",
+     "collar": {
+      "x": 35.0,
+      "y": 22.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "9-06",
+     "collar": {
+      "x": 40.0,
+      "y": 22.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "1-07",
+     "collar": {
+      "x": -0.0,
+      "y": 26.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "2-07",
+     "collar": {
+      "x": 5.0,
+      "y": 26.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "3-07",
+     "collar": {
+      "x": 10.0,
+      "y": 26.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "4-07",
+     "collar": {
+      "x": 15.0,
+      "y": 26.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "5-07",
+     "collar": {
+      "x": 20.0,
+      "y": 26.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "6-07",
+     "collar": {
+      "x": 25.0,
+      "y": 26.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "7-07",
+     "collar": {
+      "x": 30.0,
+      "y": 26.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "8-07",
+     "collar": {
+      "x": 35.0,
+      "y": 26.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "9-07",
+     "collar": {
+      "x": 40.0,
+      "y": 26.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "1-08",
+     "collar": {
+      "x": -0.0,
+      "y": 30.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "2-08",
+     "collar": {
+      "x": 5.0,
+      "y": 30.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "3-08",
+     "collar": {
+      "x": 10.0,
+      "y": 30.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "4-08",
+     "collar": {
+      "x": 15.0,
+      "y": 30.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "5-08",
+     "collar": {
+      "x": 20.0,
+      "y": 30.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "6-08",
+     "collar": {
+      "x": 25.0,
+      "y": 30.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "7-08",
+     "collar": {
+      "x": 30.0,
+      "y": 30.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "8-08",
+     "collar": {
+      "x": 35.0,
+      "y": 30.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "9-08",
+     "collar": {
+      "x": 40.0,
+      "y": 30.0,
+      "z": 0.0
+     },
+     "enabled": true
+    }
+   ],
+   "network": {
+    "system": "detcord",
+    "starters": [
+     "1-01",
+     "2-01",
+     "3-01",
+     "4-01",
+     "5-01",
+     "6-01",
+     "7-01",
+     "8-01",
+     "9-01"
+    ],
+    "connectors": [
+     {
+      "from_hole": "1-01",
+      "to_hole": "1-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "2-01",
+      "to_hole": "2-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "3-01",
+      "to_hole": "3-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "4-01",
+      "to_hole": "4-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "5-01",
+      "to_hole": "5-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "6-01",
+      "to_hole": "6-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "7-01",
+      "to_hole": "7-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "8-01",
+      "to_hole": "8-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "9-01",
+      "to_hole": "9-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "2-02",
+      "to_hole": "2-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "3-02",
+      "to_hole": "3-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "4-02",
+      "to_hole": "4-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "5-02",
+      "to_hole": "5-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "6-02",
+      "to_hole": "6-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "7-02",
+      "to_hole": "7-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "8-02",
+      "to_hole": "8-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "9-02",
+      "to_hole": "9-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "1-03",
+      "to_hole": "1-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "2-03",
+      "to_hole": "2-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "3-03",
+      "to_hole": "3-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "4-03",
+      "to_hole": "4-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "5-03",
+      "to_hole": "5-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "6-03",
+      "to_hole": "6-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "7-03",
+      "to_hole": "7-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "8-03",
+      "to_hole": "8-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "9-03",
+      "to_hole": "9-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "1-04",
+      "to_hole": "1-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "2-04",
+      "to_hole": "2-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "3-04",
+      "to_hole": "3-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "4-04",
+      "to_hole": "4-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "5-04",
+      "to_hole": "5-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "6-04",
+      "to_hole": "6-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "7-04",
+      "to_hole": "7-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "8-04",
+      "to_hole": "8-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "9-04",
+      "to_hole": "9-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "1-05",
+      "to_hole": "1-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "2-05",
+      "to_hole": "2-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "3-05",
+      "to_hole": "3-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "4-05",
+      "to_hole": "4-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "5-05",
+      "to_hole": "5-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "6-05",
+      "to_hole": "6-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "7-05",
+      "to_hole": "7-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "8-05",
+      "to_hole": "8-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "9-05",
+      "to_hole": "9-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "1-06",
+      "to_hole": "1-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "2-06",
+      "to_hole": "2-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "3-06",
+      "to_hole": "3-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "4-06",
+      "to_hole": "4-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "5-06",
+      "to_hole": "5-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "6-06",
+      "to_hole": "6-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "7-06",
+      "to_hole": "7-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "8-06",
+      "to_hole": "8-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "9-06",
+      "to_hole": "9-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "1-07",
+      "to_hole": "1-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "2-07",
+      "to_hole": "2-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "3-07",
+      "to_hole": "3-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "4-07",
+      "to_hole": "4-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "5-07",
+      "to_hole": "5-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "6-07",
+      "to_hole": "6-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "7-07",
+      "to_hole": "7-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "8-07",
+      "to_hole": "8-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "9-07",
+      "to_hole": "9-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     }
+    ],
+    "downhole_delay_ms": {},
+    "electronic_times_ms": {},
+    "detonators": [],
+    "surface_connectors": [
+     {
+      "id": "sc-1-01-1-02",
+      "from_hole": "1-01",
+      "to_hole": "1-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-2-01-2-02",
+      "from_hole": "2-01",
+      "to_hole": "2-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-3-01-3-02",
+      "from_hole": "3-01",
+      "to_hole": "3-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-4-01-4-02",
+      "from_hole": "4-01",
+      "to_hole": "4-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-5-01-5-02",
+      "from_hole": "5-01",
+      "to_hole": "5-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-6-01-6-02",
+      "from_hole": "6-01",
+      "to_hole": "6-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-7-01-7-02",
+      "from_hole": "7-01",
+      "to_hole": "7-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-8-01-8-02",
+      "from_hole": "8-01",
+      "to_hole": "8-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-9-01-9-02",
+      "from_hole": "9-01",
+      "to_hole": "9-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-2-02-2-03",
+      "from_hole": "2-02",
+      "to_hole": "2-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-3-02-3-03",
+      "from_hole": "3-02",
+      "to_hole": "3-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-4-02-4-03",
+      "from_hole": "4-02",
+      "to_hole": "4-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-5-02-5-03",
+      "from_hole": "5-02",
+      "to_hole": "5-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-6-02-6-03",
+      "from_hole": "6-02",
+      "to_hole": "6-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-7-02-7-03",
+      "from_hole": "7-02",
+      "to_hole": "7-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-8-02-8-03",
+      "from_hole": "8-02",
+      "to_hole": "8-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-9-02-9-03",
+      "from_hole": "9-02",
+      "to_hole": "9-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-1-03-1-04",
+      "from_hole": "1-03",
+      "to_hole": "1-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-2-03-2-04",
+      "from_hole": "2-03",
+      "to_hole": "2-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-3-03-3-04",
+      "from_hole": "3-03",
+      "to_hole": "3-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-4-03-4-04",
+      "from_hole": "4-03",
+      "to_hole": "4-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-5-03-5-04",
+      "from_hole": "5-03",
+      "to_hole": "5-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-6-03-6-04",
+      "from_hole": "6-03",
+      "to_hole": "6-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-7-03-7-04",
+      "from_hole": "7-03",
+      "to_hole": "7-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-8-03-8-04",
+      "from_hole": "8-03",
+      "to_hole": "8-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-9-03-9-04",
+      "from_hole": "9-03",
+      "to_hole": "9-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-1-04-1-05",
+      "from_hole": "1-04",
+      "to_hole": "1-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-2-04-2-05",
+      "from_hole": "2-04",
+      "to_hole": "2-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-3-04-3-05",
+      "from_hole": "3-04",
+      "to_hole": "3-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-4-04-4-05",
+      "from_hole": "4-04",
+      "to_hole": "4-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-5-04-5-05",
+      "from_hole": "5-04",
+      "to_hole": "5-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-6-04-6-05",
+      "from_hole": "6-04",
+      "to_hole": "6-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-7-04-7-05",
+      "from_hole": "7-04",
+      "to_hole": "7-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-8-04-8-05",
+      "from_hole": "8-04",
+      "to_hole": "8-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-9-04-9-05",
+      "from_hole": "9-04",
+      "to_hole": "9-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-1-05-1-06",
+      "from_hole": "1-05",
+      "to_hole": "1-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-2-05-2-06",
+      "from_hole": "2-05",
+      "to_hole": "2-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-3-05-3-06",
+      "from_hole": "3-05",
+      "to_hole": "3-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-4-05-4-06",
+      "from_hole": "4-05",
+      "to_hole": "4-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-5-05-5-06",
+      "from_hole": "5-05",
+      "to_hole": "5-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-6-05-6-06",
+      "from_hole": "6-05",
+      "to_hole": "6-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-7-05-7-06",
+      "from_hole": "7-05",
+      "to_hole": "7-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-8-05-8-06",
+      "from_hole": "8-05",
+      "to_hole": "8-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-9-05-9-06",
+      "from_hole": "9-05",
+      "to_hole": "9-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-1-06-1-07",
+      "from_hole": "1-06",
+      "to_hole": "1-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-2-06-2-07",
+      "from_hole": "2-06",
+      "to_hole": "2-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-3-06-3-07",
+      "from_hole": "3-06",
+      "to_hole": "3-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-4-06-4-07",
+      "from_hole": "4-06",
+      "to_hole": "4-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-5-06-5-07",
+      "from_hole": "5-06",
+      "to_hole": "5-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-6-06-6-07",
+      "from_hole": "6-06",
+      "to_hole": "6-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-7-06-7-07",
+      "from_hole": "7-06",
+      "to_hole": "7-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-8-06-8-07",
+      "from_hole": "8-06",
+      "to_hole": "8-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-9-06-9-07",
+      "from_hole": "9-06",
+      "to_hole": "9-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-1-07-1-08",
+      "from_hole": "1-07",
+      "to_hole": "1-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-2-07-2-08",
+      "from_hole": "2-07",
+      "to_hole": "2-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-3-07-3-08",
+      "from_hole": "3-07",
+      "to_hole": "3-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-4-07-4-08",
+      "from_hole": "4-07",
+      "to_hole": "4-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-5-07-5-08",
+      "from_hole": "5-07",
+      "to_hole": "5-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-6-07-6-08",
+      "from_hole": "6-07",
+      "to_hole": "6-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-7-07-7-08",
+      "from_hole": "7-07",
+      "to_hole": "7-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-8-07-8-08",
+      "from_hole": "8-07",
+      "to_hole": "8-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-9-07-9-08",
+      "from_hole": "9-07",
+      "to_hole": "9-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     }
+    ],
+    "downhole_connectors": [],
+    "detonating_cords": [],
+    "starter_items": [
+     {
+      "id": "st-1-01",
+      "hole_id": "1-01",
+      "delay_ms": 0.0,
+      "kind": "starter"
+     },
+     {
+      "id": "st-2-01",
+      "hole_id": "2-01",
+      "delay_ms": 0.0,
+      "kind": "starter"
+     },
+     {
+      "id": "st-3-01",
+      "hole_id": "3-01",
+      "delay_ms": 0.0,
+      "kind": "starter"
+     },
+     {
+      "id": "st-4-01",
+      "hole_id": "4-01",
+      "delay_ms": 0.0,
+      "kind": "starter"
+     },
+     {
+      "id": "st-5-01",
+      "hole_id": "5-01",
+      "delay_ms": 0.0,
+      "kind": "starter"
+     },
+     {
+      "id": "st-6-01",
+      "hole_id": "6-01",
+      "delay_ms": 0.0,
+      "kind": "starter"
+     },
+     {
+      "id": "st-7-01",
+      "hole_id": "7-01",
+      "delay_ms": 0.0,
+      "kind": "starter"
+     },
+     {
+      "id": "st-8-01",
+      "hole_id": "8-01",
+      "delay_ms": 0.0,
+      "kind": "starter"
+     },
+     {
+      "id": "st-9-01",
+      "hole_id": "9-01",
+      "delay_ms": 0.0,
+      "kind": "starter"
+     }
+    ],
+    "electronic_channels": [],
+    "firing_events": [],
+    "timing_mode": "",
+    "timing_expression": "",
+    "timing_params": {
+     "scheme": "row",
+     "origin": "template",
+     "interval_ms": 20,
+     "downhole_delay_ms": 0.0
+    },
+    "selected_hole_ids": []
+   },
+   "times": {
+    "1-01": 0.0,
+    "1-02": 20.0,
+    "2-01": 0.0,
+    "2-02": 20.0,
+    "2-03": 40.0,
+    "2-04": 60.0,
+    "2-05": 80.0,
+    "2-06": 100.0,
+    "2-07": 120.0,
+    "2-08": 140.0,
+    "3-01": 0.0,
+    "3-02": 20.0,
+    "3-03": 40.0,
+    "3-04": 60.0,
+    "3-05": 80.0,
+    "3-06": 100.0,
+    "3-07": 120.0,
+    "3-08": 140.0,
+    "4-01": 0.0,
+    "4-02": 20.0,
+    "4-03": 40.0,
+    "4-04": 60.0,
+    "4-05": 80.0,
+    "4-06": 100.0,
+    "4-07": 120.0,
+    "4-08": 140.0,
+    "5-01": 0.0,
+    "5-02": 20.0,
+    "5-03": 40.0,
+    "5-04": 60.0,
+    "5-05": 80.0,
+    "5-06": 100.0,
+    "5-07": 120.0,
+    "5-08": 140.0,
+    "6-01": 0.0,
+    "6-02": 20.0,
+    "6-03": 40.0,
+    "6-04": 60.0,
+    "6-05": 80.0,
+    "6-06": 100.0,
+    "6-07": 120.0,
+    "6-08": 140.0,
+    "7-01": 0.0,
+    "7-02": 20.0,
+    "7-03": 40.0,
+    "7-04": 60.0,
+    "7-05": 80.0,
+    "7-06": 100.0,
+    "7-07": 120.0,
+    "7-08": 140.0,
+    "8-01": 0.0,
+    "8-02": 20.0,
+    "8-03": 40.0,
+    "8-04": 60.0,
+    "8-05": 80.0,
+    "8-06": 100.0,
+    "8-07": 120.0,
+    "8-08": 140.0,
+    "9-01": 0.0,
+    "9-02": 20.0,
+    "9-03": 40.0,
+    "9-04": 60.0,
+    "9-05": 80.0,
+    "9-06": 100.0,
+    "9-07": 120.0,
+    "9-08": 140.0
+   },
+   "unsignaled": [
+    "1-03",
+    "1-04",
+    "1-05",
+    "1-06",
+    "1-07",
+    "1-08"
+   ],
+   "removed_tie": "sc-1-02-1-03"
+  },
+  {
    "name": "row_electronic",
    "holes": [
     {
@@ -13000,6 +14688,1867 @@
     "9-06": 85.0,
     "9-07": 102.0,
     "9-08": 119.0
+   },
+   "unsignaled": []
+  },
+  {
+   "name": "echelon_detcord_manual",
+   "holes": [
+    {
+     "id": "1-01",
+     "collar": {
+      "x": -0.0,
+      "y": 2.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "2-01",
+     "collar": {
+      "x": 5.0,
+      "y": 2.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "3-01",
+     "collar": {
+      "x": 10.0,
+      "y": 2.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "4-01",
+     "collar": {
+      "x": 15.0,
+      "y": 2.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "5-01",
+     "collar": {
+      "x": 20.0,
+      "y": 2.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "6-01",
+     "collar": {
+      "x": 25.0,
+      "y": 2.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "7-01",
+     "collar": {
+      "x": 30.0,
+      "y": 2.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "8-01",
+     "collar": {
+      "x": 35.0,
+      "y": 2.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "9-01",
+     "collar": {
+      "x": 40.0,
+      "y": 2.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "1-02",
+     "collar": {
+      "x": -0.0,
+      "y": 6.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "2-02",
+     "collar": {
+      "x": 5.0,
+      "y": 6.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "3-02",
+     "collar": {
+      "x": 10.0,
+      "y": 6.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "4-02",
+     "collar": {
+      "x": 15.0,
+      "y": 6.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "5-02",
+     "collar": {
+      "x": 20.0,
+      "y": 6.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "6-02",
+     "collar": {
+      "x": 25.0,
+      "y": 6.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "7-02",
+     "collar": {
+      "x": 30.0,
+      "y": 6.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "8-02",
+     "collar": {
+      "x": 35.0,
+      "y": 6.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "9-02",
+     "collar": {
+      "x": 40.0,
+      "y": 6.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "1-03",
+     "collar": {
+      "x": -0.0,
+      "y": 10.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "2-03",
+     "collar": {
+      "x": 5.0,
+      "y": 10.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "3-03",
+     "collar": {
+      "x": 10.0,
+      "y": 10.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "4-03",
+     "collar": {
+      "x": 15.0,
+      "y": 10.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "5-03",
+     "collar": {
+      "x": 20.0,
+      "y": 10.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "6-03",
+     "collar": {
+      "x": 25.0,
+      "y": 10.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "7-03",
+     "collar": {
+      "x": 30.0,
+      "y": 10.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "8-03",
+     "collar": {
+      "x": 35.0,
+      "y": 10.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "9-03",
+     "collar": {
+      "x": 40.0,
+      "y": 10.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "1-04",
+     "collar": {
+      "x": -0.0,
+      "y": 14.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "2-04",
+     "collar": {
+      "x": 5.0,
+      "y": 14.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "3-04",
+     "collar": {
+      "x": 10.0,
+      "y": 14.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "4-04",
+     "collar": {
+      "x": 15.0,
+      "y": 14.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "5-04",
+     "collar": {
+      "x": 20.0,
+      "y": 14.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "6-04",
+     "collar": {
+      "x": 25.0,
+      "y": 14.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "7-04",
+     "collar": {
+      "x": 30.0,
+      "y": 14.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "8-04",
+     "collar": {
+      "x": 35.0,
+      "y": 14.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "9-04",
+     "collar": {
+      "x": 40.0,
+      "y": 14.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "1-05",
+     "collar": {
+      "x": -0.0,
+      "y": 18.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "2-05",
+     "collar": {
+      "x": 5.0,
+      "y": 18.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "3-05",
+     "collar": {
+      "x": 10.0,
+      "y": 18.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "4-05",
+     "collar": {
+      "x": 15.0,
+      "y": 18.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "5-05",
+     "collar": {
+      "x": 20.0,
+      "y": 18.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "6-05",
+     "collar": {
+      "x": 25.0,
+      "y": 18.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "7-05",
+     "collar": {
+      "x": 30.0,
+      "y": 18.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "8-05",
+     "collar": {
+      "x": 35.0,
+      "y": 18.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "9-05",
+     "collar": {
+      "x": 40.0,
+      "y": 18.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "1-06",
+     "collar": {
+      "x": -0.0,
+      "y": 22.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "2-06",
+     "collar": {
+      "x": 5.0,
+      "y": 22.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "3-06",
+     "collar": {
+      "x": 10.0,
+      "y": 22.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "4-06",
+     "collar": {
+      "x": 15.0,
+      "y": 22.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "5-06",
+     "collar": {
+      "x": 20.0,
+      "y": 22.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "6-06",
+     "collar": {
+      "x": 25.0,
+      "y": 22.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "7-06",
+     "collar": {
+      "x": 30.0,
+      "y": 22.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "8-06",
+     "collar": {
+      "x": 35.0,
+      "y": 22.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "9-06",
+     "collar": {
+      "x": 40.0,
+      "y": 22.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "1-07",
+     "collar": {
+      "x": -0.0,
+      "y": 26.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "2-07",
+     "collar": {
+      "x": 5.0,
+      "y": 26.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "3-07",
+     "collar": {
+      "x": 10.0,
+      "y": 26.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "4-07",
+     "collar": {
+      "x": 15.0,
+      "y": 26.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "5-07",
+     "collar": {
+      "x": 20.0,
+      "y": 26.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "6-07",
+     "collar": {
+      "x": 25.0,
+      "y": 26.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "7-07",
+     "collar": {
+      "x": 30.0,
+      "y": 26.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "8-07",
+     "collar": {
+      "x": 35.0,
+      "y": 26.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "9-07",
+     "collar": {
+      "x": 40.0,
+      "y": 26.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "1-08",
+     "collar": {
+      "x": -0.0,
+      "y": 30.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "2-08",
+     "collar": {
+      "x": 5.0,
+      "y": 30.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "3-08",
+     "collar": {
+      "x": 10.0,
+      "y": 30.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "4-08",
+     "collar": {
+      "x": 15.0,
+      "y": 30.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "5-08",
+     "collar": {
+      "x": 20.0,
+      "y": 30.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "6-08",
+     "collar": {
+      "x": 25.0,
+      "y": 30.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "7-08",
+     "collar": {
+      "x": 30.0,
+      "y": 30.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "8-08",
+     "collar": {
+      "x": 35.0,
+      "y": 30.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "9-08",
+     "collar": {
+      "x": 40.0,
+      "y": 30.0,
+      "z": 0.0
+     },
+     "enabled": true
+    },
+    {
+     "id": "M-1",
+     "collar": {
+      "x": 6.0,
+      "y": 8.0,
+      "z": 0.0
+     },
+     "enabled": true
+    }
+   ],
+   "network": {
+    "system": "detcord",
+    "starters": [
+     "1-01"
+    ],
+    "connectors": [
+     {
+      "from_hole": "1-01",
+      "to_hole": "2-01",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "1-01",
+      "to_hole": "1-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "2-01",
+      "to_hole": "3-01",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "2-01",
+      "to_hole": "2-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "1-02",
+      "to_hole": "1-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "3-01",
+      "to_hole": "4-01",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "3-01",
+      "to_hole": "3-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "2-02",
+      "to_hole": "2-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "1-03",
+      "to_hole": "1-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "4-01",
+      "to_hole": "5-01",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "4-01",
+      "to_hole": "4-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "3-02",
+      "to_hole": "3-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "2-03",
+      "to_hole": "2-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "1-04",
+      "to_hole": "1-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "5-01",
+      "to_hole": "6-01",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "5-01",
+      "to_hole": "5-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "4-02",
+      "to_hole": "4-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "3-03",
+      "to_hole": "3-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "2-04",
+      "to_hole": "2-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "1-05",
+      "to_hole": "1-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "6-01",
+      "to_hole": "7-01",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "6-01",
+      "to_hole": "6-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "5-02",
+      "to_hole": "5-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "4-03",
+      "to_hole": "4-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "3-04",
+      "to_hole": "3-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "2-05",
+      "to_hole": "2-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "1-06",
+      "to_hole": "1-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "7-01",
+      "to_hole": "8-01",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "7-01",
+      "to_hole": "7-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "6-02",
+      "to_hole": "6-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "5-03",
+      "to_hole": "5-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "4-04",
+      "to_hole": "4-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "3-05",
+      "to_hole": "3-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "2-06",
+      "to_hole": "2-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "1-07",
+      "to_hole": "1-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "8-01",
+      "to_hole": "9-01",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "8-01",
+      "to_hole": "8-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "7-02",
+      "to_hole": "7-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "6-03",
+      "to_hole": "6-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "5-04",
+      "to_hole": "5-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "4-05",
+      "to_hole": "4-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "3-06",
+      "to_hole": "3-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "2-07",
+      "to_hole": "2-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "9-01",
+      "to_hole": "9-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "8-02",
+      "to_hole": "8-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "7-03",
+      "to_hole": "7-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "6-04",
+      "to_hole": "6-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "5-05",
+      "to_hole": "5-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "4-06",
+      "to_hole": "4-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "3-07",
+      "to_hole": "3-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "9-02",
+      "to_hole": "9-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "8-03",
+      "to_hole": "8-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "7-04",
+      "to_hole": "7-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "6-05",
+      "to_hole": "6-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "5-06",
+      "to_hole": "5-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "4-07",
+      "to_hole": "4-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "9-03",
+      "to_hole": "9-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "8-04",
+      "to_hole": "8-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "7-05",
+      "to_hole": "7-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "6-06",
+      "to_hole": "6-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "5-07",
+      "to_hole": "5-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "9-04",
+      "to_hole": "9-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "8-05",
+      "to_hole": "8-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "7-06",
+      "to_hole": "7-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "6-07",
+      "to_hole": "6-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "9-05",
+      "to_hole": "9-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "8-06",
+      "to_hole": "8-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "7-07",
+      "to_hole": "7-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "9-06",
+      "to_hole": "9-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "8-07",
+      "to_hole": "8-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "9-07",
+      "to_hole": "9-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay"
+     },
+     {
+      "from_hole": "2-02",
+      "to_hole": "M-1",
+      "delay_ms": 20,
+      "kind": "ds_relay"
+     }
+    ],
+    "downhole_delay_ms": {},
+    "electronic_times_ms": {},
+    "detonators": [],
+    "surface_connectors": [
+     {
+      "id": "sc-1-01-2-01",
+      "from_hole": "1-01",
+      "to_hole": "2-01",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-1-01-1-02",
+      "from_hole": "1-01",
+      "to_hole": "1-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-2-01-3-01",
+      "from_hole": "2-01",
+      "to_hole": "3-01",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-2-01-2-02",
+      "from_hole": "2-01",
+      "to_hole": "2-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-1-02-1-03",
+      "from_hole": "1-02",
+      "to_hole": "1-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-3-01-4-01",
+      "from_hole": "3-01",
+      "to_hole": "4-01",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-3-01-3-02",
+      "from_hole": "3-01",
+      "to_hole": "3-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-2-02-2-03",
+      "from_hole": "2-02",
+      "to_hole": "2-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-1-03-1-04",
+      "from_hole": "1-03",
+      "to_hole": "1-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-4-01-5-01",
+      "from_hole": "4-01",
+      "to_hole": "5-01",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-4-01-4-02",
+      "from_hole": "4-01",
+      "to_hole": "4-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-3-02-3-03",
+      "from_hole": "3-02",
+      "to_hole": "3-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-2-03-2-04",
+      "from_hole": "2-03",
+      "to_hole": "2-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-1-04-1-05",
+      "from_hole": "1-04",
+      "to_hole": "1-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-5-01-6-01",
+      "from_hole": "5-01",
+      "to_hole": "6-01",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-5-01-5-02",
+      "from_hole": "5-01",
+      "to_hole": "5-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-4-02-4-03",
+      "from_hole": "4-02",
+      "to_hole": "4-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-3-03-3-04",
+      "from_hole": "3-03",
+      "to_hole": "3-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-2-04-2-05",
+      "from_hole": "2-04",
+      "to_hole": "2-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-1-05-1-06",
+      "from_hole": "1-05",
+      "to_hole": "1-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-6-01-7-01",
+      "from_hole": "6-01",
+      "to_hole": "7-01",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-6-01-6-02",
+      "from_hole": "6-01",
+      "to_hole": "6-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-5-02-5-03",
+      "from_hole": "5-02",
+      "to_hole": "5-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-4-03-4-04",
+      "from_hole": "4-03",
+      "to_hole": "4-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-3-04-3-05",
+      "from_hole": "3-04",
+      "to_hole": "3-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-2-05-2-06",
+      "from_hole": "2-05",
+      "to_hole": "2-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-1-06-1-07",
+      "from_hole": "1-06",
+      "to_hole": "1-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-7-01-8-01",
+      "from_hole": "7-01",
+      "to_hole": "8-01",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-7-01-7-02",
+      "from_hole": "7-01",
+      "to_hole": "7-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-6-02-6-03",
+      "from_hole": "6-02",
+      "to_hole": "6-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-5-03-5-04",
+      "from_hole": "5-03",
+      "to_hole": "5-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-4-04-4-05",
+      "from_hole": "4-04",
+      "to_hole": "4-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-3-05-3-06",
+      "from_hole": "3-05",
+      "to_hole": "3-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-2-06-2-07",
+      "from_hole": "2-06",
+      "to_hole": "2-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-1-07-1-08",
+      "from_hole": "1-07",
+      "to_hole": "1-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-8-01-9-01",
+      "from_hole": "8-01",
+      "to_hole": "9-01",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-8-01-8-02",
+      "from_hole": "8-01",
+      "to_hole": "8-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-7-02-7-03",
+      "from_hole": "7-02",
+      "to_hole": "7-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-6-03-6-04",
+      "from_hole": "6-03",
+      "to_hole": "6-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-5-04-5-05",
+      "from_hole": "5-04",
+      "to_hole": "5-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-4-05-4-06",
+      "from_hole": "4-05",
+      "to_hole": "4-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-3-06-3-07",
+      "from_hole": "3-06",
+      "to_hole": "3-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-2-07-2-08",
+      "from_hole": "2-07",
+      "to_hole": "2-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-9-01-9-02",
+      "from_hole": "9-01",
+      "to_hole": "9-02",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-8-02-8-03",
+      "from_hole": "8-02",
+      "to_hole": "8-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-7-03-7-04",
+      "from_hole": "7-03",
+      "to_hole": "7-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-6-04-6-05",
+      "from_hole": "6-04",
+      "to_hole": "6-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-5-05-5-06",
+      "from_hole": "5-05",
+      "to_hole": "5-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-4-06-4-07",
+      "from_hole": "4-06",
+      "to_hole": "4-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-3-07-3-08",
+      "from_hole": "3-07",
+      "to_hole": "3-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-9-02-9-03",
+      "from_hole": "9-02",
+      "to_hole": "9-03",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-8-03-8-04",
+      "from_hole": "8-03",
+      "to_hole": "8-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-7-04-7-05",
+      "from_hole": "7-04",
+      "to_hole": "7-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-6-05-6-06",
+      "from_hole": "6-05",
+      "to_hole": "6-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-5-06-5-07",
+      "from_hole": "5-06",
+      "to_hole": "5-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-4-07-4-08",
+      "from_hole": "4-07",
+      "to_hole": "4-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-9-03-9-04",
+      "from_hole": "9-03",
+      "to_hole": "9-04",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-8-04-8-05",
+      "from_hole": "8-04",
+      "to_hole": "8-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-7-05-7-06",
+      "from_hole": "7-05",
+      "to_hole": "7-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-6-06-6-07",
+      "from_hole": "6-06",
+      "to_hole": "6-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-5-07-5-08",
+      "from_hole": "5-07",
+      "to_hole": "5-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-9-04-9-05",
+      "from_hole": "9-04",
+      "to_hole": "9-05",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-8-05-8-06",
+      "from_hole": "8-05",
+      "to_hole": "8-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-7-06-7-07",
+      "from_hole": "7-06",
+      "to_hole": "7-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-6-07-6-08",
+      "from_hole": "6-07",
+      "to_hole": "6-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-9-05-9-06",
+      "from_hole": "9-05",
+      "to_hole": "9-06",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-8-06-8-07",
+      "from_hole": "8-06",
+      "to_hole": "8-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-7-07-7-08",
+      "from_hole": "7-07",
+      "to_hole": "7-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-9-06-9-07",
+      "from_hole": "9-06",
+      "to_hole": "9-07",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-8-07-8-08",
+      "from_hole": "8-07",
+      "to_hole": "8-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-9-07-9-08",
+      "from_hole": "9-07",
+      "to_hole": "9-08",
+      "delay_ms": 20.0,
+      "kind": "ds_relay",
+      "product": ""
+     },
+     {
+      "id": "sc-2-02-M-1",
+      "from_hole": "2-02",
+      "to_hole": "M-1",
+      "delay_ms": 20,
+      "kind": "ds_relay",
+      "product": ""
+     }
+    ],
+    "downhole_connectors": [],
+    "detonating_cords": [
+     {
+      "id": "dc-main",
+      "hole_ids": [
+       "1-01",
+       "2-01",
+       "1-02",
+       "3-01",
+       "2-02",
+       "1-03",
+       "4-01",
+       "3-02",
+       "2-03",
+       "1-04",
+       "5-01",
+       "4-02",
+       "3-03",
+       "2-04",
+       "1-05",
+       "6-01",
+       "5-02",
+       "4-03",
+       "3-04",
+       "2-05",
+       "1-06",
+       "7-01",
+       "6-02",
+       "5-03",
+       "4-04",
+       "3-05",
+       "2-06",
+       "1-07",
+       "8-01",
+       "7-02",
+       "6-03",
+       "5-04",
+       "4-05",
+       "3-06",
+       "2-07",
+       "1-08",
+       "9-01",
+       "8-02",
+       "7-03",
+       "6-04",
+       "5-05",
+       "4-06",
+       "3-07",
+       "2-08",
+       "9-02",
+       "8-03",
+       "7-04",
+       "6-05",
+       "5-06",
+       "4-07",
+       "3-08",
+       "9-03",
+       "8-04",
+       "7-05",
+       "6-06",
+       "5-07",
+       "4-08",
+       "9-04",
+       "8-05",
+       "7-06",
+       "6-07",
+       "5-08",
+       "9-05",
+       "8-06",
+       "7-07",
+       "6-08",
+       "9-06",
+       "8-07",
+       "7-08",
+       "9-07",
+       "8-08",
+       "9-08"
+      ],
+      "velocity_m_s": 7000.0,
+      "relay_delay_ms": 0.0,
+      "product": ""
+     }
+    ],
+    "starter_items": [
+     {
+      "id": "st-1-01",
+      "hole_id": "1-01",
+      "delay_ms": 0.0,
+      "kind": "starter"
+     }
+    ],
+    "electronic_channels": [],
+    "firing_events": [],
+    "timing_mode": "",
+    "timing_expression": "",
+    "timing_params": {
+     "scheme": "echelon",
+     "origin": "template",
+     "interval_ms": 20,
+     "downhole_delay_ms": 0.0
+    },
+    "selected_hole_ids": []
+   },
+   "times": {
+    "1-01": 0.0,
+    "1-02": 1.629018,
+    "1-03": 4.9971,
+    "1-04": 10.169868,
+    "1-05": 17.160769,
+    "1-06": 25.974664,
+    "1-07": 36.613843,
+    "1-08": 49.079566,
+    "2-01": 0.714286,
+    "2-02": 4.082368,
+    "2-03": 9.255136,
+    "2-04": 16.246036,
+    "2-05": 25.059932,
+    "2-06": 35.699111,
+    "2-07": 48.164834,
+    "2-08": 62.457865,
+    "3-01": 3.167636,
+    "3-02": 8.340404,
+    "3-03": 15.331304,
+    "3-04": 24.145199,
+    "3-05": 34.784379,
+    "3-06": 47.250102,
+    "3-07": 61.543133,
+    "3-08": 74.008856,
+    "4-01": 7.425672,
+    "4-02": 14.416572,
+    "4-03": 23.230467,
+    "4-04": 33.869647,
+    "4-05": 46.33537,
+    "4-06": 60.628401,
+    "4-07": 73.094124,
+    "4-08": 83.733304,
+    "5-01": 13.50184,
+    "5-02": 22.315735,
+    "5-03": 32.954915,
+    "5-04": 45.420638,
+    "5-05": 59.713669,
+    "5-06": 72.179392,
+    "5-07": 82.818572,
+    "5-08": 91.632467,
+    "6-01": 21.401003,
+    "6-02": 32.040183,
+    "6-03": 44.505906,
+    "6-04": 58.798937,
+    "6-05": 71.26466,
+    "6-06": 81.903839,
+    "6-07": 90.717735,
+    "6-08": 97.708635,
+    "7-01": 31.125451,
+    "7-02": 43.591174,
+    "7-03": 57.884205,
+    "7-04": 70.349928,
+    "7-05": 80.989107,
+    "7-06": 89.803003,
+    "7-07": 96.793903,
+    "7-08": 101.966671,
+    "8-01": 42.676442,
+    "8-02": 56.969473,
+    "8-03": 69.435196,
+    "8-04": 80.074375,
+    "8-05": 88.88827,
+    "8-06": 95.879171,
+    "8-07": 101.051939,
+    "8-08": 104.420021,
+    "9-01": 56.054741,
+    "9-02": 68.520464,
+    "9-03": 79.159643,
+    "9-04": 87.973538,
+    "9-05": 94.964439,
+    "9-06": 100.137207,
+    "9-07": 103.505289,
+    "9-08": 105.134307,
+    "M-1": 24.082368
    },
    "unsignaled": []
   }

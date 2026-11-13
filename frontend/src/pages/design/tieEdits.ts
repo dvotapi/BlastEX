@@ -8,6 +8,13 @@
 // Правила (решения владельца по TASK-017): у скважины одна входящая связь —
 // новая заменяет прежнюю; связь, замыкающая путь на себя (цикл), не
 // создаётся. Те же правила — у разворота и перецепки конца.
+//
+// Шнур ДШ (TASK-017, PR 5): у старых схем ДШ время задаёт общий шнур
+// (`detonating_cords`, в обе стороны, быстрее реле), и правка связи времён не
+// меняла бы. Первая правка связей или стартовых шнур снимает (решение
+// владельца 14.11.2026): сеть — как «Магистраль + цепочки» ДШ, время — по реле
+// связей. «В скважине» шнур не трогает; «Пересчитать коммутацию» строит сеть
+// шаблоном заново, со шнуром.
 import {
   networkTies,
   type DownholeConnector,
@@ -29,7 +36,11 @@ export type TieEditResult = {
   changed: boolean;
   /** Скважины, которых правка не коснулась: их время задаёт электронная программа. */
   skipped?: string[];
+  /** Правка сняла общий шнур ДШ: время теперь по реле связей. */
+  cordRemoved?: boolean;
 };
+
+export const CORD_REMOVED_TEXT = "Общий шнур ДШ снят — время по реле связей";
 
 function unchanged(network: InitiationNetwork, cycles: TieCycle[] = []): TieEditResult {
   return { network, replaced: [], cycles, changed: false };
@@ -118,7 +129,14 @@ function finish(
   if (sameTies(networkTies(network), ties) && next.starters.join("\n") === network.starters.join("\n")) {
     return unchanged(network, cycles);
   }
-  return { network: markNetworkEdited(withTies(next, ties)), replaced, cycles, changed: true };
+  return edited(withTies(next, ties), { replaced, cycles });
+}
+
+/** Правленая сеть связей или стартовых: без общего шнура ДШ, `origin` — «edited». */
+function edited(network: InitiationNetwork, rest: Pick<TieEditResult, "replaced" | "cycles">): TieEditResult {
+  const cordRemoved = (network.detonating_cords?.length ?? 0) > 0;
+  const next = cordRemoved ? { ...network, detonating_cords: [] } : network;
+  return { network: markNetworkEdited(next), ...rest, changed: true, ...(cordRemoved ? { cordRemoved } : {}) };
 }
 
 /**
@@ -208,11 +226,25 @@ export function reconnectTie(network: InitiationNetwork, id: string, end: "from"
 
 /** «Стартер»: поставить или снять стартовую у скважины. */
 export function toggleStarter(network: InitiationNetwork, holeId: string): TieEditResult {
+  return toggleStarters(network, [holeId]);
+}
+
+/**
+ * Стартовые по выбору: все выбранные уже стартовые — снять, иначе поставить
+ * недостающие (с нулевой задержкой; у прежних задержка сохраняется).
+ */
+export function toggleStarters(network: InitiationNetwork, holeIds: string[]): TieEditResult {
+  if (!holeIds.length) return unchanged(network);
   const items = starterItems(network);
-  const next = items.some((item) => item.hole_id === holeId)
-    ? items.filter((item) => item.hole_id !== holeId)
-    : [...items, { id: `st-${holeId}`, hole_id: holeId, delay_ms: 0, kind: "starter" }];
-  return { network: markNetworkEdited(withStarters(network, next)), replaced: [], cycles: [], changed: true };
+  const current = new Set(items.map((item) => item.hole_id));
+  const chosen = new Set(holeIds);
+  const next = holeIds.every((id) => current.has(id))
+    ? items.filter((item) => !chosen.has(item.hole_id))
+    : [
+      ...items,
+      ...[...chosen].filter((id) => !current.has(id)).map((id) => ({ id: `st-${id}`, hole_id: id, delay_ms: 0, kind: "starter" })),
+    ];
+  return edited(withStarters(network, next), { replaced: [], cycles: [] });
 }
 
 /**
@@ -278,6 +310,7 @@ export function tieEditNotice(result: TieEditResult): string {
     parts.push(`Заменено связей: ${result.replaced.length}`);
   }
   if (result.cycles.length) parts.push(`Цикл: скважина ${result.cycles[0].to} уже срабатывает раньше`);
+  if (result.cordRemoved) parts.push(CORD_REMOVED_TEXT);
   if (result.skipped?.length) {
     const [first] = result.skipped;
     parts.push(

@@ -148,3 +148,112 @@ describe("autoRetie и сохранение", () => {
     expect(saved.autoRetie).toBeUndefined();
   });
 });
+
+// TASK-017, PR 5: набор скважин сменился — сеть тоже устарела (решение владельца
+// 14.11.2026: «как после сдвига»).
+describe("устаревание от набора скважин", () => {
+  const THREE: InitiationNetwork = {
+    ...TEMPLATE,
+    connectors: [
+      { from_hole: "1-01", to_hole: "1-02", delay_ms: 25, kind: "surface_nsi" },
+      { from_hole: "1-02", to_hole: "1-03", delay_ms: 25, kind: "surface_nsi" },
+    ],
+  };
+
+  function three(network: InitiationNetwork = THREE): DesignState {
+    const design: BlastDesign = {
+      ...emptyDesign(),
+      design_id: "a",
+      holes: [hole("1-01", 10, 20), hole("1-02", 15, 20), hole("1-03", 20, 20)],
+      network,
+    };
+    return initDesignState(design);
+  }
+
+  const actions: [string, (state: DesignState) => DesignState][] = [
+    ["добавление", (s) => designReducer(s, { type: "ADD_HOLE", hole: hole("M-1", 30, 20) })],
+    ["удаление", (s) => designReducer(s, { type: "DELETE_HOLES", ids: ["1-03"] })],
+    ["исключение", (s) => designReducer(s, { type: "SET_HOLES_ENABLED", ids: ["1-02"], enabled: false })],
+    ["смена вида", (s) => designReducer(s, { type: "UPDATE_HOLE", id: "1-02", patch: { kind: "contour" } })],
+  ];
+
+  for (const [name, act] of actions) {
+    it(`${name}: сеть шаблона помечена и пересчитается сама в той же записи отмены`, () => {
+      const next = act(three());
+      expect(isGeometryStale(next.present.network)).toBe(true);
+      expect(next.past).toHaveLength(1);
+      expect(isGeometryStale(next.past[0].network)).toBe(false);
+      expect(next.autoRetie).toEqual({ present: next.present, series: false });
+    });
+
+    it(`${name}: правленая сеть — только пометка`, () => {
+      const edited = { ...THREE, timing_params: { ...THREE.timing_params, origin: "edited" } };
+      const next = act(three(edited));
+      expect(isGeometryStale(next.present.network)).toBe(true);
+      expect(next.autoRetie).toBeUndefined();
+    });
+
+    it(`${name}: пустая сеть пометки не получает`, () => {
+      const next = act(three(emptyNetwork()));
+      expect(isGeometryStale(next.present.network)).toBe(false);
+      expect(next.autoRetie).toBeUndefined();
+    });
+  }
+
+  it("исключение уже исключённой и правка без смены вида — без пометки", () => {
+    const off = designReducer(three(), { type: "SET_HOLES_ENABLED", ids: ["1-02"], enabled: false });
+    const fresh = designReducer(off, { type: "RETIE_NETWORK", network: THREE, base: off.present, merge: true });
+    const again = designReducer(fresh, { type: "SET_HOLES_ENABLED", ids: ["1-02"], enabled: false });
+    expect(isGeometryStale(again.present.network)).toBe(false);
+    expect(again.autoRetie?.present).not.toBe(again.present);
+    const widened = designReducer(three(), { type: "UPDATE_HOLE", id: "1-02", patch: { diameter_mm: 200 } });
+    expect(isGeometryStale(widened.present.network)).toBe(false);
+    const sameKind = designReducer(three(), { type: "UPDATE_HOLE", id: "1-02", patch: { kind: "production" } });
+    expect(isGeometryStale(sameKind.present.network)).toBe(false);
+  });
+
+  it("исключить и включить снова — оба раза пересчёт", () => {
+    const off = designReducer(three(), { type: "SET_HOLES_ENABLED", ids: ["1-02"], enabled: false });
+    const fresh = designReducer(off, { type: "RETIE_NETWORK", network: THREE, base: off.present, merge: true });
+    const on = designReducer(fresh, { type: "SET_HOLES_ENABLED", ids: ["1-02"], enabled: true });
+    expect(isGeometryStale(on.present.network)).toBe(true);
+    expect(on.autoRetie?.present).toBe(on.present);
+    expect(on.past).toHaveLength(2);
+  });
+
+  it("удаление, после которого в сети ничего нет, — без пометки", () => {
+    const pair: InitiationNetwork = { ...TEMPLATE, starters: ["1-01"] };
+    const next = designReducer(start(pair), { type: "DELETE_HOLES", ids: ["1-01"] });
+    expect(isGeometryStale(next.present.network)).toBe(false);
+    expect(next.autoRetie).toBeUndefined();
+  });
+
+  it("автопересчёт после добавления вливается в его запись: одна отмена убирает скважину и сеть", () => {
+    const added = designReducer(three(), { type: "ADD_HOLE", hole: hole("M-1", 30, 20) });
+    const retied = designReducer(added, { type: "RETIE_NETWORK", network: REBUILT, base: added.present, merge: true });
+    expect(retied.past).toHaveLength(1);
+    const undone = designReducer(retied, { type: "UNDO" });
+    expect(undone.present.holes).toHaveLength(3);
+    expect(undone.present.network).toEqual(THREE);
+  });
+});
+
+describe("удаление скважины на шнуре ДШ", () => {
+  it("шнур рвётся на удалённой скважине, а не склеивается через неё", () => {
+    const corded: InitiationNetwork = {
+      ...emptyNetwork(),
+      system: "detcord",
+      starters: ["1-01"],
+      detonating_cords: [{ id: "dc-main", hole_ids: ["1-01", "1-02", "1-03", "1-04", "1-05"], velocity_m_s: 7000, relay_delay_ms: 0, product: "" }],
+      timing_params: { scheme: "row", origin: "edited" },
+    };
+    const design: BlastDesign = {
+      ...emptyDesign(),
+      design_id: "a",
+      holes: ["1-01", "1-02", "1-03", "1-04", "1-05"].map((id, i) => hole(id, i * 5, 0)),
+      network: corded,
+    };
+    const next = designReducer(initDesignState(design), { type: "DELETE_HOLES", ids: ["1-03"] });
+    expect(next.present.network.detonating_cords.map((cord) => cord.hole_ids)).toEqual([["1-01", "1-02"], ["1-04", "1-05"]]);
+  });
+});

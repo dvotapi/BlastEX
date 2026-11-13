@@ -11,6 +11,8 @@ import {
   stepCounts,
   tieEditNotice,
   toggleStarter,
+  toggleStarters,
+  CORD_REMOVED_TEXT,
 } from "./tieEdits";
 
 function tie(from: string, to: string, delay = 42): SurfaceConnector {
@@ -176,5 +178,71 @@ describe("электронная программа времени", () => {
     const only = setDownholeDelay(base, ["a"], 5);
     expect(only.changed).toBe(false);
     expect(tieEditNotice(only)).toBe("Скважина a: время задаёт электронная программа — замедление в скважине не изменено");
+  });
+});
+
+// TASK-017, PR 5: у старых схем ДШ время задаёт общий шнур (в обе стороны,
+// быстрее реле) — первая ручная правка связей или стартовых его снимает
+// (решение владельца 14.11.2026), дальше время — по реле связей.
+describe("шнур ДШ при ручной правке", () => {
+  function detcord(): InitiationNetwork {
+    const base = net([{ ...tie("a", "b", 20), kind: "ds_relay" }, { ...tie("b", "c", 20), kind: "ds_relay" }]);
+    return normalizeNetwork({
+      ...base,
+      system: "detcord",
+      detonating_cords: [{ id: "dc-main", hole_ids: ["a", "b", "c"], velocity_m_s: 7000, relay_delay_ms: 0, product: "" }],
+      timing_params: { scheme: "row", origin: "template" },
+    });
+  }
+
+  const edits: [string, (network: InitiationNetwork) => ReturnType<typeof addTies>][] = [
+    ["связь", (n) => addTies(n, ["c", "d"], 20)],
+    ["ступень", (n) => setTiesDelay(n, ["sc-a-b"], 42)],
+    ["удаление", (n) => removeTies(n, ["sc-b-c"])],
+    ["разворот", (n) => reverseTie(n, "sc-b-c")],
+    ["перецепка", (n) => reconnectTie(n, "sc-b-c", "to", "d")],
+    ["стартер", (n) => toggleStarter(n, "d")],
+    ["стартеры по выбору", (n) => toggleStarters(n, ["c", "d"])],
+  ];
+
+  for (const [name, edit] of edits) {
+    it(`${name}: шнур снят, подсказка говорит об этом`, () => {
+      const result = edit(detcord());
+      expect(result.changed).toBe(true);
+      expect(result.network.detonating_cords).toEqual([]);
+      expect(result.cordRemoved).toBe(true);
+      expect(tieEditNotice(result)).toContain(CORD_REMOVED_TEXT);
+      expect(result.network.timing_params.origin).toBe("edited");
+    });
+  }
+
+  it("«В скважине» шнур оставляет", () => {
+    const result = setDownholeDelay(detcord(), ["b"], 500);
+    expect(result.changed).toBe(true);
+    expect(result.network.detonating_cords).toHaveLength(1);
+    expect(result.cordRemoved).toBeFalsy();
+  });
+
+  it("правка без изменений и отказ из-за цикла шнур оставляют", () => {
+    const same = setTiesDelay(detcord(), ["sc-a-b"], 20);
+    expect(same.changed).toBe(false);
+    expect(same.network.detonating_cords).toHaveLength(1);
+    const cycle = addTies(detcord(), ["c", "a"], 20);
+    expect(cycle.changed).toBe(false);
+    expect(cycle.cycles).toHaveLength(1);
+    expect(cycle.network.detonating_cords).toHaveLength(1);
+  });
+
+  it("сеть без шнура — без подсказки о шнуре", () => {
+    const result = removeTies(net([tie("a", "b")]), ["sc-a-b"]);
+    expect(result.cordRemoved).toBeFalsy();
+    expect(tieEditNotice(result)).toBe("");
+  });
+
+  it("стартеры по выбору: все выбранные стартовые — снять, иначе поставить", () => {
+    const on = toggleStarters(net([]), ["a", "b"]);
+    expect(on.network.starters).toEqual(["a", "b"]);
+    expect(toggleStarters(on.network, ["a", "b"]).network.starters).toEqual([]);
+    expect(toggleStarters(net([]), []).changed).toBe(false);
   });
 });

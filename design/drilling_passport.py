@@ -19,7 +19,7 @@ import shapely
 from shapely.geometry import LineString, Point
 from shapely.ops import nearest_points
 
-from design.geometry import polygon_area
+from design.geometry import block_area_m2
 from design.lifecycle import designed_sha256
 from design.mass_blast import ValidationIssue
 from design.models import BlastDesign, Point3, in_main_grid
@@ -622,8 +622,8 @@ def resolve_inputs(
 
     manual = "MANUAL_OVERRIDE"
     design_alpha = _design_alpha(design)
-    vertices = design.contour.points_xy
-    contour_area = polygon_area(vertices) if len(vertices) >= 3 else 0.0
+    # Площадь блока — та же, что в проекте МВ (`geometry.block_area_m2`).
+    contour_area = block_area_m2(design.contour) or 0.0
     resolved = {
         # Объект раньше проекта: в интерфейсе у нового блока угол откоса по
         # умолчанию 75°, и он перекрыл бы техпроект объекта.

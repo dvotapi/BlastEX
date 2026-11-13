@@ -66,6 +66,19 @@ def polygon_area(poly: list[Point2]) -> float:
     return abs(polygon_signed_area(poly))
 
 
+def block_area_m2(contour: BlockContour) -> float | None:
+    """Площадь блока, м² — площадь его контура в плане, до 0,01 м²; нет контура — None.
+
+    Одна на все документы блока: паспорт на бурение и проект МВ берут её
+    отсюда, чтобы площадь одного блока в них не расходилась.
+    """
+
+    if len(contour.vertices) < 3:
+        return None
+    area = round(polygon_area(contour.points_xy), 2)
+    return area if area > 0 else None
+
+
 def ensure_ccw(poly: list[Point2]) -> list[Point2]:
     """Возвращает полигон в порядке против часовой стрелки."""
     if polygon_signed_area(poly) < 0:

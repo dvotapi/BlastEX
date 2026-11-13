@@ -20,7 +20,7 @@ from statistics import median
 from typing import Any, Mapping, Sequence
 
 from design.mass_blast_calc import ConsumptionLine
-from design.mass_blast_defaults import block_area
+from design.geometry import block_area_m2
 from design.mass_blast_table import ParameterTable
 from design.models import BlastDesign, HoleLoad, is_explosive_deck_kind
 from design.safety import SafetyValue, num
@@ -174,11 +174,7 @@ def technical_calculation(
 
     # 1. Общие сведения
     area_manual = block.get("area_m2")
-    if area_manual not in (None, ""):
-        area: float | None = float(area_manual)
-    else:
-        found = block_area(design)
-        area = found[0] if found else None
+    area = float(area_manual) if area_manual not in (None, "") else block_area_m2(design.contour)
     purpose = PURPOSE_LABELS.get(str(block.get("purpose") or ""), str(block.get("purpose") or ""))
     general = f"Блок № {block.get('code', '')}, гор. {block.get('horizon', '')} м"
     if purpose:

@@ -34,7 +34,6 @@ __all__ = [
     "MagexValidationError",
     "approve",
     "availability",
-    "blaster_options",
     "blaster_status",
     "cancel",
     "catalog",
@@ -158,15 +157,6 @@ def _materials_map(snapshot: Any) -> dict[str, str]:
 
 def _blasters(snapshot: Any) -> list[Any]:
     return [] if snapshot is None else list(snapshot.active_items("blasters"))
-
-
-def blaster_options(economics_repository: Any, organization_id: str) -> list[dict[str, str]]:
-    """Взрывники справочника для выбора в наряде: код и подпись «ФИО — индекс»."""
-
-    return [
-        {"value": str(item.code), "label": f"{item.name} — {item.payload.get('blaster_index', '')}"}
-        for item in _blasters(_current_snapshot(economics_repository, organization_id))
-    ]
 
 
 def warehouse_options(economics_repository: Any, organization_id: str) -> list[dict[str, str]]:

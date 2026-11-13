@@ -549,3 +549,15 @@ def test_send_result_does_not_resurrect_a_superseded_version():
     # Отправка, начатая до замены, кончилась сбоем сети — версия остаётся заменённой.
     magex._send(repository, ORG, "a", LAYER_ID, version, magex.client_for(ORG, fake), NOW)
     assert repository.versions[0]["status"] == "SUPERSEDED"
+
+
+def test_naryad_options_fill_fields_from_references():
+    options = layers.naryad_options(economics(), ORG)
+    assert options["vehicles"][0]["fill"] == {"vehicle_model": "КамАЗ 43118", "vehicle_plate": "А123ВС96", "driver": "Петров П. П."}
+    assert options["blasters"][0]["fill"] == {"blaster_name": "Трегубов Александр Иванович", "blaster_index": "ЮФ60АВ"}
+    assert layers.naryad_options(None, ORG) == {"blasters": [], "vehicles": []}
+
+
+def test_choice_keys_are_written_only_when_set():
+    assert "vehicle_code" not in layers._payload("NARYAD", {"vehicle_code": "", "blaster_name": ""})
+    assert layers._payload("NARYAD", {"vehicle_code": "V-01"})["vehicle_code"] == "V-01"

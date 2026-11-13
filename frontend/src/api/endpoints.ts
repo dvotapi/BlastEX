@@ -168,6 +168,7 @@ import type {
   MagexOption,
   MagexState,
   MassBlastHints,
+  NaryadOptions,
   MassBlastLayer,
   MassBlastProjectInputV2,
   MassBlastProjectV2,
@@ -1110,7 +1111,7 @@ export const api = {
     magexCancel: (layerId: string, payload: { reason: string }) =>
       post<MagexState>(`${MB}/layers/${encodeURIComponent(layerId)}/magex/cancel`, payload),
     magexWarehouses: () => get<MagexOption[]>(`${MB}/magex/warehouses`),
-    magexBlasters: () => get<MagexOption[]>(`${MB}/magex/blasters`),
+    naryadOptions: () => get<NaryadOptions>(`${MB}/options/naryad`),
     magexMaterials: () => get<MagexOption[]>(`${MB}/magex/materials`),
   },
 

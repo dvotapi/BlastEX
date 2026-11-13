@@ -710,6 +710,17 @@ def _magex_errors(exc: Exception) -> HTTPException:
     return _layer_errors(exc)
 
 
+@router.get("/options/naryad", dependencies=[Depends(_require_layers)])
+def get_naryad_options(
+    session: dict[str, object] = Depends(require_internal_access),
+    economics_repository: EconomicsRepository = Depends(get_economics_repository),
+) -> dict[str, list[dict[str, object]]]:
+    """Взрывники и спецавтомобили для выпадающих списков наряда-путёвки (справочники)."""
+
+    organization_id, _ = _identity(session)
+    return layers_service.naryad_options(economics_repository, organization_id)
+
+
 @router.get("/magex/materials", dependencies=[Depends(_require_magex)])
 def get_magex_materials(session: dict[str, object] = Depends(require_internal_access)) -> list[dict[str, str]]:
     """Позиции номенклатуры MagEX для поля «Позиция MagEX» справочника материалов."""
@@ -735,17 +746,6 @@ def get_magex_warehouses(
 
     organization_id, _ = _identity(session)
     return magex.warehouse_options(economics_repository, organization_id)
-
-
-@router.get("/magex/blasters", dependencies=[Depends(_require_magex)])
-def get_magex_blasters(
-    session: dict[str, object] = Depends(require_internal_access),
-    economics_repository: EconomicsRepository = Depends(get_economics_repository),
-) -> list[dict[str, str]]:
-    from api.services import magex_naryad_service as magex
-
-    organization_id, _ = _identity(session)
-    return magex.blaster_options(economics_repository, organization_id)
 
 
 @router.get("/magex/keys-in-use", dependencies=[Depends(_require_magex)])

@@ -24,7 +24,7 @@ vi.mock("../../../../api/endpoints", () => ({
       magexAvailability: vi.fn(),
       magexBlasterStatus: vi.fn(),
       magexWarehouses: vi.fn(),
-      magexBlasters: vi.fn(),
+      naryadOptions: vi.fn(),
     },
   },
 }));
@@ -57,7 +57,10 @@ beforeEach(() => {
   vi.mocked(api.massBlast.layersAvailable).mockReset().mockResolvedValue([]);
   vi.mocked(api.massBlast.addressees).mockReset().mockResolvedValue({ registry: false, items: [] });
   vi.mocked(api.massBlast.magexWarehouses).mockReset().mockResolvedValue([{ value: "wh-1", label: "Склад ВМ № 1" }]);
-  vi.mocked(api.massBlast.magexBlasters).mockReset().mockResolvedValue([{ value: "BL-01", label: "Трегубов А. И. — ЮФ60АВ" }]);
+  vi.mocked(api.massBlast.naryadOptions).mockReset().mockResolvedValue({
+    blasters: [{ value: "BL-01", label: "Трегубов А. И. — ЮФ60АВ", fill: { blaster_name: "Трегубов А. И.", blaster_index: "ЮФ60АВ" } }],
+    vehicles: [{ value: "V-01", label: "КамАЗ — А123ВС96", fill: { vehicle_model: "КамАЗ 43118", vehicle_plate: "А123ВС96", driver: "Петров П. П." } }],
+  });
   vi.mocked(api.massBlast.magexBlasterStatus).mockReset().mockResolvedValue({ blaster: null, reported: true });
   vi.mocked(api.massBlast.magexAvailability).mockReset().mockResolvedValue({
     items: { "explosive:ВВ:": { available: 5000, short: false, shared: false }, "primer:ПД:": { available: 10, short: true, shared: false } },
@@ -196,5 +199,26 @@ describe("наряд-путёвка в учёте MagEX", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("взрывник и спецавтомобиль — списками из справочников, выбор подставляет поля", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.massBlast.layers).mockResolvedValue([online({ mode: "OFFLINE", reason: "нет адреса" })]);
+    vi.mocked(api.massBlast.saveLayer).mockReset().mockImplementation(async (_id, body) => layer({ payload: body.payload, version: 3 }));
+    render(<DayTab project={approved} />);
+    await screen.findByRole("option", { name: "КамАЗ — А123ВС96" });
+    await user.selectOptions(screen.getByLabelText("Спецавтомобиль"), "КамАЗ — А123ВС96");
+    expect((screen.getByLabelText("Спецавтомобиль: марка") as HTMLInputElement).value).toBe("КамАЗ 43118");
+    expect((screen.getByLabelText("Спецавтомобиль: гос. номер") as HTMLInputElement).value).toBe("А123ВС96");
+    expect((screen.getByLabelText("Водитель") as HTMLInputElement).value).toBe("Петров П. П.");
+    await user.selectOptions(screen.getByLabelText("Взрывник"), "Трегубов А. И. — ЮФ60АВ");
+    expect((screen.getByLabelText("Индивидуальный индекс взрывника") as HTMLInputElement).value).toBe("ЮФ60АВ");
+    await user.click(screen.getByRole("button", { name: "Сохранить" }));
+    await waitFor(() => expect(api.massBlast.saveLayer).toHaveBeenCalled());
+    const [, body] = vi.mocked(api.massBlast.saveLayer).mock.calls[0];
+    expect(body.payload).toMatchObject({
+      vehicle_code: "V-01", vehicle_model: "КамАЗ 43118", vehicle_plate: "А123ВС96", driver: "Петров П. П.",
+      blaster_code: "BL-01", blaster_name: "Трегубов А. И.", blaster_index: "ЮФ60АВ",
+    });
   });
 });

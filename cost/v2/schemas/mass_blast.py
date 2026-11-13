@@ -28,6 +28,7 @@ from cost.v2.schemas.base import RefField, ReferencePayload, UnitField, field_er
 __all__ = [
     "BlastNotificationPayload",
     "BlasterPayload",
+    "VehiclePayload",
     "MassBlastProfilePayload",
     "MassBlastSitePayload",
     "ScheduleText",
@@ -292,4 +293,22 @@ class BlasterPayload(ReferencePayload):
         default=None,
         title="Сотрудник SafetyMAIN",
         description="Постоянный идентификатор сотрудника в SafetyMAIN; пусто — BlastEX присвоит постоянный по индексу",
+    )
+
+
+class VehiclePayload(ReferencePayload):
+    """Спецавтомобиль для перевозки ВМ (наряд-путёвка): выбирается в наряде списком и
+    подставляет марку, гос. номер и водителя по умолчанию. Наименование — как называют
+    машину на объекте."""
+
+    vehicle_model: str = Field(
+        title="Марка, модель", description="Марка и модель автомобиля — печатается в наряде-путёвке",
+        min_length=1, max_length=200,
+    )
+    vehicle_plate: str = Field(
+        title="Гос. номер", description="Государственный регистрационный номер", min_length=1, max_length=200,
+    )
+    driver: str = Field(
+        default="", title="Водитель по умолчанию", description="Фамилия, инициалы — подставляются в наряд, можно поменять",
+        max_length=200,
     )

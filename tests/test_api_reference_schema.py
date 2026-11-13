@@ -39,7 +39,7 @@ def test_section_behind_a_disabled_flag_is_not_published(monkeypatch) -> None:
     monkeypatch.setenv("BLASTEX_MASS_BLAST_V2_ENABLED", "0")
     monkeypatch.setenv("BLASTEX_MAGEX_INTEGRATION_ENABLED", "0")
     gated = {code for code, meta in REFERENCE_SECTION_DEFINITIONS.items() if meta.get("feature")}
-    assert {"blast_safety", "mass_blast_sites", "mass_blast_profiles", "blast_notifications"} <= gated
+    assert {"blast_safety", "mass_blast_sites", "mass_blast_profiles", "blast_notifications", "blasters", "vehicles"} <= gated
     payload = _schema(monkeypatch)
     assert set(payload["sections"]) == set(SECTION_SCHEMAS) - gated
 

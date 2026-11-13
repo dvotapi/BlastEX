@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from api import config
-from api.schemas.mass_blast import LAYER_PAYLOAD_SCHEMAS, NARYAD_MAGEX_KEYS
+from api.schemas.mass_blast import LAYER_PAYLOAD_SCHEMAS, NARYAD_OPTIONAL_KEYS
 from api.services.magex_settings import magex_mode, offline_reason
 from cost.v2.repository import EconomicsRepository
 from design import persistence as design_persistence
@@ -47,6 +47,7 @@ from design.mass_blast_repository import PostgresMassBlastRepository
 
 __all__ = [
     "available_layers",
+    "naryad_options",
     "create_layer",
     "get_layer",
     "issue_layer",
@@ -69,7 +70,7 @@ def _payload(kind: str, payload: Mapping[str, Any]) -> dict[str, Any]:
     data = schema.model_validate(dict(payload)).model_dump()
     if kind == "NARYAD":
         # Поля MagEX (PR 7) — только заданные: содержимое прежних нарядов не меняется.
-        for key in NARYAD_MAGEX_KEYS:
+        for key in NARYAD_OPTIONAL_KEYS:
             if data.get(key) in ("", False, None):
                 data.pop(key, None)
     if kind == "NOTIFICATION" and data["notification_code"] and any(
@@ -847,4 +848,43 @@ def notification_addressees(
             {"code": item.code, "label": _addressee_label(item.name, item.payload), "taken": item.code in taken}
             for item in records
         ],
+    }
+
+
+def naryad_options(economics_repository: EconomicsRepository | None, organization_id: str) -> dict[str, list[dict[str, Any]]]:
+    """Списки выбора наряда-путёвки (TASK-018 PR 7): взрывники и спецавтомобили из справочников.
+
+    Каждый вариант — подпись и `fill`: какие поля наряда выбор подставит. Окно полей
+    справочников не знает: оно берёт значения из `fill` как есть.
+    """
+
+    try:
+        snapshot = economics_repository.get_reference_snapshot(organization_id) if economics_repository is not None else None
+    except Exception:  # noqa: BLE001 — без справочника списков нет, поля вводятся вручную
+        snapshot = None
+    if snapshot is None:
+        return {"blasters": [], "vehicles": []}
+    blasters = [
+        {
+            "value": str(item.code),
+            "label": f"{item.name} — {item.payload.get('blaster_index', '')}",
+            "fill": {"blaster_name": str(item.name), "blaster_index": str(item.payload.get("blaster_index") or "")},
+        }
+        for item in snapshot.active_items("blasters")
+    ]
+    vehicles = [
+        {
+            "value": str(item.code),
+            "label": f"{item.name} — {item.payload.get('vehicle_plate', '')}",
+            "fill": {
+                key: str(item.payload.get(key) or "")
+                for key in ("vehicle_model", "vehicle_plate", "driver")
+                if key != "driver" or item.payload.get("driver")
+            },
+        }
+        for item in snapshot.active_items("vehicles")
+    ]
+    return {
+        "blasters": sorted(blasters, key=lambda option: option["label"]),
+        "vehicles": sorted(vehicles, key=lambda option: option["label"]),
     }

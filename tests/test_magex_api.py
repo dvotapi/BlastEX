@@ -96,7 +96,11 @@ def test_material_options_and_blasters(fake):
     client = _client(MemoryRepository())
     options = client.get(f"{BASE}/magex/materials").json()
     assert {"value": "1245e861-01f5-52d7-9c66-88a950bbc1be", "label": "Сферит-ДП 1000 — ПД, шт"} in options
-    assert client.get(f"{BASE}/magex/blasters").json() == [{"value": "BL-01", "label": "Трегубов Александр Иванович — ЮФ60АВ"}]
+    options = client.get(f"{BASE}/options/naryad").json()
+    assert options["blasters"] == [{"value": "BL-01", "label": "Трегубов Александр Иванович — ЮФ60АВ",
+                                    "fill": {"blaster_name": "Трегубов Александр Иванович", "blaster_index": "ЮФ60АВ"}}]
+    assert options["vehicles"] == [{"value": "V-01", "label": "КамАЗ стенда — А123ВС96",
+                                    "fill": {"vehicle_model": "КамАЗ 43118", "vehicle_plate": "А123ВС96", "driver": "Петров П. П."}}]
     assert client.get(f"{BASE}/magex/warehouses").json()[0]["label"] == "Склад ВМ № 1"
 
 

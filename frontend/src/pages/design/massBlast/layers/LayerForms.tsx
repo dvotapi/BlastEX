@@ -3,7 +3,7 @@
 // посчитанное сервером (`seed`, `view`) показывается только для чтения.
 import { useEffect, useState } from "react";
 import { api } from "../../../../api/endpoints";
-import type { MagexAvailability, MagexOption, MassBlastLayer, NaryadLine } from "../../../../types/massBlast";
+import type { MagexAvailability, MagexOption, MassBlastLayer, NaryadChoice, NaryadLine, NaryadOptions } from "../../../../types/massBlast";
 import { numberText, parseNumber } from "../form";
 import { Field, ruNum, TextInput, type AutoValue, type RememberControl } from "../ui";
 import { magexState } from "./MagexPanel";
@@ -120,14 +120,38 @@ function Choice({ layer, draft, set, disabled, name, label, options, empty, hint
   );
 }
 
-/** Поля выписки MagEX (TASK-018 PR 7, §3–§4): склад, взрывник, разрешение, автомобиль, допуски. */
+/** Выбор из справочника (взрывники, спецавтомобили): выбор подставляет поля наряда, которые
+ * назвал сервер (`fill`); пустое — снять выбор, поля остаются как есть. */
+function ChoicePick({ draft, set, disabled, name, label, options, empty, hint }: ChoicePickProps & {
+  name: string; label: string; options: NaryadChoice[]; empty: string; hint?: string;
+}) {
+  const own = str(draft[name]);
+  const known = own && !options.some((option) => option.value === own);
+  return (
+    <Field label={label} hint={hint} disabled={disabled}>
+      {(id) => (
+        <select id={id} value={own} disabled={disabled} onChange={(event) => {
+          const choice = options.find((option) => option.value === event.target.value);
+          set(name, event.target.value);
+          for (const [key, value] of Object.entries(choice?.fill ?? {})) set(key, value);
+        }}>
+          <option value="">{empty}</option>
+          {known && <option value={own}>выбрано ранее — нет в справочнике</option>}
+          {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+      )}
+    </Field>
+  );
+}
+
+type ChoicePickProps = Pick<FormProps, "draft" | "set" | "disabled">;
+
+/** Поля MagEX (TASK-018 PR 7): склад выдачи в MagEX и подтверждение допусков. */
 function MagexFields({ layer, draft, set, disabled, remember, locked }: TextProps & { locked: (name: string) => boolean }) {
   const [warehouses, setWarehouses] = useState<MagexOption[]>([]);
-  const [blasters, setBlasters] = useState<MagexOption[]>([]);
   useEffect(() => {
     let alive = true;
     api.massBlast.magexWarehouses().then((items) => alive && setWarehouses(items)).catch(() => undefined);
-    api.massBlast.magexBlasters().then((items) => alive && setBlasters(items)).catch(() => undefined);
     return () => {
       alive = false;
     };
@@ -139,12 +163,6 @@ function MagexFields({ layer, draft, set, disabled, remember, locked }: TextProp
       <Choice {...common} disabled={disabled || locked("magex_warehouse_id")} name="magex_warehouse_id" label="Склад MagEX"
         options={warehouses} empty={defaultWarehouse ? `склад объекта: ${defaultWarehouse.label}` : "склад объекта"}
         hint="с него MagEX резервирует и выдаёт ВМ" />
-      <Choice {...common} disabled={disabled || locked("blaster_code")} name="blaster_code" label="Взрывник (справочник «Взрывники»)"
-        options={blasters} empty="по персоналу проекта" />
-      <Text {...common} name="permit_number" label="Разрешение на ВР: №" max={200} />
-      <Text {...common} name="permit_date" label="Разрешение на ВР: дата" type="date" />
-      <Text {...common} name="vehicle_model" label="Спецавтомобиль: марка" max={200} />
-      <Text {...common} name="vehicle_plate" label="Спецавтомобиль: гос. номер" max={200} />
       <Field label="Допуски взрывника, водителя и спецавтомобиля проверены" hint="подтверждает начальник участка: источника допусков в SafetyMAIN пока нет">
         {(id) => (
           <input id={id} type="checkbox" checked={Boolean(draft.admissions_confirmed)} disabled={disabled || locked("admissions_confirmed")}
@@ -161,6 +179,15 @@ export function NaryadForm({ layer, draft, set, disabled, errors, afterBlast, re
   const locked = (name: string) => lockedFields.has(name);
   const online = magex?.mode === "ONLINE";
   const [availability, setAvailability] = useState<MagexAvailability | null>(null);
+  const [options, setOptions] = useState<NaryadOptions>({ blasters: [], vehicles: [] });
+  // Списки взрывников и спецавтомобилей — из справочников (сервер называет, что подставить).
+  useEffect(() => {
+    let alive = true;
+    api.massBlast.naryadOptions().then((value) => alive && setOptions(value)).catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
   // «Доступно на складе» — по сохранённому наряду: при открытии и после каждого сохранения.
   useEffect(() => {
     if (!online) return;
@@ -201,10 +228,18 @@ export function NaryadForm({ layer, draft, set, disabled, errors, afterBlast, re
         <Text {...common} disabled={disabled || locked("number")} name="number" label="№ наряда-путёвки" max={40} />
         <Text {...common} disabled={disabled || locked("issue_date")} name="issue_date" label="Дата выписки" type="date" />
         <Text {...common} name="warehouse" label="Склад выдачи" max={200} />
-        <Text {...common} name="permit" label="Разрешение на ведение взрывных работ" max={300} />
-        {/* В учёте MagEX индекс — из справочника «Взрывники»; вне учёта — вводится здесь. */}
-        {!online && <Text {...common} name="blaster_index" label="Индивидуальный индекс взрывника" max={40} />}
-        <Text {...common} name="vehicle" label="Спецавтомобиль" max={200} />
+        <Text {...common} name="permit_number" label="Разрешение на ВР: №" max={200} />
+        <Text {...common} name="permit_date" label="Разрешение на ВР: дата" type="date" />
+        <ChoicePick draft={draft} set={set} disabled={disabled || locked("blaster_code")} name="blaster_code" label="Взрывник"
+          options={options.blasters} empty={online ? "по персоналу проекта" : "не выбран — ФИО из персонала проекта"}
+          hint="справочник «Взрывники»: подставляет ФИО и индивидуальный индекс" />
+        {/* В учёте MagEX индекс — из справочника «Взрывники» (он же в выписке); вне учёта — правится здесь. */}
+        <Text {...common} disabled={disabled || online || locked("blaster_index")} name="blaster_index" label="Индивидуальный индекс взрывника" max={40} />
+        <ChoicePick draft={draft} set={set} disabled={disabled} name="vehicle_code" label="Спецавтомобиль"
+          options={options.vehicles} empty="не выбран — из реквизитов объекта"
+          hint="справочник «Спецавтомобили ВМ»: подставляет марку, гос. номер и водителя" />
+        <Text {...common} name="vehicle_model" label="Спецавтомобиль: марка" max={200} />
+        <Text {...common} name="vehicle_plate" label="Спецавтомобиль: гос. номер" max={200} />
         <Text {...common} name="driver" label="Водитель" max={200} />
         <Text {...common} name="delivery" label="Лица, привлекаемые к доставке" max={300} />
         <Field label="ВВ изготавливаются на месте (СЗМ)" hint="возврата ВВ нет: остаток заряжается в крайние скважины">

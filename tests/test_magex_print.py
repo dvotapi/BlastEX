@@ -131,3 +131,10 @@ def test_qr_keeps_40mm_on_a_crowded_form(revision):
     keep.canv = Canvas(io.BytesIO())
     keep.wrap(keep.maxWidth, keep.maxHeight)
     assert keep._scale > 1.0  # форма сжата (ReportLab: делитель масштаба), а QR — нет
+
+
+def test_blaster_chosen_from_reference_is_printed_offline(revision):
+    offline = copy.deepcopy(revision)
+    offline["payload"] = {**offline["payload"], "blaster_name": "Трегубов Александр Иванович", "blaster_index": "ЮФ60АВ"}
+    text = pdfium.PdfDocument(render_layer_document(offline))[0].get_textpage().get_text_range()
+    assert "Трегубов Александр Иванович" in text and "ЮФ60АВ" in text

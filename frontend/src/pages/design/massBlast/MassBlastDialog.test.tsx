@@ -8,6 +8,7 @@ vi.mock("../../../api/endpoints", () => ({
     me: vi.fn(),
     economics: { referenceSchema: vi.fn() },
     massBlast: {
+      naryadOptions: vi.fn(async () => ({ blasters: [], vehicles: [] })),
       validateV2: vi.fn(),
       hints: vi.fn(),
       accounts: vi.fn(),

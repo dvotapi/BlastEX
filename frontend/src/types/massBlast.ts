@@ -282,6 +282,10 @@ export type NaryadLine = {
 
 export type MagexOption = { value: string; label: string };
 
+/** Вариант выпадающего списка наряда: подпись и поля наряда, которые выбор подставит (сервер). */
+export type NaryadChoice = { value: string; label: string; fill: Record<string, string> };
+export type NaryadOptions = { blasters: NaryadChoice[]; vehicles: NaryadChoice[] };
+
 export type MagexVersion = {
   ver: number;
   status: "SENDING" | "PENDING" | "ACCEPTED" | "REJECTED" | "SUPERSEDED";

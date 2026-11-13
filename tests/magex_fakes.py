@@ -59,6 +59,8 @@ def snapshot(*, mapped: bool = True, warehouse: str = WAREHOUSE) -> SimpleNamesp
         ),
         "blasters": (_item("BL-01", "Трегубов Александр Иванович", {"blaster_index": "ЮФ60АВ", "book_number": "",
                                                                      "employee_ref": None}),),
+        "vehicles": (_item("V-01", "КамАЗ стенда", {"vehicle_model": "КамАЗ 43118", "vehicle_plate": "А123ВС96",
+                                                     "driver": "Петров П. П."}),),
         "mass_blast_sites": (_item("ZHK-MB", "Жуков Камень", {
             "site_code": "ZHK", "warehouse": "Склад ВМ № 1", "magex_warehouse_id": warehouse,
             "blasting_permit_number": "РВ-66", "blasting_permit_date": "2026-01-15",

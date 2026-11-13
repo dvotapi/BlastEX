@@ -25,6 +25,7 @@ from cost.v2.schemas.mass_blast import (
     BlastNotificationPayload,
     MassBlastProfilePayload,
     MassBlastSitePayload,
+    VehiclePayload,
 )
 from cost.v2.schemas.safety import BlastSafetyPayload
 from cost.v2.schemas.stakeout_profile import StakeoutProfilePayload
@@ -171,6 +172,9 @@ SECTION_FIELDSETS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
     "blasters": (
         ("Взрывник", ("blaster_index", "book_number", "employee_ref")),
     ),
+    "vehicles": (
+        ("Автомобиль", ("vehicle_model", "vehicle_plate", "driver")),
+    ),
     "blast_notifications": (
         ("Адресат", ("site_code", "recipient_position", "recipient_name", "salutation")),
         ("Направление", ("channel", "lead_days", "basis", "signer")),
@@ -215,6 +219,7 @@ SECTION_SCHEMAS: dict[str, type[ReferencePayload]] = {
     "mass_blast_profiles": MassBlastProfilePayload,
     "blast_notifications": BlastNotificationPayload,
     "blasters": BlasterPayload,
+    "vehicles": VehiclePayload,
     "bench_surface_conditions": BenchSurfaceConditionPayload,
     "stakeout_modes": StakeoutModePayload,
     "site_infrastructure": SiteInfrastructurePayload,

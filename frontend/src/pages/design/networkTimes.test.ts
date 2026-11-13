@@ -14,7 +14,7 @@ type Case = {
   unsignaled: string[];
 };
 
-const cases = (fixture as { cases: Case[] }).cases;
+const cases = (fixture as unknown as { cases: Case[] }).cases;
 
 function hole(id: string, x: number, y: number, enabled = true): Hole {
   return { id, collar: { x, y, z: 0 }, enabled } as unknown as Hole;

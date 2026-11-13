@@ -18,6 +18,7 @@ from design.pattern import generate_pattern
 from design.timing import (
     build_template_network,
     build_template_network_with_warnings,
+    manual_holes_warning,
     resolve_network,
 )
 
@@ -151,12 +152,37 @@ class ManualHoleInOldTemplatesTest(unittest.TestCase):
 
     def test_electronic_timing_mode_keeps_manual_with_first_wave(self) -> None:
         # Режим электронного тайминга программирует время сам (ручные — с первым
-        # рядом); связи схемы в нём лишь рисунок, предупреждения нет.
+        # рядом); рисунок связей ему не противоречит: у ручной связей нет,
+        # предупреждения нет.
         network, warnings = build_template_network_with_warnings(
             self.holes, "row", {"system": "electronic", "timing_mode": "row", "interval_ms": 17}
         )
         self.assertEqual(warnings, [])
         self.assertIn("M-1", network.electronic_times_ms)
+        self.assertIn("M-1", network.starters)
+        self.assertFalse([c for c in network.surface_connectors if "M-1" in (c.from_hole, c.to_hole)])
+
+    def test_manual_does_not_hang_on_wall(self) -> None:
+        # Пресплит стартует до блока: ручная у стенки, подключённая от неё,
+        # взорвалась бы раньше всей сетки. Источник — скважина сетки.
+        x, y = self.manual.collar.x, self.manual.collar.y
+        presplit = replace(self.grid[-1], id="P-01", kind="presplit", row=-1, collar=Point3(x + 0.2, y, 0.0))
+        holes = self.grid + [presplit, self.manual]
+        network = build_template_network(holes, "row", {"system": "nonel"})
+        incoming = [c.from_hole for c in network.surface_connectors if c.to_hole == "M-1"]
+        self.assertEqual(len(incoming), 1)
+        self.assertNotEqual(incoming[0], "P-01")
+        times = resolve_network(network, holes).times_ms
+        first_row = min(times[h.id] for h in self.grid)
+        self.assertGreater(times["M-1"], first_row)
+
+    def test_warning_text_limits_and_zero_step(self) -> None:
+        ids = [f"M-{n}" for n in range(1, 13)]
+        text = manual_holes_warning(ids, 25.0)
+        self.assertIn("M-10 и ещё 2", text)
+        self.assertNotIn("M-11", text)
+        self.assertIn("через 25 мс", text)
+        self.assertIn("одновременно", manual_holes_warning(["M-1"], 0.0))
 
 
 if __name__ == "__main__":

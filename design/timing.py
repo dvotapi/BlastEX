@@ -61,6 +61,8 @@ DETCORD_RELAY_MS_OPTIONS = (10, 20, 25, 35, 42)
 DOWNHOLE_NSI_MS_OPTIONS = tuple(range(450, 1001, 50))
 
 DEFAULT_INTERVAL_MS = {"nonel": 25.0, "electronic": 17.0, "detcord": 20.0}
+# Стенки старых шаблонов: пресплит стартует до блока, контур и буфер — после сетки.
+_WALL_KINDS = ("presplit", "contour", "buffer")
 DEFAULT_DOWNHOLE_MS = {"nonel": 500.0, "electronic": 0.0, "detcord": 0.0}
 
 DETCORD_VELOCITY_M_S = 7000.0
@@ -194,7 +196,7 @@ def _anchor_manual(holes: list[Hole], coords: dict[str, float]) -> dict[str, flo
     сдвигала бы весь блок на тысячи интервалов в режимах, где координата берётся
     из геометрии.
     """
-    wall_kinds = ("presplit", "contour", "buffer")
+    wall_kinds = _WALL_KINDS
     grid_values = [
         coords[h.id]
         for h in holes
@@ -215,7 +217,7 @@ def _block_row_coordinates(holes: list[Hole], interval_ms: float, params: dict[s
     буфер и контур — wall_after_ms после последнего (по умолчанию один интервал).
     Без основных рядов или без стенок словарь пуст — порядок прежний.
     """
-    wall_kinds = ("presplit", "contour", "buffer")
+    wall_kinds = _WALL_KINDS
     # Ручные скважины (row -1000 и т.п.) не задают начало отсчёта: они стартуют
     # с первым основным рядом и не сдвигают весь блок.
     grid = [h for h in holes if h.kind not in wall_kinds and h.source != "manual"]
@@ -335,13 +337,20 @@ def build_template_network(
     return build_template_network_with_warnings(holes, scheme, params)[0]
 
 
+# Номеров ручных скважин в предупреждении не больше этого, остальные — числом.
+MANUAL_WARNING_IDS = 10
+
+
 def manual_holes_warning(hole_ids: list[str], step_ms: float) -> str:
     """Предупреждение о ручных скважинах, подключённых к сетке шаблона «прочими»."""
-    step = f"{step_ms:g}".replace(".", ",")
-    return (
-        f"Ручные скважины ({', '.join(hole_ids)}) подключены от ближайших скважин "
-        f"через {step} мс — проверьте их время."
-    )
+    shown = ", ".join(hole_ids[:MANUAL_WARNING_IDS])
+    if len(hole_ids) > MANUAL_WARNING_IDS:
+        shown += f" и ещё {len(hole_ids) - MANUAL_WARNING_IDS}"
+    if step_ms > 0:
+        when = f"через {f'{step_ms:g}'.replace('.', ',')} мс"
+    else:
+        when = "одновременно с ними"
+    return f"Ручные скважины ({shown}) подключены от ближайших скважин {when} — проверьте их время."
 
 
 def build_template_network_with_warnings(
@@ -377,7 +386,7 @@ def build_template_network_with_warnings(
         network = apply_electronic_timing(eligible, timing_mode, params)
         network.system = system
         if not network.surface_connectors:
-            graph, _manual = _build_wave_graph(eligible, scheme, system, params)
+            graph, _manual = _build_wave_graph(eligible, scheme, system, params, tie_manual=False)
             network.connectors = graph.connectors
             network.surface_connectors = graph.surface_connectors
             network.sync_legacy_from_v2()
@@ -389,39 +398,33 @@ def build_template_network_with_warnings(
     return network, warnings
 
 
-def _tie_manual_holes(
-    manual: list[Hole],
-    tied: list[Hole],
-    *,
-    delay_ms: float,
-    kind: str,
-) -> list[Connector]:
-    """Ручные скважины — «прочие», как у «Магистраль + цепочки».
+def tie_to_nearest(others: list[Hole], tied: list[Hole]) -> list[tuple[str, str]]:
+    """«Прочие» скважины — связями (откуда, куда) от ближайшей уже подключённой.
 
-    Каждая подключается связью от ближайшей уже подключённой скважины (жадно, по
-    возрастанию расстояния, как Прим; равные расстояния — по номеру), ступень —
-    интервал схемы (решение владельца 14.11.2026). Ручная — лист: из неё в сетку
-    связей нет, поэтому времена сетки не меняются.
+    Жадно, по возрастанию расстояния, как Прим: подключённая прочая сама
+    становится источником для следующих; равные расстояния — по номеру. Общее
+    правило «Магистраль + цепочки» (`trunk_network`) и ручных скважин старых
+    шаблонов.
     """
 
     def distance(a: Hole, b: Hole) -> float:
         return math.hypot(a.collar.x - b.collar.x, a.collar.y - b.collar.y)
 
     best: dict[str, tuple[float, str]] = {}
-    for hole in manual:
+    for hole in others:
         near = min(tied, key=lambda item: (distance(item, hole), item.id))
         best[hole.id] = (distance(near, hole), near.id)
-    pending = {hole.id: hole for hole in manual}
-    connectors: list[Connector] = []
+    pending = {hole.id: hole for hole in others}
+    ties: list[tuple[str, str]] = []
     while pending:
         hole_id = min(pending, key=lambda item: (best[item][0], item))
         hole = pending.pop(hole_id)
-        connectors.append(Connector(from_hole=best[hole_id][1], to_hole=hole_id, delay_ms=delay_ms, kind=kind))
+        ties.append((best[hole_id][1], hole_id))
         for other in pending.values():
             d = distance(other, hole)
-            if (d, hole_id) < best[other.id]:
+            if d < best[other.id][0]:
                 best[other.id] = (d, hole_id)
-    return connectors
+    return ties
 
 
 def _build_wave_graph(
@@ -429,12 +432,18 @@ def _build_wave_graph(
     scheme: str,
     system: str,
     params: dict[str, Any],
+    *,
+    tie_manual: bool = True,
 ) -> tuple[InitiationNetwork, list[str]]:
     """Сеть волнами по координате схемы и номера ручных скважин, подключённых «прочими».
 
     Ручные скважины в волны не входят: стартовой посреди блока они бы стали
     сами, а сетку вели бы через себя (у ДШ — и через общий шнур). Без сетки
-    подключать их не к чему — тогда они идут волнами, как раньше.
+    подключать их не к чему — тогда они идут волнами, как раньше. Источник
+    связи ручной — скважина основной сетки, а не стенка (пресплит стартует до
+    блока, контур и буфер — после); стенки — только когда сетки, кроме них,
+    нет. `tie_manual = False` (режим электронного тайминга: время ручной
+    программируется с первым рядом) — ручные без связей.
     """
     manual = [hole for hole in eligible if hole.source == "manual"]
     waves = [hole for hole in eligible if hole.source != "manual"]
@@ -484,9 +493,12 @@ def _build_wave_graph(
         connectors.append(Connector(from_hole=nearest[0].id, to_hole=hole.id, delay_ms=delay, kind=connector_kind))
         placed.append((hole, w))
 
-    if manual:
+    if manual and tie_manual:
+        sources = [hole for hole in waves if hole.kind not in _WALL_KINDS] or waves
+        step = round(interval_ms, 1)
         connectors.extend(
-            _tie_manual_holes(manual, waves, delay_ms=round(interval_ms, 1), kind=connector_kind)
+            Connector(from_hole=frm, to_hole=to, delay_ms=step, kind=connector_kind)
+            for frm, to in tie_to_nearest(manual, sources)
         )
     downhole_delay_ms = {h.id: downhole_ms for h in eligible} if downhole_ms > 0 else {}
     network = InitiationNetwork(

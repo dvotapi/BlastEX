@@ -1,0 +1,6966 @@
+{
+ "contour": {
+  "vertices": [
+   {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+   },
+   {
+    "x": 20.0,
+    "y": 34.641,
+    "z": 0.0
+   },
+   {
+    "x": 41.651,
+    "y": 22.141,
+    "z": 0.0
+   },
+   {
+    "x": 21.651,
+    "y": -12.5,
+    "z": 0.0
+   }
+  ],
+  "free_faces": [
+   [
+    0,
+    1
+   ]
+  ],
+  "bench": {
+   "crest_z_m": 0.0,
+   "toe_z_m": -10.0,
+   "face_angle_deg": 75.0
+  },
+  "name": "Блок"
+ },
+ "cases": [
+  {
+   "name": "pair",
+   "pattern_params": {
+    "pattern": "rectangular",
+    "spacing_a_m": 5.0,
+    "burden_b_m": 4.0,
+    "row_azimuth_deg": 30.0,
+    "angle_deg": 0.0,
+    "subdrill_m": 1.0,
+    "diameter_mm": 165.0,
+    "min_crest_offset_m": 0.3,
+    "front_rows_mode": "pair",
+    "front_rows_tilt_deg": 15.0
+   },
+   "holes": [
+    {
+     "id": "8-01",
+     "row": 0,
+     "col": 0,
+     "collar": {
+      "x": 4.232,
+      "y": 3.33,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 4.232,
+      "y": 3.33,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-01",
+     "row": 0,
+     "col": 1,
+     "collar": {
+      "x": 6.732,
+      "y": 7.66,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 6.732,
+      "y": 7.66,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-01",
+     "row": 0,
+     "col": 2,
+     "collar": {
+      "x": 9.232,
+      "y": 11.99,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 9.232,
+      "y": 11.99,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-01",
+     "row": 0,
+     "col": 3,
+     "collar": {
+      "x": 11.732,
+      "y": 16.321,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 11.732,
+      "y": 16.321,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-01",
+     "row": 0,
+     "col": 4,
+     "collar": {
+      "x": 14.232,
+      "y": 20.651,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 14.232,
+      "y": 20.651,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-01",
+     "row": 0,
+     "col": 5,
+     "collar": {
+      "x": 16.732,
+      "y": 24.981,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 16.732,
+      "y": 24.981,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-01",
+     "row": 0,
+     "col": 6,
+     "collar": {
+      "x": 19.232,
+      "y": 29.311,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 19.232,
+      "y": 29.311,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "1-01",
+     "row": 0,
+     "col": 7,
+     "collar": {
+      "x": 21.732,
+      "y": 33.641,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 21.732,
+      "y": 33.641,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "8-02",
+     "row": 1,
+     "col": 0,
+     "collar": {
+      "x": 7.696,
+      "y": 1.33,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 7.696,
+      "y": 1.33,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-02",
+     "row": 1,
+     "col": 1,
+     "collar": {
+      "x": 10.196,
+      "y": 5.66,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 10.196,
+      "y": 5.66,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-02",
+     "row": 1,
+     "col": 2,
+     "collar": {
+      "x": 12.696,
+      "y": 9.99,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 12.696,
+      "y": 9.99,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-02",
+     "row": 1,
+     "col": 3,
+     "collar": {
+      "x": 15.196,
+      "y": 14.321,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 15.196,
+      "y": 14.321,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-02",
+     "row": 1,
+     "col": 4,
+     "collar": {
+      "x": 17.696,
+      "y": 18.651,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 17.696,
+      "y": 18.651,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-02",
+     "row": 1,
+     "col": 5,
+     "collar": {
+      "x": 20.196,
+      "y": 22.981,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 20.196,
+      "y": 22.981,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-02",
+     "row": 1,
+     "col": 6,
+     "collar": {
+      "x": 22.696,
+      "y": 27.311,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 22.696,
+      "y": 27.311,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "1-02",
+     "row": 1,
+     "col": 7,
+     "collar": {
+      "x": 25.196,
+      "y": 31.641,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 25.196,
+      "y": 31.641,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "8-03",
+     "row": 2,
+     "col": 0,
+     "collar": {
+      "x": 11.16,
+      "y": -0.67,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 11.16,
+      "y": -0.67,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-03",
+     "row": 2,
+     "col": 1,
+     "collar": {
+      "x": 13.66,
+      "y": 3.66,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 13.66,
+      "y": 3.66,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-03",
+     "row": 2,
+     "col": 2,
+     "collar": {
+      "x": 16.16,
+      "y": 7.99,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 16.16,
+      "y": 7.99,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-03",
+     "row": 2,
+     "col": 3,
+     "collar": {
+      "x": 18.66,
+      "y": 12.321,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 18.66,
+      "y": 12.321,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-03",
+     "row": 2,
+     "col": 4,
+     "collar": {
+      "x": 21.16,
+      "y": 16.651,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 21.16,
+      "y": 16.651,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-03",
+     "row": 2,
+     "col": 5,
+     "collar": {
+      "x": 23.66,
+      "y": 20.981,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 23.66,
+      "y": 20.981,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-03",
+     "row": 2,
+     "col": 6,
+     "collar": {
+      "x": 26.16,
+      "y": 25.311,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 26.16,
+      "y": 25.311,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "1-03",
+     "row": 2,
+     "col": 7,
+     "collar": {
+      "x": 28.66,
+      "y": 29.641,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 28.66,
+      "y": 29.641,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "8-04",
+     "row": 3,
+     "col": 0,
+     "collar": {
+      "x": 14.624,
+      "y": -2.67,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 14.624,
+      "y": -2.67,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-04",
+     "row": 3,
+     "col": 1,
+     "collar": {
+      "x": 17.124,
+      "y": 1.66,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 17.124,
+      "y": 1.66,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-04",
+     "row": 3,
+     "col": 2,
+     "collar": {
+      "x": 19.624,
+      "y": 5.99,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 19.624,
+      "y": 5.99,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-04",
+     "row": 3,
+     "col": 3,
+     "collar": {
+      "x": 22.124,
+      "y": 10.321,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 22.124,
+      "y": 10.321,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-04",
+     "row": 3,
+     "col": 4,
+     "collar": {
+      "x": 24.624,
+      "y": 14.651,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 24.624,
+      "y": 14.651,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-04",
+     "row": 3,
+     "col": 5,
+     "collar": {
+      "x": 27.124,
+      "y": 18.981,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 27.124,
+      "y": 18.981,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-04",
+     "row": 3,
+     "col": 6,
+     "collar": {
+      "x": 29.624,
+      "y": 23.311,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 29.624,
+      "y": 23.311,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "1-04",
+     "row": 3,
+     "col": 7,
+     "collar": {
+      "x": 32.124,
+      "y": 27.641,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 32.124,
+      "y": 27.641,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "8-05",
+     "row": 4,
+     "col": 0,
+     "collar": {
+      "x": 18.088,
+      "y": -4.67,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 18.088,
+      "y": -4.67,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-05",
+     "row": 4,
+     "col": 1,
+     "collar": {
+      "x": 20.588,
+      "y": -0.34,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 20.588,
+      "y": -0.34,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-05",
+     "row": 4,
+     "col": 2,
+     "collar": {
+      "x": 23.088,
+      "y": 3.99,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 23.088,
+      "y": 3.99,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-05",
+     "row": 4,
+     "col": 3,
+     "collar": {
+      "x": 25.588,
+      "y": 8.321,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 25.588,
+      "y": 8.321,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-05",
+     "row": 4,
+     "col": 4,
+     "collar": {
+      "x": 28.088,
+      "y": 12.651,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 28.088,
+      "y": 12.651,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-05",
+     "row": 4,
+     "col": 5,
+     "collar": {
+      "x": 30.588,
+      "y": 16.981,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 30.588,
+      "y": 16.981,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-05",
+     "row": 4,
+     "col": 6,
+     "collar": {
+      "x": 33.088,
+      "y": 21.311,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 33.088,
+      "y": 21.311,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "1-05",
+     "row": 4,
+     "col": 7,
+     "collar": {
+      "x": 35.588,
+      "y": 25.641,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 35.588,
+      "y": 25.641,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "8-06",
+     "row": 5,
+     "col": 0,
+     "collar": {
+      "x": 21.553,
+      "y": -6.67,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 21.553,
+      "y": -6.67,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-06",
+     "row": 5,
+     "col": 1,
+     "collar": {
+      "x": 24.053,
+      "y": -2.34,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 24.053,
+      "y": -2.34,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-06",
+     "row": 5,
+     "col": 2,
+     "collar": {
+      "x": 26.553,
+      "y": 1.99,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 26.553,
+      "y": 1.99,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-06",
+     "row": 5,
+     "col": 3,
+     "collar": {
+      "x": 29.053,
+      "y": 6.321,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 29.053,
+      "y": 6.321,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-06",
+     "row": 5,
+     "col": 4,
+     "collar": {
+      "x": 31.553,
+      "y": 10.651,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 31.553,
+      "y": 10.651,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-06",
+     "row": 5,
+     "col": 5,
+     "collar": {
+      "x": 34.053,
+      "y": 14.981,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 34.053,
+      "y": 14.981,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-06",
+     "row": 5,
+     "col": 6,
+     "collar": {
+      "x": 36.553,
+      "y": 19.311,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 36.553,
+      "y": 19.311,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "1-06",
+     "row": 5,
+     "col": 7,
+     "collar": {
+      "x": 39.053,
+      "y": 23.641,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 39.053,
+      "y": 23.641,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "8-01T",
+     "row": 0,
+     "col": 0,
+     "collar": {
+      "x": 3.366,
+      "y": 3.83,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 3.366,
+      "y": 3.83,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "face_toe",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-01T",
+     "row": 0,
+     "col": 1,
+     "collar": {
+      "x": 5.866,
+      "y": 8.16,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 5.866,
+      "y": 8.16,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "face_toe",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-01T",
+     "row": 0,
+     "col": 2,
+     "collar": {
+      "x": 8.366,
+      "y": 12.49,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 8.366,
+      "y": 12.49,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "face_toe",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-01T",
+     "row": 0,
+     "col": 3,
+     "collar": {
+      "x": 10.866,
+      "y": 16.821,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 10.866,
+      "y": 16.821,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "face_toe",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-01T",
+     "row": 0,
+     "col": 4,
+     "collar": {
+      "x": 13.366,
+      "y": 21.151,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 13.366,
+      "y": 21.151,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "face_toe",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-01T",
+     "row": 0,
+     "col": 5,
+     "collar": {
+      "x": 15.866,
+      "y": 25.481,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 15.866,
+      "y": 25.481,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "face_toe",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-01T",
+     "row": 0,
+     "col": 6,
+     "collar": {
+      "x": 18.366,
+      "y": 29.811,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 18.366,
+      "y": 29.811,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "face_toe",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    }
+   ],
+   "toe_line": {
+    "source": "angle",
+    "polylines": [
+     [
+      [
+       -2.321,
+       1.34
+      ],
+      [
+       17.679,
+       35.981
+      ]
+     ]
+    ],
+    "reason": "default",
+    "survey_polylines": []
+   },
+   "allowed_m": 4.12,
+   "expected": {
+    "1-01": {
+     "value_m": 4.679448,
+     "excess": true
+    },
+    "2-01T": {
+     "value_m": 3.679407,
+     "excess": false
+    },
+    "3-01T": {
+     "value_m": 3.679345,
+     "excess": false
+    },
+    "4-01T": {
+     "value_m": 3.679282,
+     "excess": false
+    },
+    "5-01T": {
+     "value_m": 3.67922,
+     "excess": false
+    },
+    "6-01T": {
+     "value_m": 3.679657,
+     "excess": false
+    },
+    "7-01T": {
+     "value_m": 3.679595,
+     "excess": false
+    },
+    "8-01T": {
+     "value_m": 3.679532,
+     "excess": false
+    }
+   }
+  },
+  {
+   "name": "pair_moved",
+   "pattern_params": {
+    "pattern": "rectangular",
+    "spacing_a_m": 5.0,
+    "burden_b_m": 4.0,
+    "row_azimuth_deg": 30.0,
+    "angle_deg": 0.0,
+    "subdrill_m": 1.0,
+    "diameter_mm": 165.0,
+    "min_crest_offset_m": 0.3,
+    "front_rows_mode": "pair",
+    "front_rows_tilt_deg": 15.0
+   },
+   "holes": [
+    {
+     "id": "8-01",
+     "row": 0,
+     "col": 0,
+     "collar": {
+      "x": 4.232,
+      "y": 3.33,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 4.232,
+      "y": 3.33,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-01",
+     "row": 0,
+     "col": 1,
+     "collar": {
+      "x": 6.732,
+      "y": 7.66,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 6.732,
+      "y": 7.66,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-01",
+     "row": 0,
+     "col": 2,
+     "collar": {
+      "x": 9.232,
+      "y": 11.99,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 9.232,
+      "y": 11.99,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-01",
+     "row": 0,
+     "col": 3,
+     "collar": {
+      "x": 11.732,
+      "y": 16.321,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 11.732,
+      "y": 16.321,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-01",
+     "row": 0,
+     "col": 4,
+     "collar": {
+      "x": 14.232,
+      "y": 20.651,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 14.232,
+      "y": 20.651,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-01",
+     "row": 0,
+     "col": 5,
+     "collar": {
+      "x": 16.732,
+      "y": 24.981,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 16.732,
+      "y": 24.981,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-01",
+     "row": 0,
+     "col": 6,
+     "collar": {
+      "x": 19.232,
+      "y": 29.311,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 19.232,
+      "y": 29.311,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "1-01",
+     "row": 0,
+     "col": 7,
+     "collar": {
+      "x": 21.732,
+      "y": 33.641,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 21.732,
+      "y": 33.641,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "8-02",
+     "row": 1,
+     "col": 0,
+     "collar": {
+      "x": 7.696,
+      "y": 1.33,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 7.696,
+      "y": 1.33,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-02",
+     "row": 1,
+     "col": 1,
+     "collar": {
+      "x": 10.196,
+      "y": 5.66,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 10.196,
+      "y": 5.66,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-02",
+     "row": 1,
+     "col": 2,
+     "collar": {
+      "x": 12.696,
+      "y": 9.99,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 12.696,
+      "y": 9.99,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-02",
+     "row": 1,
+     "col": 3,
+     "collar": {
+      "x": 15.196,
+      "y": 14.321,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 15.196,
+      "y": 14.321,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-02",
+     "row": 1,
+     "col": 4,
+     "collar": {
+      "x": 17.696,
+      "y": 18.651,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 17.696,
+      "y": 18.651,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-02",
+     "row": 1,
+     "col": 5,
+     "collar": {
+      "x": 20.196,
+      "y": 22.981,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 20.196,
+      "y": 22.981,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-02",
+     "row": 1,
+     "col": 6,
+     "collar": {
+      "x": 22.696,
+      "y": 27.311,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 22.696,
+      "y": 27.311,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "1-02",
+     "row": 1,
+     "col": 7,
+     "collar": {
+      "x": 25.196,
+      "y": 31.641,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 25.196,
+      "y": 31.641,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "8-03",
+     "row": 2,
+     "col": 0,
+     "collar": {
+      "x": 11.16,
+      "y": -0.67,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 11.16,
+      "y": -0.67,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-03",
+     "row": 2,
+     "col": 1,
+     "collar": {
+      "x": 13.66,
+      "y": 3.66,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 13.66,
+      "y": 3.66,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-03",
+     "row": 2,
+     "col": 2,
+     "collar": {
+      "x": 16.16,
+      "y": 7.99,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 16.16,
+      "y": 7.99,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-03",
+     "row": 2,
+     "col": 3,
+     "collar": {
+      "x": 18.66,
+      "y": 12.321,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 18.66,
+      "y": 12.321,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-03",
+     "row": 2,
+     "col": 4,
+     "collar": {
+      "x": 21.16,
+      "y": 16.651,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 21.16,
+      "y": 16.651,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-03",
+     "row": 2,
+     "col": 5,
+     "collar": {
+      "x": 23.66,
+      "y": 20.981,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 23.66,
+      "y": 20.981,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-03",
+     "row": 2,
+     "col": 6,
+     "collar": {
+      "x": 26.16,
+      "y": 25.311,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 26.16,
+      "y": 25.311,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "1-03",
+     "row": 2,
+     "col": 7,
+     "collar": {
+      "x": 28.66,
+      "y": 29.641,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 28.66,
+      "y": 29.641,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "8-04",
+     "row": 3,
+     "col": 0,
+     "collar": {
+      "x": 14.624,
+      "y": -2.67,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 14.624,
+      "y": -2.67,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-04",
+     "row": 3,
+     "col": 1,
+     "collar": {
+      "x": 17.124,
+      "y": 1.66,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 17.124,
+      "y": 1.66,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-04",
+     "row": 3,
+     "col": 2,
+     "collar": {
+      "x": 19.624,
+      "y": 5.99,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 19.624,
+      "y": 5.99,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-04",
+     "row": 3,
+     "col": 3,
+     "collar": {
+      "x": 22.124,
+      "y": 10.321,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 22.124,
+      "y": 10.321,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-04",
+     "row": 3,
+     "col": 4,
+     "collar": {
+      "x": 24.624,
+      "y": 14.651,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 24.624,
+      "y": 14.651,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-04",
+     "row": 3,
+     "col": 5,
+     "collar": {
+      "x": 27.124,
+      "y": 18.981,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 27.124,
+      "y": 18.981,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-04",
+     "row": 3,
+     "col": 6,
+     "collar": {
+      "x": 29.624,
+      "y": 23.311,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 29.624,
+      "y": 23.311,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "1-04",
+     "row": 3,
+     "col": 7,
+     "collar": {
+      "x": 32.124,
+      "y": 27.641,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 32.124,
+      "y": 27.641,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "8-05",
+     "row": 4,
+     "col": 0,
+     "collar": {
+      "x": 18.088,
+      "y": -4.67,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 18.088,
+      "y": -4.67,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-05",
+     "row": 4,
+     "col": 1,
+     "collar": {
+      "x": 20.588,
+      "y": -0.34,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 20.588,
+      "y": -0.34,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-05",
+     "row": 4,
+     "col": 2,
+     "collar": {
+      "x": 23.088,
+      "y": 3.99,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 23.088,
+      "y": 3.99,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-05",
+     "row": 4,
+     "col": 3,
+     "collar": {
+      "x": 25.588,
+      "y": 8.321,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 25.588,
+      "y": 8.321,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-05",
+     "row": 4,
+     "col": 4,
+     "collar": {
+      "x": 28.088,
+      "y": 12.651,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 28.088,
+      "y": 12.651,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-05",
+     "row": 4,
+     "col": 5,
+     "collar": {
+      "x": 30.588,
+      "y": 16.981,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 30.588,
+      "y": 16.981,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-05",
+     "row": 4,
+     "col": 6,
+     "collar": {
+      "x": 33.088,
+      "y": 21.311,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 33.088,
+      "y": 21.311,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "1-05",
+     "row": 4,
+     "col": 7,
+     "collar": {
+      "x": 35.588,
+      "y": 25.641,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 35.588,
+      "y": 25.641,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "8-06",
+     "row": 5,
+     "col": 0,
+     "collar": {
+      "x": 21.553,
+      "y": -6.67,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 21.553,
+      "y": -6.67,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-06",
+     "row": 5,
+     "col": 1,
+     "collar": {
+      "x": 24.053,
+      "y": -2.34,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 24.053,
+      "y": -2.34,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-06",
+     "row": 5,
+     "col": 2,
+     "collar": {
+      "x": 26.553,
+      "y": 1.99,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 26.553,
+      "y": 1.99,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-06",
+     "row": 5,
+     "col": 3,
+     "collar": {
+      "x": 29.053,
+      "y": 6.321,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 29.053,
+      "y": 6.321,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-06",
+     "row": 5,
+     "col": 4,
+     "collar": {
+      "x": 31.553,
+      "y": 10.651,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 31.553,
+      "y": 10.651,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-06",
+     "row": 5,
+     "col": 5,
+     "collar": {
+      "x": 34.053,
+      "y": 14.981,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 34.053,
+      "y": 14.981,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-06",
+     "row": 5,
+     "col": 6,
+     "collar": {
+      "x": 36.553,
+      "y": 19.311,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 36.553,
+      "y": 19.311,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "1-06",
+     "row": 5,
+     "col": 7,
+     "collar": {
+      "x": 39.053,
+      "y": 23.641,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 39.053,
+      "y": 23.641,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "8-01T",
+     "row": 0,
+     "col": 0,
+     "collar": {
+      "x": 3.366,
+      "y": 3.83,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 3.366,
+      "y": 3.83,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "face_toe",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-01T",
+     "row": 0,
+     "col": 1,
+     "collar": {
+      "x": 5.866,
+      "y": 8.16,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 5.866,
+      "y": 8.16,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "face_toe",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-01T",
+     "row": 0,
+     "col": 2,
+     "collar": {
+      "x": 8.366,
+      "y": 12.49,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 8.366,
+      "y": 12.49,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "face_toe",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-01T",
+     "row": 0,
+     "col": 3,
+     "collar": {
+      "x": 12.165,
+      "y": 16.071,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 12.165,
+      "y": 16.071,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "face_toe",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-01T",
+     "row": 0,
+     "col": 4,
+     "collar": {
+      "x": 13.366,
+      "y": 21.151,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 13.366,
+      "y": 21.151,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "face_toe",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-01T",
+     "row": 0,
+     "col": 5,
+     "collar": {
+      "x": 15.866,
+      "y": 25.481,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 15.866,
+      "y": 25.481,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "face_toe",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-01T",
+     "row": 0,
+     "col": 6,
+     "collar": {
+      "x": 18.366,
+      "y": 29.811,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 18.366,
+      "y": 29.811,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "face_toe",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    }
+   ],
+   "toe_line": {
+    "source": "angle",
+    "polylines": [
+     [
+      [
+       -2.321,
+       1.34
+      ],
+      [
+       17.679,
+       35.981
+      ]
+     ]
+    ],
+    "reason": "default",
+    "survey_polylines": []
+   },
+   "allowed_m": 4.12,
+   "expected": {
+    "1-01": {
+     "value_m": 4.679448,
+     "excess": true
+    },
+    "2-01T": {
+     "value_m": 3.679407,
+     "excess": false
+    },
+    "3-01T": {
+     "value_m": 3.679345,
+     "excess": false
+    },
+    "4-01T": {
+     "value_m": 3.679282,
+     "excess": false
+    },
+    "5-01T": {
+     "value_m": 5.179187,
+     "excess": true
+    },
+    "6-01T": {
+     "value_m": 3.679657,
+     "excess": false
+    },
+    "7-01T": {
+     "value_m": 3.679595,
+     "excess": false
+    },
+    "8-01T": {
+     "value_m": 3.679532,
+     "excess": false
+    }
+   }
+  },
+  {
+   "name": "plain",
+   "pattern_params": {
+    "pattern": "rectangular",
+    "spacing_a_m": 5.0,
+    "burden_b_m": 4.0,
+    "row_azimuth_deg": 30.0,
+    "angle_deg": 0.0,
+    "subdrill_m": 1.0,
+    "diameter_mm": 165.0,
+    "min_crest_offset_m": 0.3,
+    "offset_from_face_m": 1.0
+   },
+   "holes": [
+    {
+     "id": "8-01",
+     "row": 0,
+     "col": 0,
+     "collar": {
+      "x": 3.366,
+      "y": 3.83,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 3.366,
+      "y": 3.83,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-01",
+     "row": 0,
+     "col": 1,
+     "collar": {
+      "x": 5.866,
+      "y": 8.16,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 5.866,
+      "y": 8.16,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-01",
+     "row": 0,
+     "col": 2,
+     "collar": {
+      "x": 8.366,
+      "y": 12.49,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 8.366,
+      "y": 12.49,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-01",
+     "row": 0,
+     "col": 3,
+     "collar": {
+      "x": 10.866,
+      "y": 16.821,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 10.866,
+      "y": 16.821,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-01",
+     "row": 0,
+     "col": 4,
+     "collar": {
+      "x": 13.366,
+      "y": 21.151,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 13.366,
+      "y": 21.151,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-01",
+     "row": 0,
+     "col": 5,
+     "collar": {
+      "x": 15.866,
+      "y": 25.481,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 15.866,
+      "y": 25.481,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-01",
+     "row": 0,
+     "col": 6,
+     "collar": {
+      "x": 18.366,
+      "y": 29.811,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 18.366,
+      "y": 29.811,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "8-02",
+     "row": 1,
+     "col": 0,
+     "collar": {
+      "x": 6.83,
+      "y": 1.83,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 6.83,
+      "y": 1.83,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-02",
+     "row": 1,
+     "col": 1,
+     "collar": {
+      "x": 9.33,
+      "y": 6.16,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 9.33,
+      "y": 6.16,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-02",
+     "row": 1,
+     "col": 2,
+     "collar": {
+      "x": 11.83,
+      "y": 10.49,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 11.83,
+      "y": 10.49,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-02",
+     "row": 1,
+     "col": 3,
+     "collar": {
+      "x": 14.33,
+      "y": 14.821,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 14.33,
+      "y": 14.821,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-02",
+     "row": 1,
+     "col": 4,
+     "collar": {
+      "x": 16.83,
+      "y": 19.151,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 16.83,
+      "y": 19.151,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-02",
+     "row": 1,
+     "col": 5,
+     "collar": {
+      "x": 19.33,
+      "y": 23.481,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 19.33,
+      "y": 23.481,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-02",
+     "row": 1,
+     "col": 6,
+     "collar": {
+      "x": 21.83,
+      "y": 27.811,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 21.83,
+      "y": 27.811,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "1-01",
+     "row": 1,
+     "col": 7,
+     "collar": {
+      "x": 24.33,
+      "y": 32.141,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 24.33,
+      "y": 32.141,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "8-03",
+     "row": 2,
+     "col": 0,
+     "collar": {
+      "x": 10.294,
+      "y": -0.17,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 10.294,
+      "y": -0.17,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-03",
+     "row": 2,
+     "col": 1,
+     "collar": {
+      "x": 12.794,
+      "y": 4.16,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 12.794,
+      "y": 4.16,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-03",
+     "row": 2,
+     "col": 2,
+     "collar": {
+      "x": 15.294,
+      "y": 8.49,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 15.294,
+      "y": 8.49,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-03",
+     "row": 2,
+     "col": 3,
+     "collar": {
+      "x": 17.794,
+      "y": 12.821,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 17.794,
+      "y": 12.821,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-03",
+     "row": 2,
+     "col": 4,
+     "collar": {
+      "x": 20.294,
+      "y": 17.151,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 20.294,
+      "y": 17.151,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-03",
+     "row": 2,
+     "col": 5,
+     "collar": {
+      "x": 22.794,
+      "y": 21.481,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 22.794,
+      "y": 21.481,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-03",
+     "row": 2,
+     "col": 6,
+     "collar": {
+      "x": 25.294,
+      "y": 25.811,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 25.294,
+      "y": 25.811,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "1-02",
+     "row": 2,
+     "col": 7,
+     "collar": {
+      "x": 27.794,
+      "y": 30.141,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 27.794,
+      "y": 30.141,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "8-04",
+     "row": 3,
+     "col": 0,
+     "collar": {
+      "x": 13.758,
+      "y": -2.17,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 13.758,
+      "y": -2.17,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-04",
+     "row": 3,
+     "col": 1,
+     "collar": {
+      "x": 16.258,
+      "y": 2.16,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 16.258,
+      "y": 2.16,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-04",
+     "row": 3,
+     "col": 2,
+     "collar": {
+      "x": 18.758,
+      "y": 6.49,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 18.758,
+      "y": 6.49,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-04",
+     "row": 3,
+     "col": 3,
+     "collar": {
+      "x": 21.258,
+      "y": 10.821,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 21.258,
+      "y": 10.821,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-04",
+     "row": 3,
+     "col": 4,
+     "collar": {
+      "x": 23.758,
+      "y": 15.151,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 23.758,
+      "y": 15.151,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-04",
+     "row": 3,
+     "col": 5,
+     "collar": {
+      "x": 26.258,
+      "y": 19.481,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 26.258,
+      "y": 19.481,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-04",
+     "row": 3,
+     "col": 6,
+     "collar": {
+      "x": 28.758,
+      "y": 23.811,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 28.758,
+      "y": 23.811,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "1-03",
+     "row": 3,
+     "col": 7,
+     "collar": {
+      "x": 31.258,
+      "y": 28.141,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 31.258,
+      "y": 28.141,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "8-05",
+     "row": 4,
+     "col": 0,
+     "collar": {
+      "x": 17.222,
+      "y": -4.17,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 17.222,
+      "y": -4.17,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-05",
+     "row": 4,
+     "col": 1,
+     "collar": {
+      "x": 19.722,
+      "y": 0.16,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 19.722,
+      "y": 0.16,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-05",
+     "row": 4,
+     "col": 2,
+     "collar": {
+      "x": 22.222,
+      "y": 4.49,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 22.222,
+      "y": 4.49,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-05",
+     "row": 4,
+     "col": 3,
+     "collar": {
+      "x": 24.722,
+      "y": 8.821,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 24.722,
+      "y": 8.821,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-05",
+     "row": 4,
+     "col": 4,
+     "collar": {
+      "x": 27.222,
+      "y": 13.151,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 27.222,
+      "y": 13.151,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-05",
+     "row": 4,
+     "col": 5,
+     "collar": {
+      "x": 29.722,
+      "y": 17.481,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 29.722,
+      "y": 17.481,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-05",
+     "row": 4,
+     "col": 6,
+     "collar": {
+      "x": 32.222,
+      "y": 21.811,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 32.222,
+      "y": 21.811,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "1-04",
+     "row": 4,
+     "col": 7,
+     "collar": {
+      "x": 34.722,
+      "y": 26.141,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 34.722,
+      "y": 26.141,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "8-06",
+     "row": 5,
+     "col": 0,
+     "collar": {
+      "x": 20.687,
+      "y": -6.17,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 20.687,
+      "y": -6.17,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-06",
+     "row": 5,
+     "col": 1,
+     "collar": {
+      "x": 23.187,
+      "y": -1.84,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 23.187,
+      "y": -1.84,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-06",
+     "row": 5,
+     "col": 2,
+     "collar": {
+      "x": 25.687,
+      "y": 2.49,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 25.687,
+      "y": 2.49,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-06",
+     "row": 5,
+     "col": 3,
+     "collar": {
+      "x": 28.187,
+      "y": 6.821,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 28.187,
+      "y": 6.821,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-06",
+     "row": 5,
+     "col": 4,
+     "collar": {
+      "x": 30.687,
+      "y": 11.151,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 30.687,
+      "y": 11.151,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-06",
+     "row": 5,
+     "col": 5,
+     "collar": {
+      "x": 33.187,
+      "y": 15.481,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 33.187,
+      "y": 15.481,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-06",
+     "row": 5,
+     "col": 6,
+     "collar": {
+      "x": 35.687,
+      "y": 19.811,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 35.687,
+      "y": 19.811,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "1-05",
+     "row": 5,
+     "col": 7,
+     "collar": {
+      "x": 38.187,
+      "y": 24.141,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 38.187,
+      "y": 24.141,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "8-07",
+     "row": 6,
+     "col": 0,
+     "collar": {
+      "x": 24.151,
+      "y": -8.17,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 24.151,
+      "y": -8.17,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-07",
+     "row": 6,
+     "col": 1,
+     "collar": {
+      "x": 26.651,
+      "y": -3.84,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 26.651,
+      "y": -3.84,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-07",
+     "row": 6,
+     "col": 2,
+     "collar": {
+      "x": 29.151,
+      "y": 0.49,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 29.151,
+      "y": 0.49,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-07",
+     "row": 6,
+     "col": 3,
+     "collar": {
+      "x": 31.651,
+      "y": 4.821,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 31.651,
+      "y": 4.821,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-07",
+     "row": 6,
+     "col": 4,
+     "collar": {
+      "x": 34.151,
+      "y": 9.151,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 34.151,
+      "y": 9.151,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-07",
+     "row": 6,
+     "col": 5,
+     "collar": {
+      "x": 36.651,
+      "y": 13.481,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 36.651,
+      "y": 13.481,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-07",
+     "row": 6,
+     "col": 6,
+     "collar": {
+      "x": 39.151,
+      "y": 17.811,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 39.151,
+      "y": 17.811,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "1-06",
+     "row": 6,
+     "col": 7,
+     "collar": {
+      "x": 41.651,
+      "y": 22.141,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 41.651,
+      "y": 22.141,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    }
+   ],
+   "toe_line": {
+    "source": "angle",
+    "polylines": [
+     [
+      [
+       -2.321,
+       1.34
+      ],
+      [
+       17.679,
+       35.981
+      ]
+     ]
+    ],
+    "reason": "default",
+    "survey_polylines": []
+   },
+   "allowed_m": 4.12,
+   "expected": {
+    "2-01": {
+     "value_m": 3.679407,
+     "excess": false
+    },
+    "3-01": {
+     "value_m": 3.679345,
+     "excess": false
+    },
+    "4-01": {
+     "value_m": 3.679282,
+     "excess": false
+    },
+    "5-01": {
+     "value_m": 3.67922,
+     "excess": false
+    },
+    "6-01": {
+     "value_m": 3.679657,
+     "excess": false
+    },
+    "7-01": {
+     "value_m": 3.679595,
+     "excess": false
+    },
+    "8-01": {
+     "value_m": 3.679532,
+     "excess": false
+    }
+   }
+  },
+  {
+   "name": "plain_moved",
+   "pattern_params": {
+    "pattern": "rectangular",
+    "spacing_a_m": 5.0,
+    "burden_b_m": 4.0,
+    "row_azimuth_deg": 30.0,
+    "angle_deg": 0.0,
+    "subdrill_m": 1.0,
+    "diameter_mm": 165.0,
+    "min_crest_offset_m": 0.3,
+    "offset_from_face_m": 1.0
+   },
+   "holes": [
+    {
+     "id": "8-01",
+     "row": 0,
+     "col": 0,
+     "collar": {
+      "x": 3.366,
+      "y": 3.83,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 3.366,
+      "y": 3.83,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-01",
+     "row": 0,
+     "col": 1,
+     "collar": {
+      "x": 5.866,
+      "y": 8.16,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 5.866,
+      "y": 8.16,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-01",
+     "row": 0,
+     "col": 2,
+     "collar": {
+      "x": 8.366,
+      "y": 12.49,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 8.366,
+      "y": 12.49,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-01",
+     "row": 0,
+     "col": 3,
+     "collar": {
+      "x": 11.732,
+      "y": 16.321,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 11.732,
+      "y": 16.321,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-01",
+     "row": 0,
+     "col": 4,
+     "collar": {
+      "x": 13.366,
+      "y": 21.151,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 13.366,
+      "y": 21.151,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-01",
+     "row": 0,
+     "col": 5,
+     "collar": {
+      "x": 15.866,
+      "y": 25.481,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 15.866,
+      "y": 25.481,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-01",
+     "row": 0,
+     "col": 6,
+     "collar": {
+      "x": 18.366,
+      "y": 29.811,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 18.366,
+      "y": 29.811,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "8-02",
+     "row": 1,
+     "col": 0,
+     "collar": {
+      "x": 6.83,
+      "y": 1.83,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 6.83,
+      "y": 1.83,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-02",
+     "row": 1,
+     "col": 1,
+     "collar": {
+      "x": 9.33,
+      "y": 6.16,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 9.33,
+      "y": 6.16,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-02",
+     "row": 1,
+     "col": 2,
+     "collar": {
+      "x": 11.83,
+      "y": 10.49,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 11.83,
+      "y": 10.49,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-02",
+     "row": 1,
+     "col": 3,
+     "collar": {
+      "x": 14.33,
+      "y": 14.821,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 14.33,
+      "y": 14.821,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-02",
+     "row": 1,
+     "col": 4,
+     "collar": {
+      "x": 16.83,
+      "y": 19.151,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 16.83,
+      "y": 19.151,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-02",
+     "row": 1,
+     "col": 5,
+     "collar": {
+      "x": 19.33,
+      "y": 23.481,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 19.33,
+      "y": 23.481,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-02",
+     "row": 1,
+     "col": 6,
+     "collar": {
+      "x": 21.83,
+      "y": 27.811,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 21.83,
+      "y": 27.811,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "1-01",
+     "row": 1,
+     "col": 7,
+     "collar": {
+      "x": 24.33,
+      "y": 32.141,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 24.33,
+      "y": 32.141,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "8-03",
+     "row": 2,
+     "col": 0,
+     "collar": {
+      "x": 10.294,
+      "y": -0.17,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 10.294,
+      "y": -0.17,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-03",
+     "row": 2,
+     "col": 1,
+     "collar": {
+      "x": 12.794,
+      "y": 4.16,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 12.794,
+      "y": 4.16,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-03",
+     "row": 2,
+     "col": 2,
+     "collar": {
+      "x": 15.294,
+      "y": 8.49,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 15.294,
+      "y": 8.49,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-03",
+     "row": 2,
+     "col": 3,
+     "collar": {
+      "x": 17.794,
+      "y": 12.821,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 17.794,
+      "y": 12.821,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-03",
+     "row": 2,
+     "col": 4,
+     "collar": {
+      "x": 20.294,
+      "y": 17.151,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 20.294,
+      "y": 17.151,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-03",
+     "row": 2,
+     "col": 5,
+     "collar": {
+      "x": 22.794,
+      "y": 21.481,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 22.794,
+      "y": 21.481,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-03",
+     "row": 2,
+     "col": 6,
+     "collar": {
+      "x": 25.294,
+      "y": 25.811,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 25.294,
+      "y": 25.811,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "1-02",
+     "row": 2,
+     "col": 7,
+     "collar": {
+      "x": 27.794,
+      "y": 30.141,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 27.794,
+      "y": 30.141,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "8-04",
+     "row": 3,
+     "col": 0,
+     "collar": {
+      "x": 13.758,
+      "y": -2.17,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 13.758,
+      "y": -2.17,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-04",
+     "row": 3,
+     "col": 1,
+     "collar": {
+      "x": 16.258,
+      "y": 2.16,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 16.258,
+      "y": 2.16,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-04",
+     "row": 3,
+     "col": 2,
+     "collar": {
+      "x": 18.758,
+      "y": 6.49,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 18.758,
+      "y": 6.49,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-04",
+     "row": 3,
+     "col": 3,
+     "collar": {
+      "x": 21.258,
+      "y": 10.821,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 21.258,
+      "y": 10.821,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-04",
+     "row": 3,
+     "col": 4,
+     "collar": {
+      "x": 23.758,
+      "y": 15.151,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 23.758,
+      "y": 15.151,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-04",
+     "row": 3,
+     "col": 5,
+     "collar": {
+      "x": 26.258,
+      "y": 19.481,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 26.258,
+      "y": 19.481,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-04",
+     "row": 3,
+     "col": 6,
+     "collar": {
+      "x": 28.758,
+      "y": 23.811,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 28.758,
+      "y": 23.811,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "1-03",
+     "row": 3,
+     "col": 7,
+     "collar": {
+      "x": 31.258,
+      "y": 28.141,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 31.258,
+      "y": 28.141,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "8-05",
+     "row": 4,
+     "col": 0,
+     "collar": {
+      "x": 17.222,
+      "y": -4.17,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 17.222,
+      "y": -4.17,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-05",
+     "row": 4,
+     "col": 1,
+     "collar": {
+      "x": 19.722,
+      "y": 0.16,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 19.722,
+      "y": 0.16,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-05",
+     "row": 4,
+     "col": 2,
+     "collar": {
+      "x": 22.222,
+      "y": 4.49,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 22.222,
+      "y": 4.49,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-05",
+     "row": 4,
+     "col": 3,
+     "collar": {
+      "x": 24.722,
+      "y": 8.821,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 24.722,
+      "y": 8.821,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-05",
+     "row": 4,
+     "col": 4,
+     "collar": {
+      "x": 27.222,
+      "y": 13.151,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 27.222,
+      "y": 13.151,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-05",
+     "row": 4,
+     "col": 5,
+     "collar": {
+      "x": 29.722,
+      "y": 17.481,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 29.722,
+      "y": 17.481,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-05",
+     "row": 4,
+     "col": 6,
+     "collar": {
+      "x": 32.222,
+      "y": 21.811,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 32.222,
+      "y": 21.811,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "1-04",
+     "row": 4,
+     "col": 7,
+     "collar": {
+      "x": 34.722,
+      "y": 26.141,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 34.722,
+      "y": 26.141,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "8-06",
+     "row": 5,
+     "col": 0,
+     "collar": {
+      "x": 20.687,
+      "y": -6.17,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 20.687,
+      "y": -6.17,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-06",
+     "row": 5,
+     "col": 1,
+     "collar": {
+      "x": 23.187,
+      "y": -1.84,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 23.187,
+      "y": -1.84,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-06",
+     "row": 5,
+     "col": 2,
+     "collar": {
+      "x": 25.687,
+      "y": 2.49,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 25.687,
+      "y": 2.49,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-06",
+     "row": 5,
+     "col": 3,
+     "collar": {
+      "x": 28.187,
+      "y": 6.821,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 28.187,
+      "y": 6.821,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-06",
+     "row": 5,
+     "col": 4,
+     "collar": {
+      "x": 30.687,
+      "y": 11.151,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 30.687,
+      "y": 11.151,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-06",
+     "row": 5,
+     "col": 5,
+     "collar": {
+      "x": 33.187,
+      "y": 15.481,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 33.187,
+      "y": 15.481,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-06",
+     "row": 5,
+     "col": 6,
+     "collar": {
+      "x": 35.687,
+      "y": 19.811,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 35.687,
+      "y": 19.811,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "1-05",
+     "row": 5,
+     "col": 7,
+     "collar": {
+      "x": 38.187,
+      "y": 24.141,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 38.187,
+      "y": 24.141,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "8-07",
+     "row": 6,
+     "col": 0,
+     "collar": {
+      "x": 24.151,
+      "y": -8.17,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 24.151,
+      "y": -8.17,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-07",
+     "row": 6,
+     "col": 1,
+     "collar": {
+      "x": 26.651,
+      "y": -3.84,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 26.651,
+      "y": -3.84,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-07",
+     "row": 6,
+     "col": 2,
+     "collar": {
+      "x": 29.151,
+      "y": 0.49,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 29.151,
+      "y": 0.49,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-07",
+     "row": 6,
+     "col": 3,
+     "collar": {
+      "x": 31.651,
+      "y": 4.821,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 31.651,
+      "y": 4.821,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-07",
+     "row": 6,
+     "col": 4,
+     "collar": {
+      "x": 34.151,
+      "y": 9.151,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 34.151,
+      "y": 9.151,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-07",
+     "row": 6,
+     "col": 5,
+     "collar": {
+      "x": 36.651,
+      "y": 13.481,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 36.651,
+      "y": 13.481,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-07",
+     "row": 6,
+     "col": 6,
+     "collar": {
+      "x": 39.151,
+      "y": 17.811,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 39.151,
+      "y": 17.811,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "1-06",
+     "row": 6,
+     "col": 7,
+     "collar": {
+      "x": 41.651,
+      "y": 22.141,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 41.651,
+      "y": 22.141,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    }
+   ],
+   "toe_line": {
+    "source": "angle",
+    "polylines": [
+     [
+      [
+       -2.321,
+       1.34
+      ],
+      [
+       17.679,
+       35.981
+      ]
+     ]
+    ],
+    "reason": "default",
+    "survey_polylines": []
+   },
+   "allowed_m": 4.12,
+   "expected": {
+    "2-01": {
+     "value_m": 3.679407,
+     "excess": false
+    },
+    "3-01": {
+     "value_m": 3.679345,
+     "excess": false
+    },
+    "4-01": {
+     "value_m": 3.679282,
+     "excess": false
+    },
+    "5-01": {
+     "value_m": 4.679198,
+     "excess": true
+    },
+    "6-01": {
+     "value_m": 3.679657,
+     "excess": false
+    },
+    "7-01": {
+     "value_m": 3.679595,
+     "excess": false
+    },
+    "8-01": {
+     "value_m": 3.679532,
+     "excess": false
+    }
+   }
+  },
+  {
+   "name": "plain_moved_closed",
+   "pattern_params": {
+    "pattern": "rectangular",
+    "spacing_a_m": 5.0,
+    "burden_b_m": 4.0,
+    "row_azimuth_deg": 30.0,
+    "angle_deg": 0.0,
+    "subdrill_m": 1.0,
+    "diameter_mm": 165.0,
+    "min_crest_offset_m": 0.3,
+    "offset_from_face_m": 1.0
+   },
+   "holes": [
+    {
+     "id": "8-01",
+     "row": 0,
+     "col": 0,
+     "collar": {
+      "x": 3.366,
+      "y": 3.83,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 3.366,
+      "y": 3.83,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-01",
+     "row": 0,
+     "col": 1,
+     "collar": {
+      "x": 5.866,
+      "y": 8.16,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 5.866,
+      "y": 8.16,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-01",
+     "row": 0,
+     "col": 2,
+     "collar": {
+      "x": 8.366,
+      "y": 12.49,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 8.366,
+      "y": 12.49,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-01",
+     "row": 0,
+     "col": 3,
+     "collar": {
+      "x": 12.598,
+      "y": 15.821,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 12.598,
+      "y": 15.821,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-01",
+     "row": 0,
+     "col": 4,
+     "collar": {
+      "x": 13.366,
+      "y": 21.151,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 13.366,
+      "y": 21.151,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-01",
+     "row": 0,
+     "col": 5,
+     "collar": {
+      "x": 15.866,
+      "y": 25.481,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 15.866,
+      "y": 25.481,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-01",
+     "row": 0,
+     "col": 6,
+     "collar": {
+      "x": 18.366,
+      "y": 29.811,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 18.366,
+      "y": 29.811,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "8-02",
+     "row": 1,
+     "col": 0,
+     "collar": {
+      "x": 6.83,
+      "y": 1.83,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 6.83,
+      "y": 1.83,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-02",
+     "row": 1,
+     "col": 1,
+     "collar": {
+      "x": 9.33,
+      "y": 6.16,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 9.33,
+      "y": 6.16,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-02",
+     "row": 1,
+     "col": 2,
+     "collar": {
+      "x": 11.83,
+      "y": 10.49,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 11.83,
+      "y": 10.49,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-02",
+     "row": 1,
+     "col": 3,
+     "collar": {
+      "x": 14.33,
+      "y": 14.821,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 14.33,
+      "y": 14.821,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-02",
+     "row": 1,
+     "col": 4,
+     "collar": {
+      "x": 16.83,
+      "y": 19.151,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 16.83,
+      "y": 19.151,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-02",
+     "row": 1,
+     "col": 5,
+     "collar": {
+      "x": 19.33,
+      "y": 23.481,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 19.33,
+      "y": 23.481,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-02",
+     "row": 1,
+     "col": 6,
+     "collar": {
+      "x": 21.83,
+      "y": 27.811,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 21.83,
+      "y": 27.811,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "1-01",
+     "row": 1,
+     "col": 7,
+     "collar": {
+      "x": 24.33,
+      "y": 32.141,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 24.33,
+      "y": 32.141,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "8-03",
+     "row": 2,
+     "col": 0,
+     "collar": {
+      "x": 10.294,
+      "y": -0.17,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 10.294,
+      "y": -0.17,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-03",
+     "row": 2,
+     "col": 1,
+     "collar": {
+      "x": 12.794,
+      "y": 4.16,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 12.794,
+      "y": 4.16,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-03",
+     "row": 2,
+     "col": 2,
+     "collar": {
+      "x": 15.294,
+      "y": 8.49,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 15.294,
+      "y": 8.49,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-03",
+     "row": 2,
+     "col": 3,
+     "collar": {
+      "x": 17.794,
+      "y": 12.821,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 17.794,
+      "y": 12.821,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-03",
+     "row": 2,
+     "col": 4,
+     "collar": {
+      "x": 20.294,
+      "y": 17.151,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 20.294,
+      "y": 17.151,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-03",
+     "row": 2,
+     "col": 5,
+     "collar": {
+      "x": 22.794,
+      "y": 21.481,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 22.794,
+      "y": 21.481,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-03",
+     "row": 2,
+     "col": 6,
+     "collar": {
+      "x": 25.294,
+      "y": 25.811,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 25.294,
+      "y": 25.811,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "1-02",
+     "row": 2,
+     "col": 7,
+     "collar": {
+      "x": 27.794,
+      "y": 30.141,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 27.794,
+      "y": 30.141,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "8-04",
+     "row": 3,
+     "col": 0,
+     "collar": {
+      "x": 13.758,
+      "y": -2.17,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 13.758,
+      "y": -2.17,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-04",
+     "row": 3,
+     "col": 1,
+     "collar": {
+      "x": 16.258,
+      "y": 2.16,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 16.258,
+      "y": 2.16,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-04",
+     "row": 3,
+     "col": 2,
+     "collar": {
+      "x": 18.758,
+      "y": 6.49,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 18.758,
+      "y": 6.49,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-04",
+     "row": 3,
+     "col": 3,
+     "collar": {
+      "x": 21.258,
+      "y": 10.821,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 21.258,
+      "y": 10.821,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-04",
+     "row": 3,
+     "col": 4,
+     "collar": {
+      "x": 23.758,
+      "y": 15.151,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 23.758,
+      "y": 15.151,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-04",
+     "row": 3,
+     "col": 5,
+     "collar": {
+      "x": 26.258,
+      "y": 19.481,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 26.258,
+      "y": 19.481,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-04",
+     "row": 3,
+     "col": 6,
+     "collar": {
+      "x": 28.758,
+      "y": 23.811,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 28.758,
+      "y": 23.811,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "1-03",
+     "row": 3,
+     "col": 7,
+     "collar": {
+      "x": 31.258,
+      "y": 28.141,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 31.258,
+      "y": 28.141,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "8-05",
+     "row": 4,
+     "col": 0,
+     "collar": {
+      "x": 17.222,
+      "y": -4.17,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 17.222,
+      "y": -4.17,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-05",
+     "row": 4,
+     "col": 1,
+     "collar": {
+      "x": 19.722,
+      "y": 0.16,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 19.722,
+      "y": 0.16,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-05",
+     "row": 4,
+     "col": 2,
+     "collar": {
+      "x": 22.222,
+      "y": 4.49,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 22.222,
+      "y": 4.49,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-05",
+     "row": 4,
+     "col": 3,
+     "collar": {
+      "x": 24.722,
+      "y": 8.821,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 24.722,
+      "y": 8.821,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-05",
+     "row": 4,
+     "col": 4,
+     "collar": {
+      "x": 27.222,
+      "y": 13.151,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 27.222,
+      "y": 13.151,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-05",
+     "row": 4,
+     "col": 5,
+     "collar": {
+      "x": 29.722,
+      "y": 17.481,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 29.722,
+      "y": 17.481,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-05",
+     "row": 4,
+     "col": 6,
+     "collar": {
+      "x": 32.222,
+      "y": 21.811,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 32.222,
+      "y": 21.811,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "1-04",
+     "row": 4,
+     "col": 7,
+     "collar": {
+      "x": 34.722,
+      "y": 26.141,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 34.722,
+      "y": 26.141,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "8-06",
+     "row": 5,
+     "col": 0,
+     "collar": {
+      "x": 20.687,
+      "y": -6.17,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 20.687,
+      "y": -6.17,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-06",
+     "row": 5,
+     "col": 1,
+     "collar": {
+      "x": 23.187,
+      "y": -1.84,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 23.187,
+      "y": -1.84,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-06",
+     "row": 5,
+     "col": 2,
+     "collar": {
+      "x": 25.687,
+      "y": 2.49,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 25.687,
+      "y": 2.49,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-06",
+     "row": 5,
+     "col": 3,
+     "collar": {
+      "x": 28.187,
+      "y": 6.821,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 28.187,
+      "y": 6.821,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-06",
+     "row": 5,
+     "col": 4,
+     "collar": {
+      "x": 30.687,
+      "y": 11.151,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 30.687,
+      "y": 11.151,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-06",
+     "row": 5,
+     "col": 5,
+     "collar": {
+      "x": 33.187,
+      "y": 15.481,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 33.187,
+      "y": 15.481,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-06",
+     "row": 5,
+     "col": 6,
+     "collar": {
+      "x": 35.687,
+      "y": 19.811,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 35.687,
+      "y": 19.811,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "1-05",
+     "row": 5,
+     "col": 7,
+     "collar": {
+      "x": 38.187,
+      "y": 24.141,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 38.187,
+      "y": 24.141,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "8-07",
+     "row": 6,
+     "col": 0,
+     "collar": {
+      "x": 24.151,
+      "y": -8.17,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 24.151,
+      "y": -8.17,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "7-07",
+     "row": 6,
+     "col": 1,
+     "collar": {
+      "x": 26.651,
+      "y": -3.84,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 26.651,
+      "y": -3.84,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "6-07",
+     "row": 6,
+     "col": 2,
+     "collar": {
+      "x": 29.151,
+      "y": 0.49,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 29.151,
+      "y": 0.49,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "5-07",
+     "row": 6,
+     "col": 3,
+     "collar": {
+      "x": 31.651,
+      "y": 4.821,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 31.651,
+      "y": 4.821,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "4-07",
+     "row": 6,
+     "col": 4,
+     "collar": {
+      "x": 34.151,
+      "y": 9.151,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 34.151,
+      "y": 9.151,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "3-07",
+     "row": 6,
+     "col": 5,
+     "collar": {
+      "x": 36.651,
+      "y": 13.481,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 36.651,
+      "y": 13.481,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "2-07",
+     "row": 6,
+     "col": 6,
+     "collar": {
+      "x": 39.151,
+      "y": 17.811,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 39.151,
+      "y": 17.811,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    },
+    {
+     "id": "1-06",
+     "row": 6,
+     "col": 7,
+     "collar": {
+      "x": 41.651,
+      "y": 22.141,
+      "z": 0.0
+     },
+     "toe": {
+      "x": 41.651,
+      "y": 22.141,
+      "z": -11.0
+     },
+     "diameter_mm": 165.0,
+     "subdrill_m": 1.0,
+     "kind": "production",
+     "source": "generated",
+     "enabled": true,
+     "intervals": [],
+     "water_intervals": [],
+     "measured_intervals": [],
+     "measured_water_intervals": []
+    }
+   ],
+   "toe_line": {
+    "source": "angle",
+    "polylines": [
+     [
+      [
+       -2.321,
+       1.34
+      ],
+      [
+       17.679,
+       35.981
+      ]
+     ]
+    ],
+    "reason": "default",
+    "survey_polylines": []
+   },
+   "allowed_m": 4.12,
+   "expected": {
+    "2-01": {
+     "value_m": 3.679407,
+     "excess": false
+    },
+    "3-01": {
+     "value_m": 3.679345,
+     "excess": false
+    },
+    "4-01": {
+     "value_m": 3.679282,
+     "excess": false
+    },
+    "6-01": {
+     "value_m": 3.679657,
+     "excess": false
+    },
+    "7-01": {
+     "value_m": 3.679595,
+     "excess": false
+    },
+    "8-01": {
+     "value_m": 3.679532,
+     "excess": false
+    }
+   }
+  }
+ ]
+}

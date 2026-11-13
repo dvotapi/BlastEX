@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import type { BlockContour, Hole } from "../../types/design";
 import { arrowDelta, dragDelta, fromAxes, gridSteps, layoutAxes, snapStepM, toAxes, withFacePairs } from "./holeMove";
+import liveFixture from "./testing/liveLspFixture.json";
 
 function rectContour(freeFaces: number[][] = [[0, 1]]): BlockContour {
   // Откос — южная сторона (0,0)→(40,0), блок уходит на север.
@@ -144,4 +145,19 @@ describe("withFacePairs", () => {
   it("скважина без пары — как есть, без повторов", () => {
     expect(withFacePairs(["4-02", "4-01", "4-01T"], holes)).toEqual(["4-02", "4-01", "4-01T"]);
   });
+});
+
+describe("layoutAxes и сервер (TASK-017, PR 2)", () => {
+  // Смещение от узла сетки хранится в осях раскладки: оси клиента и
+  // `design/geometry.py::layout_axes` должны совпадать.
+  type AxesCase = { name: string; contour: BlockContour; row_azimuth_deg: number; along: number[]; across: number[] };
+  for (const item of (liveFixture as unknown as { axes: AxesCase[] }).axes) {
+    it(`оси совпадают с серверными: ${item.name}`, () => {
+      const axes = layoutAxes(item.row_azimuth_deg, item.contour);
+      expect(axes.along.x).toBeCloseTo(item.along[0], 9);
+      expect(axes.along.y).toBeCloseTo(item.along[1], 9);
+      expect(axes.across.x).toBeCloseTo(item.across[0], 9);
+      expect(axes.across.y).toBeCloseTo(item.across[1], 9);
+    });
+  }
 });

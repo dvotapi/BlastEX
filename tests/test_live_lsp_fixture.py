@@ -21,6 +21,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from api.services.design_service import _toe_line_schema
+from design.geometry import layout_axes
 from design.models import BenchSurface, BlastDesign, BlockContour, Hole, Point3
 from design.pattern import generate_pattern
 from design.toe_line import allowed_floor_burden_m, floor_burdens
@@ -104,12 +105,30 @@ def _case(name: str, contour: BlockContour, holes: list[Hole], params: dict) -> 
     }
 
 
+def _axes(name: str, contour: BlockContour, row_azimuth_deg: float) -> dict:
+    # Оси сдвига (TASK-017, PR 2): в них хранится смещение от узла сетки.
+    along, across = layout_axes(contour, row_azimuth_deg)
+    return {
+        "name": name,
+        "contour": contour.to_dict(),
+        "row_azimuth_deg": row_azimuth_deg,
+        "along": [round(along[0], 12), round(along[1], 12)],
+        "across": [round(across[0], 12), round(across[1], 12)],
+    }
+
+
 def build_fixture() -> dict:
     contour = _contour()
     pair = [_round_hole(h) for h in generate_pattern(contour, PAIR_PARAMS)]
     plain = [_round_hole(h) for h in generate_pattern(contour, PLAIN_PARAMS)]
     return {
         "contour": contour.to_dict(),
+        "axes": [
+            _axes("toward_face", contour, ROW_AZIMUTH_DEG),
+            # Бровка с другой стороны: «вглубь» разворачивается, «к откосу» — тоже.
+            _axes("toward_face_reversed", contour, ROW_AZIMUTH_DEG + 180.0),
+            _axes("no_free_face", replace(contour, free_faces=[]), ROW_AZIMUTH_DEG),
+        ],
         "cases": [
             _case("pair", contour, pair, PAIR_PARAMS),
             _case("pair_moved", contour, _moved(pair, "5-01T", 1.5), PAIR_PARAMS),

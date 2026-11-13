@@ -595,3 +595,27 @@ def test_long_nested_handles_fit_the_storage_key():
 
     assert len(lines) == 1
     assert len(lines[0].handle) <= reader.MAX_HANDLE_LENGTH
+
+
+def test_mtext_stacked_units_are_plain_text() -> None:
+    """Дроби MTEXT (`\\S3^;`) — без хвостов кодов: «м³», «Vотв», «1/2» (план карьера 24.09.2026)."""
+
+    def build(doc) -> None:
+        msp = doc.modelspace()
+        msp.add_mtext("\\A1;Склад негабарита р.с\\PV=2674,5м{\\H0.7x;\\S3^;}", dxfattribs={"insert": (0, 0)})
+        msp.add_mtext("\\A1;Отвал\\PV{\\H0.7x;\\S^отв;}=521,51 тыс. м{\\H0.7x;\\S3^;}", dxfattribs={"insert": (10, 0)})
+        msp.add_mtext("Площадь {\\S1/2;} га, уклон {\\S1#10;}", dxfattribs={"insert": (20, 0)})
+        msp.add_mtext("{\\fArial|b1;ДСК}", dxfattribs={"insert": (30, 0)})
+        msp.add_mtext("Допуск {\\S+0.1^-0.2;}, расход м{\\S-1^;}", dxfattribs={"insert": (40, 0)})
+        msp.add_mtext("Путь C:\\\\Survey;1", dxfattribs={"insert": (50, 0)})
+        msp.add_line((0, 0), (40, 0))
+
+    texts = [item.text for item in read_cad(_dxf_bytes(build), "plan.dxf").entities if item.kind == "MTEXT"]
+    assert texts == [
+        "Склад негабарита р.с\nV=2674,5м³",
+        "Отвал\nVотв=521,51 тыс. м³",
+        "Площадь 1/2 га, уклон 1/10",
+        "ДСК",
+        "Допуск +0.1/-0.2, расход м⁻¹",
+        "Путь C:\\Survey;1",
+    ]

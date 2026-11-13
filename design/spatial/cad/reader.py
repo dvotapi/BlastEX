@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import math
 import os
+import re
 import tempfile
 from collections import Counter
 from dataclasses import dataclass
@@ -65,6 +66,43 @@ class ReadOptions:
     scale: float = 1.0
     label_radius_m: float = 3.0
     closure_tolerance_m: float = CLOSURE_TOLERANCE_M
+
+
+# Дробь MTEXT `\S<верх><разделитель><низ>;`: разделитель ^ (верхний/нижний индекс
+# или допуск), / или # (дробь); `\;` внутри — точка с запятой. Перед `\S` — не
+# экранированный обратный слэш (`\\S` — буквальный текст). ezdxf 1.4 оставляет из
+# `\S3^;` хвост «3y}\S3y».
+# Группы однозначны (экранированный символ — `\\x`, остальное без `\\`) и
+# обрываются на следующем `\\S`: неудачная попытка не уходит дальше соседней
+# дроби. Текст длиннее MAX_STACKED_MTEXT разбирается как раньше.
+_STACK = re.compile(r"(?<!\\)((?:\\\\)*)\\S((?:\\[^S]|[^;\\^/#])*)([\^/#])((?:\\[^S]|[^;\\])*);")
+MAX_STACKED_MTEXT = 4096
+_SUPERSCRIPT = str.maketrans("0123456789-+", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻⁺")
+
+
+def _unstack(match: re.Match[str]) -> str:
+    prefix = match.group(1)
+    upper, divider, lower = (match.group(index).replace("\\;", ";") for index in (2, 3, 4))
+    if divider == "^" and upper and not lower:
+        # «м{\S3^;}» — м³, «м{\S-1^;}» — м⁻¹; цифры без надстрочного знака — как есть.
+        lifted = upper.translate(_SUPERSCRIPT)
+        return prefix + (lifted if all(char in "⁰¹²³⁴⁵⁶⁷⁸⁹⁻⁺" for char in lifted) else upper)
+    if not upper or not lower:
+        # «V{\S^отв;}» — Vотв: индекс без верхней части — нижний.
+        return prefix + (upper or lower)
+    # Дробь и допуск («+0.1^-0.2») — обе части.
+    return f"{prefix}{upper}/{lower}"
+
+
+def mtext_plain(entity) -> str:
+    """Текст MTEXT без кодов форматирования: дроби и индексы — словами и знаками ²/³."""
+
+    raw = str(entity.text or "")
+    if "\\S" not in raw or len(raw) > MAX_STACKED_MTEXT:
+        return entity.plain_text()
+    from ezdxf.tools.text import plain_mtext
+
+    return plain_mtext(_STACK.sub(_unstack, raw), split=False)
 
 
 def read_cad(data: bytes, filename: str = "", options: ReadOptions | None = None) -> CadDrawing:
@@ -443,7 +481,7 @@ class _Collector:
             height = float(entity.dxf.get("height", 0.0) or 0.0)
         else:
             location = entity.dxf.insert
-            text = entity.plain_text()
+            text = mtext_plain(entity)
             height = float(entity.dxf.get("char_height", 0.0) or 0.0)
         label = CadEntity(
             handle=handle,

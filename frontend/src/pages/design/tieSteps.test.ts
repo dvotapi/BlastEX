@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { emptyNetwork, type TieCatalog } from "../../types/design";
-import { defaultActiveStep, defaultDownhole, nearestNominal, OFF_NOMINAL_COLOR, STEP_COLORS, stepColor, systemCatalog } from "./tiePalette";
+import { defaultActiveStep, defaultDownhole, nearestNominal, OFF_NOMINAL_COLOR, STEP_COLORS, stepColor, systemCatalog } from "./tieSteps";
 
 const CATALOG: TieCatalog = {
   systems: {

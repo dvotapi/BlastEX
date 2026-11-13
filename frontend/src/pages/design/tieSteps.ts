@@ -41,3 +41,26 @@ export function defaultDownhole(network: InitiationNetwork, system: TieSystemCat
 export function nearestNominal(value: number, options: readonly number[]): number {
   return options.reduce((best, option) => (Math.abs(option - value) < Math.abs(best - value) ? option : best));
 }
+
+/** Инструменты правки коммутации на плане. */
+export type TieTool = "tie" | "step" | "starter" | "downhole";
+
+export const TIE_TOOLS: { id: TieTool; label: string; key: string; title: string }[] = [
+  { id: "tie", label: "Связь", key: "T", title: "Связь (T): протянуть мышь через скважины — цепочка; клик по двум скважинам — одна связь" },
+  { id: "step", label: "Ступень", key: "D", title: "Ступень (D): клик или рамка по линиям — активный номинал" },
+  { id: "starter", label: "Стартер", key: "S", title: "Стартер (S): клик по скважине ставит или снимает стартер" },
+  { id: "downhole", label: "В скважине", key: "H", title: "В скважине (H): клик или рамка по скважинам — замедление в скважине" },
+];
+
+const TOOL_KEYS: Record<string, TieTool> = { t: "tie", "е": "tie", d: "step", "в": "step", s: "starter", "ы": "starter", h: "downhole", "р": "downhole" };
+
+/** Инструмент по клавише (латиница и русская раскладка). */
+export function tieToolForKey(key: string): TieTool | null {
+  return TOOL_KEYS[key.toLowerCase()] ?? null;
+}
+
+/** Номинал по цифре 1–5 (по порядку палитры). */
+export function nominalForKey(key: string, nominals: readonly number[]): number | null {
+  if (!/^[1-9]$/.test(key)) return null;
+  return nominals[Number(key) - 1] ?? null;
+}

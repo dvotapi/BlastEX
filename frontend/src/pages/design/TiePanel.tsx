@@ -8,7 +8,7 @@ import {
   type TieCatalog,
   type TieParams,
 } from "../../types/design";
-import { nearestNominal, systemCatalog } from "./tiePalette";
+import { nearestNominal, systemCatalog } from "./tieSteps";
 import { RoleBadge } from "./RoleBadge";
 import type { NetworkRetieView } from "./useNetworkRetie";
 

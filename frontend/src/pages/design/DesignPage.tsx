@@ -106,7 +106,7 @@ import { changedAxes, designReducer, historyLocked, initDesignState } from "./de
 import { tieWarningsFor, withTieWarnings, type StoredTieWarnings } from "./tieWarnings";
 import { markNetworkEdited, RETIE_EDITED_CONFIRM } from "./retie";
 import { useNetworkRetie } from "./useNetworkRetie";
-import { benchPatchFromObjectAngle, chargeGridOf, designWithParams, hasUnsavedChanges, paramsFromDesign, rockNameFromTransfer, tieRequestParams, type DesignParams } from "./designParams";
+import { benchPatchFromObjectAngle, chargeGridOf, designedChanged, designWithParams, hasUnsavedChanges, paramsFromDesign, rockNameFromTransfer, tieRequestParams, type DesignParams } from "./designParams";
 import { FragmentationPanel } from "./FragmentationPanel";
 import { exampleLayeredDomains, GeologyPanel } from "./GeologyPanel";
 import { HoleInspector } from "./HoleInspector";
@@ -307,6 +307,12 @@ export function DesignPage({
   // Статус и ревизия берутся из сохранённой версии: с несохранёнными правками обе закрыты.
   const unsavedChanges = useMemo(
     () => hasUnsavedChanges(state, { patternParams, chargeRules, explosiveKey }, defaultExplosiveKey),
+    [state, patternParams, chargeRules, explosiveKey, defaultExplosiveKey],
+  );
+  // Проектная часть изменена и не сохранена: документы, выпущенные по
+  // сохранённому проекту (паспорт на бурение, проект МВ), уже устарели.
+  const designedDirty = useMemo(
+    () => designedChanged(state, { patternParams, chargeRules, explosiveKey }, defaultExplosiveKey),
     [state, patternParams, chargeRules, explosiveKey, defaultExplosiveKey],
   );
   const [selectedRow, setSelectedRow] = useState<string | null>(null);
@@ -3323,8 +3329,12 @@ export function DesignPage({
           />
           </>}
           {workflowStage === "report" && <>
-          <MassBlastPanel designId={document.design_id} designName={document.name} />
-          {drillPassportEnabled && <DrillPassportPanel designId={document.design_id} designSaved={!unsavedChanges} />}
+          <MassBlastPanel designId={document.design_id} designName={document.name}
+            designSha256={state.saved.designed_sha256} designedDirty={designedDirty} />
+          {drillPassportEnabled && (
+            <DrillPassportPanel designId={document.design_id} designSaved={!unsavedChanges}
+              designSha256={state.saved.designed_sha256} designedDirty={designedDirty} />
+          )}
           </>}
         </div>
             </StageInspector>

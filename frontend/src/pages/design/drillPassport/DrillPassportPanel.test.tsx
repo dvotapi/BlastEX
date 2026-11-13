@@ -155,4 +155,18 @@ describe("DrillPassportPanel", () => {
     render(<DrillPassportPanel designId="block-66" designSaved />);
     expect(await screen.findByText("Паспорта на бурение временно недоступны.")).toBeTruthy();
   });
+
+  it("ревизия по прежнему проекту блока — «устарел»", async () => {
+    api.drillPassport.list.mockResolvedValue([{ ...passport66(), current_revision_id: "rev-1" }]);
+    api.drillPassport.revision.mockResolvedValue({
+      id: "rev-1", passport_id: "p1", revision_no: 2, design_sha256: "old", content_sha256: "", created_at: "", created_by: "", context: {},
+    });
+    const view = render(<DrillPassportPanel designId="d66" designSaved designSha256="old" />);
+    expect(await screen.findByText(/Ревизия № 2/)).toBeTruthy();
+    expect(screen.queryByText(/Устарел/)).toBeNull();
+    view.rerender(<DrillPassportPanel designId="d66" designSaved={false} designSha256="old" designedDirty />);
+    expect(screen.getByText(/Устарел: проект блока изменён после выпуска ревизии/)).toBeTruthy();
+    view.rerender(<DrillPassportPanel designId="d66" designSaved designSha256="new" />);
+    expect(screen.getByText(/Устарел: проект блока изменён после выпуска ревизии/)).toBeTruthy();
+  });
 });

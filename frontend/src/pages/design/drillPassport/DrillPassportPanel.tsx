@@ -6,10 +6,23 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../../../api/endpoints";
 import { ruDate } from "../../../lib/format";
 import type { DrillPassport, DrillPassportRevision } from "../../../types/drillPassport";
+import { snapshotStale } from "../designParams";
 import { DownloadBar } from "./DownloadBar";
 import { DrillPassportDialog } from "./DrillPassportDialog";
 
-export function DrillPassportPanel({ designId, designSaved }: { designId: string; designSaved: boolean }) {
+export function DrillPassportPanel({
+  designId,
+  designSaved,
+  designSha256 = "",
+  designedDirty = false,
+}: {
+  designId: string;
+  designSaved: boolean;
+  /** `designed_sha256` сохранённого проекта блока (TASK-017, PR 3). */
+  designSha256?: string;
+  /** Проектная часть изменена и не сохранена (сдвиг, правка сети). */
+  designedDirty?: boolean;
+}) {
   const [passport, setPassport] = useState<DrillPassport | null>(null);
   const [revision, setRevision] = useState<DrillPassportRevision | null>(null);
   const [loading, setLoading] = useState(false);
@@ -106,6 +119,9 @@ export function DrillPassportPanel({ designId, designSaved }: { designId: string
                 Открыть паспорт
               </button>
             </div>
+            {revision && snapshotStale(revision.design_sha256, designSha256, designedDirty) && (
+              <small className="frag-warnings">Устарел: проект блока изменён после выпуска ревизии — выпустите новую ревизию.</small>
+            )}
             {revision && <DownloadBar key={revision.id} revision={revision} />}
           </>
         )}

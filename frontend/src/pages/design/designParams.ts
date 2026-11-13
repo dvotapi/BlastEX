@@ -112,6 +112,32 @@ export function hasUnsavedChanges(state: Pick<DesignState, "present" | "saved">,
 }
 
 /**
+ * Изменена ли проектная часть (то, что входит в `designed_sha256`) против
+ * сохранённой: как `hasUnsavedChanges`, но без названия, исполнения и замеров.
+ * Сдвиг скважин и правка сети — изменения проектной части (TASK-017, PR 3).
+ */
+export function designedChanged(state: Pick<DesignState, "present" | "saved">, params: DesignParams, defaultExplosiveKey: string): boolean {
+  const keys = MUTATION_PAYLOAD_KEYS.designed;
+  const pick = (design: BlastDesign) => Object.fromEntries(keys.map((key) => [key, design[key]]));
+  const stored = { present: state.saved, saved: state.saved };
+  return !sameJson(
+    pick(designWithParams(state, params)),
+    pick(designWithParams(stored, paramsFromDesign(state.saved, defaultExplosiveKey))),
+  );
+}
+
+/**
+ * Документ, выпущенный по снимку проекта блока (ревизия паспорта на бурение,
+ * блок проекта МВ), устарел: его `design_sha256` не совпадает с хэшем
+ * сохранённого проекта или проектная часть изменена и не сохранена. Хэша нет
+ * (старый снимок, проект без хэша) — сравнивать не с чем.
+ */
+export function snapshotStale(snapshotSha256: string | undefined, designSha256: string, designedDirty: boolean): boolean {
+  if (designedDirty) return true;
+  return Boolean(snapshotSha256 && designSha256 && snapshotSha256 !== designSha256);
+}
+
+/**
  * Угол откоса объекта из «Расчёта» (от вертикали, °) → бровка проекта (от
  * горизонтали). Только для нового проекта — без вершин контура; у проекта с
  * контуром угол уже выбран, его не трогаем. Угол обрезается до 0–60° от

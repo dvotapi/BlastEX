@@ -8,6 +8,7 @@ import { api } from "../../api/endpoints";
 import { useFeatures } from "../../app/useFeatures";
 import { ruDate } from "../../lib/format";
 import type { MassBlastProjectInputV2, MassBlastProjectV2 } from "../../types/massBlast";
+import { snapshotStale } from "./designParams";
 import { CreateProjectDialog } from "./massBlast/CreateProjectDialog";
 import { LegacyMassBlastPanel } from "./massBlast/LegacyPanel";
 import { MassBlastDialog } from "./massBlast/MassBlastDialog";
@@ -44,7 +45,19 @@ function convertInput(project: MassBlastProjectV2): MassBlastProjectInputV2 {
   } as unknown as MassBlastProjectInputV2;
 }
 
-export function MassBlastPanel({ designId, designName }: { designId: string; designName: string }) {
+export function MassBlastPanel({
+  designId,
+  designName,
+  designSha256 = "",
+  designedDirty = false,
+}: {
+  designId: string;
+  designName: string;
+  /** `designed_sha256` сохранённого проекта блока (TASK-017, PR 3). */
+  designSha256?: string;
+  /** Проектная часть изменена и не сохранена (сдвиг, правка сети). */
+  designedDirty?: boolean;
+}) {
   const { mass_blast_v2: enabled, loaded } = useFeatures();
   const [found, setFound] = useState<Found | null>(null);
   const [error, setError] = useState("");
@@ -120,6 +133,8 @@ export function MassBlastPanel({ designId, designName }: { designId: string; des
 
   const project = found?.project ?? null;
   const approved = project ? ["approved", "executed", "closed"].includes(project.lifecycle_status) : false;
+  const block = project?.blocks.find((item) => item.design_id === designId);
+  const stale = Boolean(block) && snapshotStale(block?.design_sha256, designSha256, designedDirty);
   return (
     <section className="panel">
       <header><b>Проект массового взрыва</b><span>ВМ.09.03</span></header>
@@ -138,6 +153,9 @@ export function MassBlastPanel({ designId, designName }: { designId: string; des
               взрыв {ruDate(project.blast_date)}{project.blast_time ? ` в ${project.blast_time}` : ""} · {STATUS_LABELS[project.lifecycle_status]}
               {project.current_revision_id ? " · ревизия выпущена" : ""}
             </small>
+            {stale && (
+              <small className="frag-warnings">Устарел: проект блока изменён после добавления в проект МВ — обновите снимок блока и выпустите новую ревизию.</small>
+            )}
             <div className="plans-actions">
               <button type="button" className="secondary-button" onClick={() => setOpen(true)}>Открыть проект</button>
               {approved && project.current_revision_id && (

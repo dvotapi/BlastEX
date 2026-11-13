@@ -655,12 +655,15 @@ export function designReducer(state: DesignState, action: DesignAction): DesignS
       past: state.past.slice(0, -1),
       present: previous,
       future: [state.present, ...state.future].slice(0, HISTORY_LIMIT),
+      // Отмена может вернуть ровно тот документ, которым кончилась серия
+      // стрелок: следующее нажатие — новая запись, а не продолжение.
+      moveSeries: undefined,
     };
   }
   if (action.type === "REDO") {
     if (state.future.length === 0) return state;
     const [next, ...rest] = state.future;
-    return { ...state, past: [...state.past, state.present].slice(-HISTORY_LIMIT), present: next, future: rest };
+    return { ...state, past: [...state.past, state.present].slice(-HISTORY_LIMIT), present: next, future: rest, moveSeries: undefined };
   }
 
   const current = state.present;
@@ -673,7 +676,7 @@ export function designReducer(state: DesignState, action: DesignAction): DesignS
     const moveSeries = { at: action.series, present: nextPresent, ids };
     if (series && series.present === current && series.ids === ids && action.series - series.at <= MOVE_SERIES_GAP_MS) {
       // Продолжение серии стрелок: шаг истории уже создан первым нажатием.
-      return { ...state, present: nextPresent, moveSeries };
+      return { ...state, present: nextPresent, future: [], moveSeries };
     }
     return {
       ...state,

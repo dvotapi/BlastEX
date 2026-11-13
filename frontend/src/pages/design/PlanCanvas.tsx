@@ -1140,6 +1140,10 @@ export function PlanCanvas({
       mode === "holes" &&
       tool === "select" &&
       selected.size > 0 &&
+      // При постановке рецептора и рисовании региона план не правит скважины
+      // (как и щелчок мыши) — стрелки там двигают план.
+      !placingReceptor &&
+      !drawingDomainId &&
       !e.ctrlKey &&
       !e.metaKey &&
       dragRef.current.kind === "none"

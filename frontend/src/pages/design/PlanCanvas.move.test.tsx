@@ -35,7 +35,7 @@ const noop = () => {};
 const SCALE = 40;
 const VIEW = { width: 800, height: 520 };
 
-function setup(item: Case, center: string, selected: string[] = [], scale = SCALE) {
+function setup(item: Case, center: string, selected: string[] = [], scale = SCALE, extra: { placingReceptor?: boolean } = {}) {
   const holes = item.holes;
   const c = holes.find((h) => h.id === center)!.collar;
   const camera = { x: c.x, y: c.y, scale };
@@ -61,6 +61,7 @@ function setup(item: Case, center: string, selected: string[] = [], scale = SCAL
       onFitApplied={noop}
       spacingHint={{ a: 5, b: 4 }}
       floorToeLine={item.toe_line}
+      placingReceptor={extra.placingReceptor}
     />,
   );
   const toScreen = (x: number, y: number) => ({
@@ -194,6 +195,13 @@ describe("PlanCanvas: стрелки", () => {
     const { plan, onMoveHoles } = setup(pair, "4-01", ["4-01"]);
     fireEvent.keyDown(plan, { key: "ArrowDown" });
     expect(onMoveHoles.mock.calls[0][0]).toEqual(["4-01", "4-01T"]);
+  });
+
+  it("при постановке рецептора стрелки двигают план, а не выделенные скважины", () => {
+    const { plan, onMoveHoles, onCameraChange } = setup(plain, "5-02", ["5-02"], SCALE, { placingReceptor: true });
+    fireEvent.keyDown(plan, { key: "ArrowUp" });
+    expect(onMoveHoles).not.toHaveBeenCalled();
+    expect(onCameraChange).toHaveBeenCalled();
   });
 
   it("без выделения стрелки двигают план", () => {

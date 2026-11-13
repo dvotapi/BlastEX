@@ -85,6 +85,18 @@ describe("MOVE_HOLES: серия стрелок", () => {
     expect(undone.present.holes[1].collar.x).toBe(15);
   });
 
+  it("отмена другой правки и снова стрелка — новая запись, повтор не теряет сдвиг", () => {
+    let state = press(start(), 1000);
+    state = designReducer(state, { type: "SET_NAME", name: "Блок 7" });
+    state = designReducer(state, { type: "UNDO" });
+    state = press(state, 1300);
+    expect(state.present.holes[0].collar.x).toBeCloseTo(11);
+    expect(state.past).toHaveLength(2);
+    expect(state.future).toEqual([]);
+    expect(designReducer(state, { type: "REDO" }).present.holes[0].collar.x).toBeCloseTo(11);
+    expect(designReducer(state, { type: "UNDO" }).present.holes[0].collar.x).toBeCloseTo(10.5);
+  });
+
   it("сдвиг мышью (без series) — всегда своя запись", () => {
     let state = start();
     state = designReducer(state, { type: "MOVE_HOLES", ids: ["1-01"], dx: 1, dy: 0 });

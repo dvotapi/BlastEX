@@ -36,6 +36,7 @@ import {
   arrowDelta,
   dragDelta,
   gridSteps,
+  isMovedHole,
   layoutAxes,
   snapStepM,
   toAxes,
@@ -1781,13 +1782,23 @@ export function PlanCanvas({
             ? secondaryLabelText(h, load, labelField, t)
             : null;
           const violations = liveMove?.byHole[h.id];
+          // Сдвинута от узла сетки (TASK-017, PR 2): пунктирное кольцо и линия от узла.
+          const movedNode = isMovedHole(h) && h.manual_offset ? toScreen({ x: h.manual_offset.node_x, y: h.manual_offset.node_y }) : null;
           return (
             <g
               key={h.id}
-              className={`hole-marker kind-${h.kind}${violations ? " live-violation" : ""}${isSelected ? " selected" : ""}${isHovered ? " hovered" : ""}${!h.enabled ? " disabled" : ""}${isStarter ? " starter" : ""}${pending ? " pending-tie" : ""}${animClass}${showHealthLayer && healthCode !== "ok" ? " health-issue" : ""}`}
+              className={`hole-marker kind-${h.kind}${movedNode ? " hole-moved" : ""}${violations ? " live-violation" : ""}${isSelected ? " selected" : ""}${isHovered ? " hovered" : ""}${!h.enabled ? " disabled" : ""}${isStarter ? " starter" : ""}${pending ? " pending-tie" : ""}${animClass}${showHealthLayer && healthCode !== "ok" ? " health-issue" : ""}`}
             >
               {showHealthLayer && healthCode !== "ok" && (
                 <circle cx={p.x} cy={p.y} r={radius + 3} className={`health-ring code-${healthCode}`} fill="none" />
+              )}
+              {movedNode && (
+                <g className="hole-moved-mark">
+                  <title>Сдвинута вручную от узла сетки</title>
+                  <line x1={movedNode.x} y1={movedNode.y} x2={p.x} y2={p.y} className="hole-moved-link" />
+                  <circle cx={movedNode.x} cy={movedNode.y} r={2} className="hole-moved-node" />
+                  <circle cx={p.x} cy={p.y} r={radius + 2.5} className="hole-moved-ring" fill="none" />
+                </g>
               )}
               {violations && (
                 <circle cx={p.x} cy={p.y} r={radius + 5} className="live-violation-ring" fill="none">

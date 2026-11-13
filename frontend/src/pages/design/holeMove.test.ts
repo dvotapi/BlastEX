@@ -1,7 +1,7 @@
 // Сдвиг скважин в осях раскладки (TASK-017, PR 1): оси, привязка, стрелки, пары.
 import { describe, expect, it } from "vitest";
 import type { BlockContour, Hole } from "../../types/design";
-import { arrowDelta, dragDelta, fromAxes, gridSteps, layoutAxes, snapStepM, toAxes, withFacePairs } from "./holeMove";
+import { arrowDelta, dragDelta, fromAxes, gridSteps, layoutAxes, returnToNodeIds, snapStepM, toAxes, withFacePairs } from "./holeMove";
 import liveFixture from "./testing/liveLspFixture.json";
 
 function rectContour(freeFaces: number[][] = [[0, 1]]): BlockContour {
@@ -160,4 +160,20 @@ describe("layoutAxes и сервер (TASK-017, PR 2)", () => {
       expect(axes.across.y).toBeCloseTo(item.across[1], 9);
     });
   }
+});
+
+describe("returnToNodeIds", () => {
+  const moved = (id: string): Hole =>
+    ({ id, kind: "production", source: "generated", manual: ["xy"], manual_offset: { node_x: 0, node_y: 0, along: 1, across: 0 } }) as Hole;
+  const plain = (id: string): Hole => ({ id, kind: "production", source: "generated" }) as Hole;
+  const holes = [moved("1-01"), moved("1-02"), plain("1-03")];
+
+  it("скважина в выделении — все сдвинутые из выделения", () => {
+    expect(returnToNodeIds("1-03", new Set(["1-01", "1-02", "1-03"]), holes)).toEqual(["1-01", "1-02"]);
+  });
+
+  it("скважина вне выделения — только она, если сдвинута", () => {
+    expect(returnToNodeIds("1-02", new Set(["1-01"]), holes)).toEqual(["1-02"]);
+    expect(returnToNodeIds("1-03", new Set(["1-01"]), holes)).toEqual([]);
+  });
 });

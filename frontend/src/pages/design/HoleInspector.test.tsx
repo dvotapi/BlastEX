@@ -118,3 +118,28 @@ describe("HoleInspector: ЛСП", () => {
     expect(screen.queryByText(/ЛСП:/)).toBeNull();
   });
 });
+
+describe("HoleInspector: сдвиг от узла (TASK-017, PR 2)", () => {
+  const moved = { manual: ["xy" as const], manual_offset: { node_x: 9.25, node_y: 5.5, along: 0.75, across: -0.5 } };
+
+  it("строка «Сдвинута вручную» с Δ вдоль и поперёк", () => {
+    renderInspector(hole(moved));
+    expect(screen.getByText("Сдвинута вручную: Δ вдоль 0,75 м, Δ поперёк −0,50 м")).toBeTruthy();
+  });
+
+  it("у несдвинутой строки нет", () => {
+    renderInspector(hole());
+    expect(screen.queryByText(/Сдвинута вручную/)).toBeNull();
+  });
+
+  it("«Вернуть расчётное» снимает только длину и отметку, сдвиг остаётся", () => {
+    const onUpdateHole = renderInspector(hole({ ...moved, manual: ["xy", "length"] }));
+    fireEvent.click(screen.getByRole("button", { name: "Вернуть расчётное" }));
+    expect(onUpdateHole).toHaveBeenCalledWith("1-01", { manual: ["xy"] });
+  });
+
+  it("одна пометка сдвига кнопку «Вернуть расчётное» не показывает", () => {
+    renderInspector(hole(moved));
+    expect(screen.queryByRole("button", { name: "Вернуть расчётное" })).toBeNull();
+  });
+});

@@ -118,6 +118,7 @@ import { StageInspector } from "./StageInspector";
 import { VisibilityPanel } from "./VisibilityPanel";
 import { MapStatusBar } from "./MapStatusBar";
 import { HoleContextMenu, type HoleContextMenuState } from "./HoleContextMenu";
+import { layoutAxes, returnToNodeIds } from "./holeMove";
 import { CommandPalette, buildCameraCommands, buildPresetCommands, type DesignCommand } from "./CommandPalette";
 import { CadImportDialog, type CadBuildChoice } from "./cadImport/CadImportDialog";
 import { SiteSituationDialog } from "./cadImport/SiteSituationDialog";
@@ -895,7 +896,14 @@ export function DesignPage({
   function onMoveHoles(ids: string[], dx: number, dy: number, series?: number) {
     if (rejectLocked("designed")) return;
     // `series` — нажатие стрелки: нажатия подряд — одна запись отмены (TASK-017).
-    dispatch({ type: "MOVE_HOLES", ids, dx, dy, ...(series !== undefined ? { series } : {}) });
+    // Смещение от узла копится в осях жеста — формы «Сетка» (TASK-017, PR 2).
+    const axes = layoutAxes(patternParams.row_azimuth_deg, document.contour);
+    dispatch({ type: "MOVE_HOLES", ids, dx, dy, axes, ...(series !== undefined ? { series } : {}) });
+  }
+
+  function returnToNode(ids: string[]) {
+    if (rejectLocked("designed")) return;
+    dispatch({ type: "RETURN_TO_NODE", ids });
   }
 
   function onUpdateHole(id: string, patch: Partial<Hole>) {
@@ -3404,6 +3412,8 @@ export function DesignPage({
             onToggleStarter={toggleStarterForHole}
             onCopyParams={copyHoleParams}
             onZoomToHole={zoomToHole}
+            onReturnToNode={designedLocked ? undefined : returnToNode}
+            returnToNodeIds={holeMenu ? returnToNodeIds(holeMenu.holeId, selected, document.holes) : []}
             isStarter={Boolean(
               holeMenu && (
                 document.network.starter_items.some((item) => item.hole_id === holeMenu.holeId)

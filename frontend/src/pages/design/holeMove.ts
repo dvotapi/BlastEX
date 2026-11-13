@@ -2,7 +2,7 @@
 // и «к откосу», привязка к долям шага сетки, стрелки, пара у откоса.
 // Только интерактивная геометрия — раскладку по-прежнему строит сервер.
 import { localBasis, type Vec2 } from "../../lib/geometry2d";
-import type { BlockContour, Hole, PatternParams } from "../../types/design";
+import type { BlockContour, Hole, HoleManualFlag, PatternParams } from "../../types/design";
 import { isSquarePattern } from "./designParams";
 
 /** Шаг привязки по одной оси: выкл, 0,1 м, четверть шага a или b. */
@@ -207,4 +207,50 @@ export function withFacePairs(ids: string[], holes: Hole[]): string[] {
     if (pair !== undefined) push(pair);
   }
   return result;
+}
+
+/** Пометка сдвига от узла сетки (TASK-017, PR 2). */
+export const MOVED_FLAG: HoleManualFlag = "xy";
+
+/** Скважина сетки, сдвинутая на плане от своего узла (как `pattern.is_moved_hole`). */
+export function isMovedHole(hole: Pick<Hole, "source" | "manual" | "manual_offset">): boolean {
+  return hole.source !== "manual" && (hole.manual ?? []).includes(MOVED_FLAG) && !!hole.manual_offset;
+}
+
+/** Скважина без пометки сдвига: ни `xy`, ни ключа `manual_offset`. */
+export function clearMoved(hole: Hole): Hole {
+  const { manual_offset: _offset, manual, ...rest } = hole;
+  const flags = (manual ?? []).filter((flag) => flag !== MOVED_FLAG);
+  return flags.length || manual !== undefined ? { ...rest, manual: flags } : rest;
+}
+
+/**
+ * Пометка после сдвига на `delta` (м, мир): узел — устье до первого сдвига,
+ * смещение в осях раскладки копится до миллиметра. Вернулась в узел — без
+ * пометки. Ручные скважины (`source = "manual"`) не помечаются: узла у них нет.
+ */
+export function markMoved(hole: Hole, before: Pick<Hole, "collar" | "source" | "manual" | "manual_offset">, delta: Vec2, axes: LayoutAxes): Hole {
+  if (before.source === "manual") return hole;
+  const node = isMovedHole(before) && before.manual_offset
+    ? before.manual_offset
+    : { node_x: before.collar.x, node_y: before.collar.y, along: 0, across: 0 };
+  const step = toAxes(delta, axes);
+  const along = round3(node.along + step.along);
+  const across = round3(node.across + step.across);
+  if (along === 0 && across === 0) return clearMoved(hole);
+  const flags = hole.manual ?? [];
+  return {
+    ...hole,
+    manual: flags.includes(MOVED_FLAG) ? flags : [...flags, MOVED_FLAG],
+    manual_offset: { node_x: node.node_x, node_y: node.node_y, along, across },
+  };
+}
+
+/**
+ * Что вернёт «Вернуть в узел сетки» из меню скважины `holeId`: скважина в
+ * выделении — все сдвинутые из выделения, иначе она сама, если сдвинута.
+ */
+export function returnToNodeIds(holeId: string, selected: ReadonlySet<string>, holes: Hole[]): string[] {
+  const ids = selected.has(holeId) ? selected : new Set([holeId]);
+  return holes.filter((hole) => ids.has(hole.id) && isMovedHole(hole)).map((hole) => hole.id);
 }

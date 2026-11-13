@@ -234,3 +234,21 @@ describe("PlanCanvas: привязка и справка", () => {
     expect(help).toContain("Пара у откоса");
   });
 });
+
+describe("PlanCanvas: отметка сдвига (TASK-017, PR 2)", () => {
+  it("сдвинутая скважина — с отметкой и линией от узла, прочие — без", () => {
+    const base = plain.holes.find((h) => h.id === "3-02")!;
+    const moved: Hole = {
+      ...base,
+      collar: { ...base.collar, x: base.collar.x + 0.5 },
+      manual: ["xy"],
+      manual_offset: { node_x: base.collar.x, node_y: base.collar.y, along: 0.5, across: 0 },
+    };
+    const item = { ...plain, holes: plain.holes.map((h) => (h.id === base.id ? moved : h)) };
+    const { view } = setup(item, "3-02");
+    const marks = view.container.querySelectorAll(".hole-marker.hole-moved");
+    expect(marks).toHaveLength(1);
+    expect(marks[0].querySelector("line.hole-moved-link")).not.toBeNull();
+    expect(marks[0].querySelector("title")?.textContent).toBe("Сдвинута вручную от узла сетки");
+  });
+});

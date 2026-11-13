@@ -3,6 +3,7 @@
 // документа (не должны попадать в историю правок).
 import { faceAngleForImportedBlock } from "../../lib/faceAngle";
 import { renameHoleIds } from "./holeRenumber";
+import { clearMoved, isMovedHole, layoutAxes, markMoved, type LayoutAxes } from "./holeMove";
 import { isRecordFrozen } from "../../lib/lifecycle";
 import { collarZFromSurfaces } from "../../lib/surfaces";
 import type { CadCrs } from "../../types/cad";
@@ -90,7 +91,11 @@ export type DesignAction =
   | { type: "RECOMPUTE_HOLES"; holes: Hole[] }
   // `series` — время нажатия стрелки, мс: нажатия подряд склеиваются в одну
   // запись отмены (`MOVE_SERIES_GAP_MS`); сдвиг мышью идёт без него.
-  | { type: "MOVE_HOLES"; ids: string[]; dx: number; dy: number; series?: number }
+  // `axes` — оси раскладки, в которых копится смещение от узла (TASK-017,
+  // PR 2): страница берёт их у формы «Сетка»; без них — по параметрам паспорта.
+  | { type: "MOVE_HOLES"; ids: string[]; dx: number; dy: number; series?: number; axes?: LayoutAxes }
+  /** «Вернуть в узел сетки»: устье — в узел, пометка сдвига снимается (TASK-017, PR 2). */
+  | { type: "RETURN_TO_NODE"; ids: string[] }
   | { type: "UPDATE_HOLE"; id: string; patch: Partial<Hole> }
   | { type: "ADD_HOLE"; hole: Hole }
   | { type: "DELETE_HOLES"; ids: string[] }
@@ -398,14 +403,28 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
     }
     case "MOVE_HOLES": {
       const ids = new Set(action.ids);
+      const azimuth = Number(document.pattern_params?.row_azimuth_deg ?? 0);
+      const axes = action.axes ?? layoutAxes(azimuth, document.contour);
       return {
         ...document,
         holes: document.holes.map((h) => {
           if (!ids.has(h.id)) return h;
           const moved = moveHole(h, action.dx, action.dy, document);
-          return { ...moved, intervals: [], water_intervals: [] };
+          return markMoved({ ...moved, intervals: [], water_intervals: [] }, h, { x: action.dx, y: action.dy }, axes);
         }),
       };
+    }
+    case "RETURN_TO_NODE": {
+      const ids = new Set(action.ids);
+      let changed = false;
+      const holes = document.holes.map((h) => {
+        if (!ids.has(h.id) || !isMovedHole(h) || !h.manual_offset) return h;
+        changed = true;
+        const { node_x, node_y } = h.manual_offset;
+        const back = moveHole(h, node_x - h.collar.x, node_y - h.collar.y, document);
+        return clearMoved({ ...back, collar: { ...back.collar, x: node_x, y: node_y }, intervals: [], water_intervals: [] });
+      });
+      return changed ? { ...document, holes } : document;
     }
     case "UPDATE_HOLE":
       return {
@@ -598,6 +617,7 @@ const UNDOABLE: DesignAction["type"][] = [
   "APPLY_LAYOUT",
   "RENUMBER_HOLES",
   "MOVE_HOLES",
+  "RETURN_TO_NODE",
   "UPDATE_HOLE",
   "ADD_HOLE",
   "DELETE_HOLES",

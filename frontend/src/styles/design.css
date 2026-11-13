@@ -143,6 +143,7 @@
 .hole-inspector-grid { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(220px,.9fr); gap:12px; padding:0 14px 14px; }
 .hole-inspector-fields { display:grid; gap:8px; }
 .hole-manual-mark { margin-left:4px; padding:0 5px; border-radius:6px; background:#fdf3e1; color:#7a4e0c; font-size:var(--fs-small); }
+.hole-moved-note { padding:3px 6px; border-radius:6px; background:#fdf3e1; color:#7a4e0c; font-size:var(--fs-small); }
 .hole-surface-flag { padding:3px 6px; border-radius:6px; background:#fce9e7; color:#9e3025; font-size:var(--fs-small); }
 .hole-charge-sketch { display:grid; gap:4px; justify-items:center; }
 .hole-charge-sketch b { font-size:12px; }
@@ -654,6 +655,11 @@
 .relief-note-warning { color:#745014; }
 .relief-legend-item { display:inline-flex; align-items:center; gap:4px; white-space:nowrap; }
 /* Сдвиг скважин (TASK-017): подсказка у курсора и нарушения живой проверки. */
+/* Сдвинута от узла сетки (TASK-017, PR 2): пунктирное кольцо, точка узла и линия к устью. */
+.hole-marker .hole-moved-mark { pointer-events:none; }
+.hole-marker .hole-moved-mark circle.hole-moved-ring { fill:none; stroke:#b7791f; stroke-width:1.6; stroke-dasharray:3 2; }
+.hole-marker .hole-moved-mark circle.hole-moved-node { fill:#b7791f; stroke:none; }
+.hole-marker .hole-moved-mark line.hole-moved-link { stroke:#b7791f; stroke-width:1.2; stroke-dasharray:2 2; }
 .hole-marker.live-violation circle.live-violation-ring { fill:none; stroke:#c0392b; stroke-width:2.5; stroke-dasharray:4 2; opacity:1; }
 .plan-drag-tip { position:absolute; z-index:5; max-width:320px; padding:6px 9px; border-radius:8px; background:rgba(16,41,31,.9); color:#eaf3ef; font-size:11px; line-height:1.45; pointer-events:none; white-space:nowrap; box-shadow:0 4px 14px rgba(16,41,31,.25); }
 .plan-drag-tip.warn { box-shadow:0 0 0 2px #c0392b, 0 4px 14px rgba(16,41,31,.25); }

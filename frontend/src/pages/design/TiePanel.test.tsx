@@ -198,7 +198,7 @@ describe("TiePanel trunk_chains", () => {
 describe("TiePanel: пересчёт после сдвига (TASK-017, PR 3)", () => {
   const retie = {
     stale: true,
-    staleText: "Скважины сдвинуты после построения коммутации",
+    staleText: "Скважины изменены после построения коммутации",
     origin: "template",
     canRecompute: true,
     hint: "",
@@ -211,7 +211,7 @@ describe("TiePanel: пересчёт после сдвига (TASK-017, PR 3)", 
   it("пометка и кнопка «Пересчитать коммутацию»", () => {
     const onRecompute = vi.fn();
     renderPanel({ retie, onRecompute });
-    expect(screen.getByText("Скважины сдвинуты после построения коммутации")).toBeInTheDocument();
+    expect(screen.getByText("Скважины изменены после построения коммутации")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Пересчитать коммутацию" }));
     expect(onRecompute).toHaveBeenCalled();
   });
@@ -234,7 +234,7 @@ describe("TiePanel: пересчёт после сдвига (TASK-017, PR 3)", 
       onRecompute: noop,
     });
     expect(screen.getByText("Коммутация пересчитана: изменилось связей — 3.")).toBeInTheDocument();
-    expect(screen.queryByText("Скважины сдвинуты после построения коммутации")).not.toBeInTheDocument();
+    expect(screen.queryByText("Скважины изменены после построения коммутации")).not.toBeInTheDocument();
     cleanup();
     renderPanel({ retie: { ...retie, error: "Сервер недоступен" }, onRecompute: noop });
     expect(screen.getByText("Сервер недоступен")).toBeInTheDocument();

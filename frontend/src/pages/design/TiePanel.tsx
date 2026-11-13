@@ -69,7 +69,7 @@ export function TiePanel({
   onGenerate: () => void;
   onToggleStarters: () => void;
   busy: boolean;
-  /** Пересчёт после сдвига скважин (TASK-017, PR 3); подтверждение — у страницы. */
+  /** Пересчёт после смены скважин (TASK-017, PR 3 и PR 5); подтверждение — у страницы. */
   retie?: Omit<NetworkRetieView, "recompute">;
   onRecompute?: () => void;
   /** Номиналы систем (`GET /design/tie/catalog`). */

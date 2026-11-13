@@ -4,7 +4,7 @@
 import { faceAngleForImportedBlock } from "../../lib/faceAngle";
 import { renameHoleIds } from "./holeRenumber";
 import { clearMoved, isMovedHole, layoutAxes, markMoved, type LayoutAxes } from "./holeMove";
-import { isNetworkEmpty, markGeometryStale, networkOrigin, retieRequest } from "./retie";
+import { isGeometryStale, isNetworkEmpty, markGeometryStale, networkOrigin, retieRequest } from "./retie";
 import { isRecordFrozen } from "../../lib/lifecycle";
 import { collarZFromSurfaces } from "../../lib/surfaces";
 import type { CadCrs } from "../../types/cad";
@@ -202,10 +202,15 @@ function edgeKey(index: number, total: number): number[] {
   return [index, (index + 1) % total];
 }
 
-/** Сеть после сдвига скважин: непустая помечается «устаревшей по геометрии». */
-function networkAfterMove(document: BlastDesign): InitiationNetwork {
-  const network = normalizeNetwork(document.network);
-  return isNetworkEmpty(network) ? document.network : markGeometryStale(network);
+/**
+ * Сеть после смены скважин (сдвиг, добавление, удаление, исключение, вид):
+ * непустая помечается «устаревшей по геометрии» (TASK-017, PR 3 и PR 5).
+ * Непустая — всегда новый объект: по нему `designReducer` видит, что действие
+ * сменило скважины (и при уже стоящей пометке ставит пересчёт снова).
+ */
+function staleNetwork(source: InitiationNetwork): InitiationNetwork {
+  const network = normalizeNetwork(source);
+  return isNetworkEmpty(network) ? source : markGeometryStale(network);
 }
 
 function moveHole(hole: Hole, dx: number, dy: number, document: BlastDesign): Hole {
@@ -433,7 +438,7 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
           const moved = moveHole(h, action.dx, action.dy, document);
           return markMoved({ ...moved, intervals: [], water_intervals: [] }, h, axes);
         }),
-        network: networkAfterMove(document),
+        network: staleNetwork(document.network),
       };
     }
     case "RETURN_TO_NODE": {
@@ -446,44 +451,56 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
         const back = moveHole(h, node_x - h.collar.x, node_y - h.collar.y, document);
         return clearMoved({ ...back, collar: { ...back.collar, x: node_x, y: node_y }, intervals: [], water_intervals: [] });
       });
-      return changed ? { ...document, holes, network: networkAfterMove(document) } : document;
+      return changed ? { ...document, holes, network: staleNetwork(document.network) } : document;
     }
-    case "UPDATE_HOLE":
+    case "UPDATE_HOLE": {
+      // Вид скважины решает, войдёт ли она в сеть шаблона (контурная, стенка,
+      // вид основной сетки): смена вида делает коммутацию устаревшей (PR 5).
+      let kindChanged = false;
+      const holes = document.holes.map((h) => {
+        if (h.id !== action.id) return h;
+        const next = { ...h, ...action.patch };
+        if (action.patch.collar || action.patch.toe) {
+          next.intervals = [];
+          next.water_intervals = [];
+        }
+        if (next.kind !== h.kind) kindChanged = true;
+        return next;
+      });
+      return { ...document, holes, ...(kindChanged ? { network: staleNetwork(document.network) } : {}) };
+    }
+    case "ADD_HOLE":
       return {
         ...document,
-        holes: document.holes.map((h) => {
-          if (h.id !== action.id) return h;
-          const next = { ...h, ...action.patch };
-          if (action.patch.collar || action.patch.toe) {
-            next.intervals = [];
-            next.water_intervals = [];
-          }
-          return next;
-        }),
+        holes: [...document.holes, normalizeHole(action.hole)],
+        network: staleNetwork(document.network),
       };
-    case "ADD_HOLE":
-      return { ...document, holes: [...document.holes, normalizeHole(action.hole)] };
     case "SET_HOLES_ENABLED": {
       // Отключённая скважина остаётся в паспорте и на плане, но выпадает из
       // объёмов, погонажа, заряжания и тайминга — их считает сервер по флагу.
       const ids = new Set(action.ids);
       if (!ids.size) return document;
-      return {
-        ...document,
-        holes: document.holes.map((h) => (ids.has(h.id) ? { ...h, enabled: action.enabled } : h)),
-      };
+      let changed = false;
+      const holes = document.holes.map((h) => {
+        if (!ids.has(h.id)) return h;
+        if (h.enabled !== action.enabled) changed = true;
+        return { ...h, enabled: action.enabled };
+      });
+      return { ...document, holes, ...(changed ? { network: staleNetwork(document.network) } : {}) };
     }
     case "DELETE_HOLES": {
       const ids = new Set(action.ids);
       const holes = document.holes.filter((h) => !ids.has(h.id));
       const holeIds = new Set(holes.map((h) => h.id));
+      const pruned = pruneLoadsAndNetwork(document, holeIds);
       return {
         ...document,
         holes,
         as_drilled_holes: document.as_drilled_holes.filter((item) => holeIds.has(item.design_hole_id)),
         as_charged_holes: document.as_charged_holes.filter((item) => holeIds.has(item.design_hole_id)),
         as_fired_holes: document.as_fired_holes.filter((item) => holeIds.has(item.design_hole_id)),
-        ...pruneLoadsAndNetwork(document, holeIds),
+        ...pruned,
+        network: holes.length === document.holes.length ? pruned.network : staleNetwork(pruned.network),
       };
     }
     case "SET_CHARGE_RULES":
@@ -676,10 +693,29 @@ function retiesItself(document: BlastDesign): boolean {
   return !isNetworkEmpty(network) && networkOrigin(network) === "template" && retieRequest(network) !== null;
 }
 
+/**
+ * Действия со скважинами, после которых сеть шаблона пересчитывается сама
+ * (TASK-017, PR 3 — сдвиг; PR 5 — добавление, удаление, исключение, вид).
+ * Пересчёт — только если действие пометило сеть устаревшей.
+ */
+export const HOLE_SET_ACTIONS: ReadonlySet<DesignAction["type"]> = new Set([
+  "MOVE_HOLES",
+  "RETURN_TO_NODE",
+  "ADD_HOLE",
+  "DELETE_HOLES",
+  "SET_HOLES_ENABLED",
+  "UPDATE_HOLE",
+]);
+
 export function designReducer(state: DesignState, action: DesignAction): DesignState {
   const next = reduceState(state, action);
   if (next === state) return next;
-  if ((action.type === "MOVE_HOLES" || action.type === "RETURN_TO_NODE") && retiesItself(next.present)) {
+  if (
+    HOLE_SET_ACTIONS.has(action.type)
+    && next.present.network !== state.present.network
+    && isGeometryStale(normalizeNetwork(next.present.network))
+    && retiesItself(next.present)
+  ) {
     return { ...next, autoRetie: { present: next.present, series: action.type === "MOVE_HOLES" && action.series !== undefined } };
   }
   if ((action.type === "RECOMPUTE_HOLES" || action.type === "SAVED") && state.autoRetie?.present === state.present) {

@@ -355,7 +355,7 @@ export function DesignPage({
     setTieMenu(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tieModeOn, document.design_id, tieNetwork.system, tieSystem]);
-  // Пересчёт коммутации после сдвига скважин (TASK-017, PR 3).
+  // Пересчёт коммутации после смены скважин (TASK-017, PR 3 и PR 5).
   const retie = useNetworkRetie({
     state,
     dispatch,

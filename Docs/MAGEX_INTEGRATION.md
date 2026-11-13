@@ -33,6 +33,14 @@ MagEX». Ошибку в ключе или в наборе API проверяе�
 запускается. Ошибкой считаются: ключ не P-256, `d` в `BLASTEX_JWKS_EXTRA`,
 повтор `kid`, тестовый ключ без разрешения.
 
+## Прод (данные владельца 13.11.2026)
+
+- `MAGEX_API_URL=https://magex.complex-services.ru/api/v1`: маршруты `/integrations/blastex/*`
+  отвечают `503 BLASTEX_KEYS_UNAVAILABLE`, пока MagEX не видит ключ BlastEX (проверено 13.11.2026).
+- UUID организации MagEX — `00000000-0000-4000-8000-00000000d0e1`:
+  `MAGEX_ORGANIZATIONS={"<организация BlastEX>": "00000000-0000-4000-8000-00000000d0e1"}`.
+  Ключ слева — `organization_id` учёток BlastEX на проде (`BLASTEX_USERS_JSON`; не задан — `default`).
+
 ## Первая выкладка
 
 1. На VPS BlastEX создать ключ:

@@ -1,14 +1,14 @@
 import {
-  DETCORD_RELAY_MS_OPTIONS,
   ELECTRONIC_MODE_OPTIONS,
   networkTies,
-  SURFACE_NSI_MS_OPTIONS,
   type InitiationNetwork,
   type SchemeType,
   type SurfaceConnector,
   type SystemType,
+  type TieCatalog,
   type TieParams,
 } from "../../types/design";
+import { nearestNominal, systemCatalog } from "./tiePalette";
 import { RoleBadge } from "./RoleBadge";
 import type { NetworkRetieView } from "./useNetworkRetie";
 
@@ -28,15 +28,16 @@ const SYSTEM_OPTIONS: { value: SystemType; label: string }[] = [
 
 // Ступени «Магистраль + цепочки» при смене системы — к ближайшему номиналу новой
 // системы (как design/timing.py::_snap: при равенстве — меньший); у электронной
-// номиналов нет — ступень остаётся.
-function nearestStep(value: number, options: readonly number[]): number {
-  return options.reduce((best, option) => (Math.abs(option - value) < Math.abs(best - value) ? option : best));
+// номиналов нет — ступень остаётся; каталог не загружен — тоже.
+function stepsForSystem(system: SystemType, params: TieParams, catalog: TieCatalog | null): Pick<TieParams, "trunk_ms" | "chain_ms"> {
+  const options = systemCatalog(catalog, system);
+  if (system === "electronic" || !options?.surface_ms.length) return { trunk_ms: params.trunk_ms, chain_ms: params.chain_ms };
+  return { trunk_ms: nearestNominal(params.trunk_ms, options.surface_ms), chain_ms: nearestNominal(params.chain_ms, options.surface_ms) };
 }
 
-function stepsForSystem(system: SystemType, params: TieParams): Pick<TieParams, "trunk_ms" | "chain_ms"> {
-  if (system === "electronic") return { trunk_ms: params.trunk_ms, chain_ms: params.chain_ms };
-  const options = system === "detcord" ? DETCORD_RELAY_MS_OPTIONS : SURFACE_NSI_MS_OPTIONS;
-  return { trunk_ms: nearestStep(params.trunk_ms, options), chain_ms: nearestStep(params.chain_ms, options) };
+/** Номиналы списка; текущее значение вне них (каталог не загружен) — тоже в списке. */
+function withCurrent(options: readonly number[], current: number): number[] {
+  return options.includes(current) ? [...options] : [...options, current].sort((a, b) => a - b);
 }
 
 export function TiePanel({
@@ -55,6 +56,7 @@ export function TiePanel({
   busy,
   retie,
   onRecompute,
+  catalog = null,
 }: {
   scheme: SchemeType;
   params: TieParams;
@@ -72,6 +74,8 @@ export function TiePanel({
   /** Пересчёт после сдвига скважин (TASK-017, PR 3); подтверждение — у страницы. */
   retie?: Omit<NetworkRetieView, "recompute">;
   onRecompute?: () => void;
+  /** Номиналы систем (`GET /design/tie/catalog`). */
+  catalog?: TieCatalog | null;
 }) {
   const ties = networkTies(network);
   const electronic = params.system === "electronic";
@@ -91,7 +95,7 @@ export function TiePanel({
   const downholeValue = downholeAuto
     ? typeof pickedDownhole === "number" ? pickedDownhole : ""
     : params.downhole_delay_ms;
-  const stepOptions = params.system === "detcord" ? DETCORD_RELAY_MS_OPTIONS : SURFACE_NSI_MS_OPTIONS;
+  const stepOptions = systemCatalog(catalog, params.system)?.surface_ms ?? [];
 
   return (
     <section className="panel">
@@ -122,7 +126,7 @@ export function TiePanel({
             value={params.system}
             onChange={(e) => {
               const system = e.target.value as SystemType;
-              onParamsChange({ system, ...stepsForSystem(system, params) });
+              onParamsChange({ system, ...stepsForSystem(system, params, catalog) });
             }}
           >
             {SYSTEM_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
@@ -184,12 +188,12 @@ export function TiePanel({
               <div className="field-pair">
                 <label>Магистраль, мс
                   <select value={params.trunk_ms} onChange={(e) => onParamsChange({ trunk_ms: Number(e.target.value) })}>
-                    {stepOptions.map((ms) => <option key={ms} value={ms}>{ms}</option>)}
+                    {withCurrent(stepOptions, params.trunk_ms).map((ms) => <option key={ms} value={ms}>{ms}</option>)}
                   </select>
                 </label>
                 <label>Цепочки, мс
                   <select value={params.chain_ms} onChange={(e) => onParamsChange({ chain_ms: Number(e.target.value) })}>
-                    {stepOptions.map((ms) => <option key={ms} value={ms}>{ms}</option>)}
+                    {withCurrent(stepOptions, params.chain_ms).map((ms) => <option key={ms} value={ms}>{ms}</option>)}
                   </select>
                 </label>
               </div>

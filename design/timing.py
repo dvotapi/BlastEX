@@ -49,6 +49,7 @@ __all__ = [
     "GEOMETRY_STALE_KEY",
     "template_timing_params",
     "retie_params",
+    "tie_catalog",
 ]
 
 SCHEME_TYPES = ("row", "echelon", "diagonal_v", "trapezoid", "trunk_chains")
@@ -138,6 +139,33 @@ def retie_params(network: InitiationNetwork) -> tuple[str, dict[str, Any]] | Non
     if network.selected_hole_ids:
         params["selected_hole_ids"] = list(network.selected_hole_ids)
     return str(scheme), params
+
+
+def tie_catalog() -> dict[str, Any]:
+    """Номиналы ступеней по системам — для палитры правки коммутации на плане
+    (TASK-017, PR 4): фронт берёт их отсюда, а не держит свою копию.
+
+    `surface_ms` — поверхностные ступени (у электронной — те же, что у СИНВ, и
+    любое своё значение: `custom_surface`), `downhole_ms` — номиналы
+    внутрискважинных детонаторов (у ДШ и электронной номиналов нет — своё).
+    """
+    def system(surface: tuple[int, ...], downhole: tuple[int, ...], name: str, custom: bool) -> dict[str, Any]:
+        default = DEFAULT_DOWNHOLE_MS[name]
+        return {
+            "surface_ms": list(surface),
+            "downhole_ms": list(downhole),
+            "downhole_default_ms": int(default) if float(default).is_integer() else default,
+            "custom_surface": custom,
+        }
+
+    return {
+        "systems": {
+            "nonel": system(SURFACE_NSI_MS_OPTIONS, DOWNHOLE_NSI_MS_OPTIONS, "nonel", False),
+            "detcord": system(DETCORD_RELAY_MS_OPTIONS, (), "detcord", False),
+            "electronic": system(SURFACE_NSI_MS_OPTIONS, (), "electronic", True),
+        },
+        "detcord_velocity_m_s": DETCORD_VELOCITY_M_S,
+    }
 
 
 def _snap(value: float, options: tuple[float, ...]) -> float:

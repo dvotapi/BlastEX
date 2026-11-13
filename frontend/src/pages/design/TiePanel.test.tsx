@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_TIE_PARAMS, type InitiationNetwork } from "../../types/design";
 import { TiePanel } from "./TiePanel";
+import { TEST_TIE_CATALOG } from "./testing/tieCatalog";
 
 afterEach(cleanup);
 
@@ -25,6 +26,7 @@ function renderPanel(over: Record<string, unknown> = {}) {
     onRemoveTie: noop,
     onToggleStarters: noop,
     busy: false,
+    catalog: TEST_TIE_CATALOG,
     ...over,
   } as unknown as Parameters<typeof TiePanel>[0];
   return render(<TiePanel {...props} />);

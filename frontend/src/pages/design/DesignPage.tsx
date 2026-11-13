@@ -106,6 +106,7 @@ import { changedAxes, designReducer, historyLocked, initDesignState } from "./de
 import { tieWarningsFor, withTieWarnings, type StoredTieWarnings } from "./tieWarnings";
 import { isNetworkEmpty, markNetworkEdited, RETIE_EDITED_CONFIRM } from "./retie";
 import { useNetworkRetie } from "./useNetworkRetie";
+import { useTieCatalog } from "./useTieCatalog";
 import { benchPatchFromObjectAngle, chargeGridOf, designWithParams, paramsFromDesign, rockNameFromTransfer, tieRequestParams, unsavedChanges as unsavedChangesOf, type DesignParams } from "./designParams";
 import { FragmentationPanel } from "./FragmentationPanel";
 import { exampleLayeredDomains, GeologyPanel } from "./GeologyPanel";
@@ -319,6 +320,7 @@ export function DesignPage({
   const [tieWarnings, setTieWarnings] = useState<StoredTieWarnings | null>(null);
   const visibleTieWarnings = useMemo(() => tieWarningsFor(tieWarnings, document.network), [tieWarnings, document.network]);
   const [tieBusy, setTieBusy] = useState(false);
+  const tieCatalog = useTieCatalog();
   // Пересчёт коммутации после сдвига скважин (TASK-017, PR 3).
   const retie = useNetworkRetie({
     state,
@@ -2982,6 +2984,7 @@ export function DesignPage({
                 busy={tieBusy}
                 retie={retie}
                 onRecompute={recomputeTie}
+                catalog={tieCatalog}
               />
               <TimingPanel
                 analysis={analysis}

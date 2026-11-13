@@ -52,6 +52,7 @@ import type {
   SurfaceModel,
   SurfaceSet,
   SurfaceStats,
+  TieCatalog,
   TieGenerateResponse,
   TieParams,
   BlastDomain,
@@ -631,6 +632,7 @@ export const api = {
         contour: extras?.contour,
         explosives: extras?.explosives ?? [],
       }),
+    tieCatalog: () => get<TieCatalog>(`${V1}/design/tie/catalog`),
     tie: (
       holes: Hole[],
       scheme: SchemeType,

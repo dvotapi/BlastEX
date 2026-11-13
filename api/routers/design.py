@@ -40,6 +40,7 @@ from api.schemas.design import (
     SurfaceImportResponse,
     SurfaceSampleRequest,
     SurfaceSampleResponse,
+    TieCatalogResponse,
     TieGenerateRequest,
     TieGenerateResponse,
     GeologyAssignRequest,
@@ -83,6 +84,7 @@ from cost.v2.repository import EconomicsRepository
 from design import persistence as design_persistence
 from design.layout_search.jobs import LayoutSearchBusyError, LayoutSearchJobs, get_layout_search_jobs
 from design.renumber import RenumberConflict
+from design.timing import tie_catalog
 
 router = APIRouter(prefix="/design", tags=["design"])
 
@@ -177,6 +179,11 @@ def post_geology_intercept(request: GeologyInterceptRequest) -> GeologyIntercept
 @router.post("/charge", response_model=ChargeGenerateResponse)
 def post_charge(request: ChargeGenerateRequest) -> ChargeGenerateResponse:
     return design_service.generate_charge(request)
+
+
+@router.get("/tie/catalog", response_model=TieCatalogResponse)
+def get_tie_catalog() -> TieCatalogResponse:
+    return TieCatalogResponse(**tie_catalog())
 
 
 @router.post("/tie/generate", response_model=TieGenerateResponse)

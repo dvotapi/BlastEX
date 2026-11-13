@@ -69,6 +69,7 @@ from design.timing import (
     _connector_kind,
     _populate_v2_from_graph,
     _snap,
+    template_timing_params,
 )
 
 TRUNK_SCHEME = "trunk_chains"
@@ -654,13 +655,14 @@ def build_trunk_chains_network(
         system=system,
         starters=list(plan.starters),
         connectors=[Connector(from_hole=a, to_hole=b, delay_ms=ms, kind=kind) for a, b, ms in plan.ties],
-        timing_params={
-            "scheme": TRUNK_SCHEME,
-            "trunk_ms": plan.trunk_ms,
-            "chain_ms": plan.chain_ms,
-            "cut_flank": cut_flank,
-            "downhole_delay_ms": downhole_ms,
-        },
+        # Полный набор для пересчёта без формы (TASK-017, PR 3): ступени — по
+        # номиналу, фланг — нормализованный, замедление — подобранное.
+        timing_params=template_timing_params(
+            TRUNK_SCHEME,
+            system,
+            params,
+            {"trunk_ms": plan.trunk_ms, "chain_ms": plan.chain_ms, "cut_flank": cut_flank, "downhole_delay_ms": downhole_ms},
+        ),
     )
     network = _populate_v2_from_graph(network, downhole_ms=downhole_ms, eligible=eligible)
     # У ДШ общий шнур через все скважины подряд дал бы связи «расстояние / скорость»

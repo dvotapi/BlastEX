@@ -44,6 +44,11 @@ __all__ = [
     "resolve_network",
     "resolve_times",
     "build_firing_events",
+    "ORIGIN_TEMPLATE",
+    "ORIGIN_EDITED",
+    "GEOMETRY_STALE_KEY",
+    "template_timing_params",
+    "retie_params",
 ]
 
 SCHEME_TYPES = ("row", "echelon", "diagonal_v", "trapezoid", "trunk_chains")
@@ -58,6 +63,67 @@ DEFAULT_INTERVAL_MS = {"nonel": 25.0, "electronic": 17.0, "detcord": 20.0}
 DEFAULT_DOWNHOLE_MS = {"nonel": 500.0, "electronic": 0.0, "detcord": 0.0}
 
 DETCORD_VELOCITY_M_S = 7000.0
+
+# Происхождение сети (TASK-017, PR 3): построена шаблоном и не правлена руками —
+# «template», после ручной правки — «edited». Сеть без ключа (построена до
+# PR 3) считается правленой: её параметров не хватает для пересчёта.
+ORIGIN_TEMPLATE = "template"
+ORIGIN_EDITED = "edited"
+# Пометка «устарела по геометрии»: скважины сдвинуты после построения сети.
+GEOMETRY_STALE_KEY = "geometry_stale"
+
+# Параметры запроса, которые сеть хранит для повторного построения без формы
+# (ключи — только заданные в запросе). Азимут бровки не хранится: его заново
+# считает `generate_tie` по контуру; система — `network.system`.
+_WAVE_PARAM_KEYS = ("interval_ms", "downhole_delay_ms", "include_contour", "presplit_lead_ms", "wall_after_ms")
+_ELECTRONIC_PARAM_KEYS = (
+    "timing_mode",
+    "timing_expression",
+    "base_ms",
+    "direction_azimuth_deg",
+    "gradient_from_ms",
+    "gradient_to_ms",
+    "selected_hole_ids",
+)
+_TRUNK_PARAM_KEYS = ("trunk_ms", "chain_ms", "cut_flank", "downhole_delay_ms", "include_contour", "main_kind", "burning_front_m")
+_SERVICE_KEYS = ("scheme", "origin", GEOMETRY_STALE_KEY)
+
+
+def template_timing_params(scheme: str, system: str, params: dict[str, Any], built: dict[str, Any]) -> dict[str, Any]:
+    """`timing_params` сети, построенной шаблоном: схема, `origin`, заданные ключи
+    семейства схемы и поверх — значения, к которым их привёл построитель
+    (`built`: ступень по номиналу, фланг, подобранное замедление).
+
+    Пустые значения (None, пустая строка, пустой список) не пишутся.
+    """
+    if scheme == "trunk_chains":
+        keys: tuple[str, ...] = _TRUNK_PARAM_KEYS
+    else:
+        keys = _WAVE_PARAM_KEYS
+        if system == "electronic" and str(params.get("timing_mode", "") or "") in ELECTRONIC_MODES:
+            keys = keys + _ELECTRONIC_PARAM_KEYS
+    stored: dict[str, Any] = {"scheme": scheme, "origin": ORIGIN_TEMPLATE}
+    for key in keys:
+        value = built[key] if key in built else params.get(key)
+        if value is None or value == "" or value == []:
+            continue
+        stored[key] = list(value) if isinstance(value, (list, tuple)) else value
+    return stored
+
+
+def retie_params(network: InitiationNetwork) -> tuple[str, dict[str, Any]] | None:
+    """Схема и параметры повторного построения сети по её `timing_params`.
+
+    Сеть без `origin` (построена до PR 3) или с неизвестной схемой — None:
+    параметров для пересчёта не хватает.
+    """
+    timing = network.timing_params or {}
+    scheme = timing.get("scheme")
+    if "origin" not in timing or scheme not in SCHEME_TYPES:
+        return None
+    params = {key: value for key, value in timing.items() if key not in _SERVICE_KEYS}
+    params["system"] = network.system
+    return str(scheme), params
 
 
 def _snap(value: float, options: tuple[float, ...]) -> float:
@@ -250,9 +316,9 @@ def build_template_network(
             network.connectors = graph.connectors
             network.surface_connectors = graph.surface_connectors
             network.sync_legacy_from_v2()
-        return network
-
-    network = _build_wave_graph(eligible, scheme, system, params)
+    else:
+        network = _build_wave_graph(eligible, scheme, system, params)
+    network.timing_params = template_timing_params(scheme, system, params, network.timing_params)
     return network
 
 

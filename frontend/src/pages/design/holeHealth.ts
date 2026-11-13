@@ -89,7 +89,10 @@ export type HealthSummary = {
   issues: Array<{ holeId: string; code: HoleHealthCode; label: string }>;
 };
 
-/** Точка внутри контура (лучом); контур меньше трёх вершин — «внутри». */
+/**
+ * Точка внутри контура (лучом); на ребре — внутри, как у сервера
+ * (`design/geometry.py::point_in_polygon`); контур меньше трёх вершин — «внутри».
+ */
 export function pointInPolygon(point: { x: number; y: number }, vertices: Point3[]): boolean {
   if (vertices.length < 3) return true;
   let inside = false;
@@ -98,11 +101,23 @@ export function pointInPolygon(point: { x: number; y: number }, vertices: Point3
     const yi = vertices[i].y;
     const xj = vertices[j].x;
     const yj = vertices[j].y;
+    if (onSegment(point, xj, yj, xi, yi)) return true;
     const intersect = yi > point.y !== yj > point.y
       && point.x < ((xj - xi) * (point.y - yi)) / (yj - yi + 1e-12) + xi;
     if (intersect) inside = !inside;
   }
   return inside;
+}
+
+// Точка на отрезке — с тем же допуском 1e-9, что `_point_on_segment` сервера.
+function onSegment(p: { x: number; y: number }, ax: number, ay: number, bx: number, by: number): boolean {
+  const eps = 1e-9;
+  const cross = (bx - ax) * (p.y - ay) - (by - ay) * (p.x - ax);
+  if (Math.abs(cross) > eps) return false;
+  return (
+    Math.min(ax, bx) - eps <= p.x && p.x <= Math.max(ax, bx) + eps &&
+    Math.min(ay, by) - eps <= p.y && p.y <= Math.max(ay, by) + eps
+  );
 }
 
 function starterHoleIds(network: InitiationNetwork): Set<string> {

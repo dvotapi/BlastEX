@@ -691,6 +691,11 @@ export function designReducer(state: DesignState, action: DesignAction): DesignS
     // на каждое нажатие клавиши в форме, а не как правка документа.
     // Так же и продолжение перетаскивания вершины (coalesce): шаг истории
     // создаёт только первое смещение, дальше правится уже текущее состояние.
+    if (action.type === "RECOMPUTE_HOLES" && state.moveSeries?.present === current) {
+      // Пересчёт по кровле и подошве приходит сам после нажатия стрелки —
+      // это не правка пользователя, и серия стрелок им не рвётся.
+      return { ...state, present: nextPresent, moveSeries: { ...state.moveSeries, present: nextPresent } };
+    }
     return { ...state, present: nextPresent };
   }
 

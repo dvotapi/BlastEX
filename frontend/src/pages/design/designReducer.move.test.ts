@@ -63,6 +63,19 @@ describe("MOVE_HOLES: серия стрелок", () => {
     expect(state.present.holes[0].collar.x).toBeCloseTo(10.5);
   });
 
+  it("автоматический пересчёт по кровле между нажатиями серию не рвёт", () => {
+    const first = press(start(), 1000);
+    const moved = first.present.holes[0];
+    const recomputed = designReducer(first, {
+      type: "RECOMPUTE_HOLES",
+      holes: [{ ...moved, collar: { ...moved.collar, z: 1.5 }, toe: { ...moved.toe, z: -9.5 } }],
+    });
+    expect(recomputed.present).not.toBe(first.present);
+    const state = press(recomputed, 1300);
+    expect(state.past).toHaveLength(1);
+    expect(designReducer(state, { type: "UNDO" }).present.holes[0].collar.x).toBe(10);
+  });
+
   it("сдвиг мышью (без series) — всегда своя запись", () => {
     let state = start();
     state = designReducer(state, { type: "MOVE_HOLES", ids: ["1-01"], dx: 1, dy: 0 });

@@ -561,3 +561,10 @@ def test_naryad_options_fill_fields_from_references():
 def test_choice_keys_are_written_only_when_set():
     assert "vehicle_code" not in layers._payload("NARYAD", {"vehicle_code": "", "blaster_name": ""})
     assert layers._payload("NARYAD", {"vehicle_code": "V-01"})["vehicle_code"] == "V-01"
+
+
+def test_signed_warehouse_name_is_snapshotted_for_print():
+    repository, fake = MemoryRepository(), FakeMagex()
+    _approve(repository, fake)
+    context = repository.revisions[repository.layer["current_revision_id"]]["context"]
+    assert context["magex"]["print"]["warehouse"] == "Склад ВМ № 1"

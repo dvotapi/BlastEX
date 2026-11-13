@@ -173,6 +173,14 @@ def warehouse_options(economics_repository: Any, organization_id: str) -> list[d
     return [{"value": key, "label": label} for key, label in found.items()]
 
 
+def _warehouse_label(economics_repository: Any, organization_id: str, warehouse_id: str) -> str:
+    """Название склада MagEX по реквизитам объектов организации (то, что видно в списке «Склад MagEX»)."""
+
+    return next(
+        (item["label"] for item in warehouse_options(economics_repository, organization_id) if item["value"] == warehouse_id), "",
+    )
+
+
 def _resolve_blaster(snapshot: Any, organization_id: str, payload: Mapping[str, Any], seed: Mapping[str, Any]) -> tuple[dict[str, Any] | None, str]:
     """Взрывник наряда: выбранный в наряде, иначе — по ФИО взрывника персонала проекта."""
 
@@ -389,7 +397,11 @@ def approve(
         "num": signed["num"],
         "lines": [{"material_id": row["material_id"], "qty": qty_text(row["qty"]), "keys": row["keys"], "unit": row["unit"]} for row in merged],
         # Что печатается в форме 4 из подписанной выписки (взрывник — из справочника «Взрывники»).
-        "print": {"blaster_name": signed["blaster"]["name"], "blaster_index": signed["blaster"]["index"]},
+        "print": {
+            "blaster_name": signed["blaster"]["name"], "blaster_index": signed["blaster"]["index"],
+            # Склад выдачи в печати — тот, на котором MagEX резервирует (выбранный «Склад MagEX»).
+            **({"warehouse": label} if (label := _warehouse_label(economics_repository, organization_id, signed["wh"])) else {}),
+        },
     }
     try:
         # Ревизия и постановка версии в очередь (со сроком аренды) — одной транзакцией: упадёт

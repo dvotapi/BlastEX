@@ -318,7 +318,7 @@ def _info_grid(revision: Mapping[str, Any], width: float) -> Table:
          text(signed.get("blaster_name")) or text(payload.get("blaster_name")) or person_line(people.get("blaster")),
          "Индивид. индекс взрывника", text(signed.get("blaster_index")) or text(payload.get("blaster_index")),
          "Зав. складом / раздатчик", person_line(people.get("storekeeper"))),
-        ("Склад выдачи ВМ", text(payload.get("warehouse")), "Спецавтомобиль", _vehicle(payload),
+        ("Склад выдачи ВМ", text(signed.get("warehouse")) or text(payload.get("warehouse")), "Спецавтомобиль", _vehicle(payload),
          "Водитель", text(payload.get("driver"))),
         ("Разрешение на ведение ВР", _permit(payload), "", "", "", ""),
     ]
@@ -517,7 +517,8 @@ def _naryad_head(revision: Mapping[str, Any], width: float, *, offline: str = ""
 
 def _qr_caption(revision: Mapping[str, Any]) -> str:
     magex = revision.get("magex") or {}
-    warehouse = text(_payload(revision).get("warehouse")) or text(magex.get("wh"))[:8]
+    warehouse = (text((magex.get("print") or {}).get("warehouse")) or text(_payload(revision).get("warehouse"))
+                 or text(magex.get("wh"))[:8])
     return f"№ {text(magex.get('num'))} / версия {magex.get('ver')} / {warehouse}"
 
 

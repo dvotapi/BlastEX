@@ -138,3 +138,11 @@ def test_blaster_chosen_from_reference_is_printed_offline(revision):
     offline["payload"] = {**offline["payload"], "blaster_name": "Трегубов Александр Иванович", "blaster_index": "ЮФ60АВ"}
     text = pdfium.PdfDocument(render_layer_document(offline))[0].get_textpage().get_text_range()
     assert "Трегубов Александр Иванович" in text and "ЮФ60АВ" in text
+
+
+def test_selected_magex_warehouse_is_printed_in_both_places(revision):
+    online = _online(revision)
+    online["magex"]["print"] = {"warehouse": "Склад ВМ № 2"}
+    text = pdfium.PdfDocument(render_layer_document(online))[0].get_textpage().get_text_range()
+    assert "№ 66-26 / версия 3 / Склад ВМ № 2" in text
+    assert "Склад ВМ № 1" not in text

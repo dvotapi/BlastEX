@@ -134,7 +134,7 @@ from design.pattern import generate_pattern as run_generate_pattern
 from design.spatial.coordinates import CoordinateSystem
 from design.spatial.io import SurveyImportError, import_survey
 from design.spatial.surfaces import SURFACE_KINDS, SurfaceModel, SurfaceSet, build_surface
-from design.timing import TimingExprError, build_template_network, resolve_network
+from design.timing import TimingExprError, build_template_network_with_warnings, resolve_network
 from design.toe_line import TOE_SOURCE_ANGLE, grid_steps_m, survey_selected, survey_toe_line, toe_line
 from design.trunk_network import TRUNK_SCHEME, build_trunk_chains_network
 from cost.v2.legacy_adapter import LegacyReferences
@@ -278,7 +278,7 @@ def generate_tie(request: TieGenerateRequest) -> TieGenerateResponse:
                 params["crest_azimuth_deg"] = crest_azimuth_deg(contour, min_concentration=CREST_CONCENTRATION_MIN)
             network, warnings = build_trunk_chains_network(holes, params)
         else:
-            network = build_template_network(holes, request.scheme, request.params)
+            network, warnings = build_template_network_with_warnings(holes, request.scheme, request.params)
     except TimingExprError as exc:
         raise InvalidDesignError(str(exc)) from exc
     return TieGenerateResponse(

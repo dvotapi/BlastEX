@@ -105,10 +105,10 @@ import { useFeatures } from "../../app/useFeatures";
 import { ChargePanel } from "./ChargePanel";
 import { changedAxes, designReducer, historyLocked, initDesignState } from "./designReducer";
 import { tieWarningsFor, withTieWarnings, type StoredTieWarnings } from "./tieWarnings";
-import { isNetworkEmpty, markNetworkEdited, RETIE_EDITED_CONFIRM } from "./retie";
+import { isNetworkEmpty, RETIE_EDITED_CONFIRM } from "./retie";
 import { useNetworkRetie } from "./useNetworkRetie";
 import { useTieCatalog } from "./useTieCatalog";
-import { addTies, reconnectTie, removeTies, reverseTie, setDownholeDelay, setTiesDelay, tieEditNotice, toggleStarter, type TieEditResult } from "./tieEdits";
+import { addTies, reconnectTie, removeTies, reverseTie, setDownholeDelay, setTiesDelay, tieEditNotice, toggleStarter, toggleStarters, type TieEditResult } from "./tieEdits";
 import { defaultActiveStep, defaultDownhole, systemCatalog } from "./tieSteps";
 import { resolveNetworkTimes } from "./networkTimes";
 import { TieContextMenu, type TieContextMenuState } from "./TieContextMenu";
@@ -1205,21 +1205,8 @@ export function DesignPage({
   function toggleStartersFromSelection() {
     if (rejectLocked("designed")) return;
     if (!selected.size) return;
-    const network = normalizeNetwork(document.network);
-    const current = new Set(
-      (network.starter_items.length ? network.starter_items.map((item) => item.hole_id) : network.starters),
-    );
-    const selectedIds = Array.from(selected);
-    const allSelectedAreStarters = selectedIds.every((id) => current.has(id));
-    for (const id of selectedIds) {
-      if (allSelectedAreStarters) current.delete(id);
-      else current.add(id);
-    }
-    const starterItems = Array.from(current).map((holeId) => ({ id: `st-${holeId}`, hole_id: holeId, delay_ms: 0, kind: "starter" }));
-    dispatch({
-      type: "SET_NETWORK",
-      network: markNetworkEdited({ ...network, starter_items: starterItems, starters: starterItems.map((item) => item.hole_id) }),
-    });
+    // Как «Стартер» на плане: правленая сеть, у ДШ — без общего шнура (PR 5).
+    commitTieEdit(toggleStarters(normalizeNetwork(document.network), Array.from(selected)));
   }
 
   /** «Пересчитать коммутацию»: по параметрам из сети; правленую — после подтверждения. */

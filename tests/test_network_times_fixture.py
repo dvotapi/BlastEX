@@ -1,4 +1,4 @@
-"""Фикстура клиентских времён срабатывания (TASK-017, PR 4).
+"""Фикстура клиентских времён срабатывания (TASK-017, PR 4 и PR 5).
 
 После правки связей на плане фронт сам пересчитывает времена и «без сигнала»
 (`frontend/src/pages/design/networkTimes.ts`, порт `design/timing.py::
@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import unittest
+from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
 
@@ -85,6 +86,20 @@ def _edited(holes: list[Hole]) -> tuple[list[Hole], InitiationNetwork]:
     return holes, network
 
 
+def _detcord_edited(network: InitiationNetwork) -> tuple[InitiationNetwork, str]:
+    """Правка порядной ДШ на плане (PR 5): первая ручная правка снимает общий
+    шнур, дальше время — по реле связей. Снята связь в середине (за ней —
+    скважины без сигнала); id снятой — в случае (`removed_tie`), клиент
+    повторяет ту же правку (`tieEdits.ts::removeTies`) и сверяет времена."""
+    edited = deepcopy(network)
+    outgoing = {item.from_hole for item in edited.surface_connectors}
+    cut = next(item for item in edited.surface_connectors if item.to_hole in outgoing and item.from_hole not in edited.starters)
+    edited.surface_connectors = [item for item in edited.surface_connectors if item.id != cut.id]
+    edited.detonating_cords = []
+    edited.sync_legacy_from_v2()
+    return edited, cut.id
+
+
 def _case(name: str, holes: list[Hole], network: InitiationNetwork) -> dict:
     result = resolve_network(network, holes)
     enabled = {hole.id for hole in holes if hole.enabled}
@@ -108,13 +123,17 @@ def build_fixture() -> dict:
     electronic = build_template_network(
         holes, "row", {"system": "electronic", "timing_mode": "row", "interval_ms": 17, "base_ms": 0}
     )
+    row_detcord = build_template_network(holes, "row", {"system": "detcord"})
+    detcord_edited, removed_tie = _detcord_edited(row_detcord)
     return {
         "cases": [
             _case("trunk_nonel", holes, _trunk(holes, "nonel")),
             _case("trunk_detcord", holes, _trunk(holes, "detcord")),
             _case("trunk_nonel_edited", edited_holes, edited),
             # Порядная ДШ: общий шнур — отрезки «расстояние / скорость + реле» в обе стороны.
-            _case("row_detcord_cord", holes, build_template_network(holes, "row", {"system": "detcord"})),
+            _case("row_detcord_cord", holes, row_detcord),
+            # Та же сеть после правки на плане: шнур снят, одна связь удалена.
+            {**_case("row_detcord_edited", holes, detcord_edited), "removed_tie": removed_tie},
             _case("row_electronic", holes, electronic),
         ],
     }
@@ -142,6 +161,11 @@ class NetworkTimesFixtureTest(unittest.TestCase):
         self.assertFalse(disabled & set(edited["unsignaled"]))
         self.assertFalse(disabled & set(edited["times"]))
         self.assertFalse(cases["trunk_nonel"]["unsignaled"])
+        # Правка порядной ДШ: без шнура время по реле — за снятой связью без сигнала.
+        detcord = cases["row_detcord_edited"]
+        self.assertEqual(detcord["network"]["detonating_cords"], [])
+        self.assertTrue(detcord["unsignaled"])
+        self.assertGreater(max(detcord["times"].values()), max(cases["row_detcord_cord"]["times"].values()))
         # Электронная — времена каналов, а не связей.
         self.assertTrue(cases["row_electronic"]["network"]["electronic_times_ms"] or cases["row_electronic"]["network"]["electronic_channels"])
 

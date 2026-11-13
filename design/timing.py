@@ -259,7 +259,9 @@ def _populate_v2_from_graph(
     *,
     downhole_ms: float,
     eligible: list[Hole],
+    off_cord: set[str] | None = None,
 ) -> InitiationNetwork:
+    """Связи v2 по графу; `off_cord` — скважины вне общего шнура ДШ (ручные «прочие»)."""
     kind = _connector_kind(network.system)
     network.starter_items = [
         Starter(id=f"st-{hole_id}", hole_id=hole_id) for hole_id in network.starters
@@ -307,7 +309,7 @@ def _populate_v2_from_graph(
             network.detonators = []
     if network.system == "detcord" and network.starters:
         ordered = list(network.starters)
-        seen = set(ordered)
+        seen = set(ordered) | (off_cord or set())
         for item in network.connectors:
             if item.to_hole not in seen:
                 ordered.append(item.to_hole)
@@ -330,6 +332,24 @@ def build_template_network(
     params: dict[str, Any],
 ) -> InitiationNetwork:
     """Build an initiation scheme from a template and optional electronic mode."""
+    return build_template_network_with_warnings(holes, scheme, params)[0]
+
+
+def manual_holes_warning(hole_ids: list[str], step_ms: float) -> str:
+    """Предупреждение о ручных скважинах, подключённых к сетке шаблона «прочими»."""
+    step = f"{step_ms:g}".replace(".", ",")
+    return (
+        f"Ручные скважины ({', '.join(hole_ids)}) подключены от ближайших скважин "
+        f"через {step} мс — проверьте их время."
+    )
+
+
+def build_template_network_with_warnings(
+    holes: list[Hole],
+    scheme: str,
+    params: dict[str, Any],
+) -> tuple[InitiationNetwork, list[str]]:
+    """Сеть шаблона и предупреждения построения (их показывает генерация связей)."""
     system = str(params.get("system", "nonel"))
     if system not in SYSTEM_TYPES:
         system = "nonel"
@@ -339,29 +359,69 @@ def build_template_network(
         # Импорт здесь: trunk_network сам импортирует timing.
         from design.trunk_network import build_trunk_chains_network
 
-        return build_trunk_chains_network(holes, params)[0]
+        return build_trunk_chains_network(holes, params)
 
     include_contour = bool(params.get("include_contour", False))
     eligible = _eligible_holes(holes, include_contour)
     if not eligible:
-        return InitiationNetwork(system=system)
+        return InitiationNetwork(system=system), []
 
     timing_mode = str(params.get("timing_mode", "") or "")
     if timing_mode and timing_mode not in ELECTRONIC_MODES:
         timing_mode = ""
 
+    warnings: list[str] = []
     if system == "electronic" and timing_mode:
+        # Режим электронного тайминга программирует времена сам (ручные — с
+        # первым рядом, `_anchor_manual`); связи схемы здесь — лишь рисунок.
         network = apply_electronic_timing(eligible, timing_mode, params)
         network.system = system
         if not network.surface_connectors:
-            graph = _build_wave_graph(eligible, scheme, system, params)
+            graph, _manual = _build_wave_graph(eligible, scheme, system, params)
             network.connectors = graph.connectors
             network.surface_connectors = graph.surface_connectors
             network.sync_legacy_from_v2()
     else:
-        network = _build_wave_graph(eligible, scheme, system, params)
+        network, manual = _build_wave_graph(eligible, scheme, system, params)
+        if manual:
+            warnings.append(manual_holes_warning(manual, float(network.timing_params["interval_ms"])))
     network.timing_params = template_timing_params(scheme, system, params, network.timing_params)
-    return network
+    return network, warnings
+
+
+def _tie_manual_holes(
+    manual: list[Hole],
+    tied: list[Hole],
+    *,
+    delay_ms: float,
+    kind: str,
+) -> list[Connector]:
+    """Ручные скважины — «прочие», как у «Магистраль + цепочки».
+
+    Каждая подключается связью от ближайшей уже подключённой скважины (жадно, по
+    возрастанию расстояния, как Прим; равные расстояния — по номеру), ступень —
+    интервал схемы (решение владельца 14.11.2026). Ручная — лист: из неё в сетку
+    связей нет, поэтому времена сетки не меняются.
+    """
+
+    def distance(a: Hole, b: Hole) -> float:
+        return math.hypot(a.collar.x - b.collar.x, a.collar.y - b.collar.y)
+
+    best: dict[str, tuple[float, str]] = {}
+    for hole in manual:
+        near = min(tied, key=lambda item: (distance(item, hole), item.id))
+        best[hole.id] = (distance(near, hole), near.id)
+    pending = {hole.id: hole for hole in manual}
+    connectors: list[Connector] = []
+    while pending:
+        hole_id = min(pending, key=lambda item: (best[item][0], item))
+        hole = pending.pop(hole_id)
+        connectors.append(Connector(from_hole=best[hole_id][1], to_hole=hole_id, delay_ms=delay_ms, kind=kind))
+        for other in pending.values():
+            d = distance(other, hole)
+            if (d, hole_id) < best[other.id]:
+                best[other.id] = (d, hole_id)
+    return connectors
 
 
 def _build_wave_graph(
@@ -369,7 +429,17 @@ def _build_wave_graph(
     scheme: str,
     system: str,
     params: dict[str, Any],
-) -> InitiationNetwork:
+) -> tuple[InitiationNetwork, list[str]]:
+    """Сеть волнами по координате схемы и номера ручных скважин, подключённых «прочими».
+
+    Ручные скважины в волны не входят: стартовой посреди блока они бы стали
+    сами, а сетку вели бы через себя (у ДШ — и через общий шнур). Без сетки
+    подключать их не к чему — тогда они идут волнами, как раньше.
+    """
+    manual = [hole for hole in eligible if hole.source == "manual"]
+    waves = [hole for hole in eligible if hole.source != "manual"]
+    if not waves:
+        manual, waves = [], eligible
     interval_ms = float(params.get("interval_ms", DEFAULT_INTERVAL_MS[system]))
     downhole_ms = float(params.get("downhole_delay_ms", DEFAULT_DOWNHOLE_MS[system]))
 
@@ -383,18 +453,18 @@ def _build_wave_graph(
     else:
         connector_kind = "electronic"
 
-    min_col, max_col, center_col = _grid_extents(eligible)
+    min_col, max_col, center_col = _grid_extents(waves)
     if system in ("nonel", "detcord"):
         # Пресплит идёт одним поверхностным соединителем: его задержка — ступень системы.
         ladder = SURFACE_NSI_MS_OPTIONS if system == "nonel" else DETCORD_RELAY_MS_OPTIONS
         lead = float(params.get("presplit_lead_ms", 150.0))
         below = [option for option in ladder if option <= lead]
         params = {**params, "presplit_lead_ms": float(max(below) if below else min(ladder))}
-    wall_coords = _block_row_coordinates(eligible, interval_ms, params) if scheme == "row" else {}
-    coords = {h.id: _wave_coordinate(h, scheme, center_col, min_col, max_col) for h in eligible}
+    wall_coords = _block_row_coordinates(waves, interval_ms, params) if scheme == "row" else {}
+    coords = {h.id: _wave_coordinate(h, scheme, center_col, min_col, max_col) for h in waves}
     coords.update(wall_coords)
-    coords = _anchor_manual(eligible, coords)
-    scored = [(h, coords[h.id]) for h in eligible]
+    coords = _anchor_manual(waves, coords)
+    scored = [(h, coords[h.id]) for h in waves]
     scored.sort(key=lambda item: item[1])
 
     min_w = scored[0][1]
@@ -414,6 +484,10 @@ def _build_wave_graph(
         connectors.append(Connector(from_hole=nearest[0].id, to_hole=hole.id, delay_ms=delay, kind=connector_kind))
         placed.append((hole, w))
 
+    if manual:
+        connectors.extend(
+            _tie_manual_holes(manual, waves, delay_ms=round(interval_ms, 1), kind=connector_kind)
+        )
     downhole_delay_ms = {h.id: downhole_ms for h in eligible} if downhole_ms > 0 else {}
     network = InitiationNetwork(
         system=system,
@@ -424,7 +498,10 @@ def _build_wave_graph(
         timing_mode="",
         timing_params={"scheme": scheme, "interval_ms": interval_ms, "downhole_delay_ms": downhole_ms},
     )
-    return _populate_v2_from_graph(network, downhole_ms=downhole_ms, eligible=eligible)
+    network = _populate_v2_from_graph(
+        network, downhole_ms=downhole_ms, eligible=eligible, off_cord={hole.id for hole in manual}
+    )
+    return network, [hole.id for hole in manual]
 
 
 def _sorted_selected(holes: list[Hole], selected_ids: list[str]) -> list[Hole]:

@@ -988,10 +988,14 @@ class BlastResultRecordResponse(BlastResultCompareResponse):
     network: InitiationNetworkSchema = Field(default_factory=InitiationNetworkSchema)
 
 
+# Прежние скважины в запросе сетки — не больше, чем в пересчёте (`MAX_RECOMPUTE_HOLES`).
+MAX_PATTERN_EXISTING_HOLES = 20_000
+
+
 class PatternGenerateRequest(BaseModel):
     contour: BlockContourSchema
     params: dict[str, Any] = Field(default_factory=dict)
-    existing_holes: list[HoleSchema] = Field(default_factory=list)
+    existing_holes: list[HoleSchema] = Field(default_factory=list, max_length=MAX_PATTERN_EXISTING_HOLES)
     surfaces: SurfaceSetSchema | None = None
     domains: list[BlastDomainSchema] = Field(default_factory=list)
 

@@ -1982,14 +1982,21 @@ def carry_moved_holes(
     moved = [hole for hole in existing if is_moved_hole(hole)]
     if not moved:
         return manual, []
-    candidates = sorted(
-        (math.hypot(g.collar.x - m.manual_offset.node_x, g.collar.y - m.manual_offset.node_y), i, j)
-        for i, m in enumerate(moved)
-        for j, g in enumerate(generated)
-        if g.source != "manual"
-        and abs(g.collar.x - m.manual_offset.node_x) <= NODE_TOLERANCE_M
-        and abs(g.collar.y - m.manual_offset.node_y) <= NODE_TOLERANCE_M
-    )
+    # Соседи узлов — по KD-дереву новых устьев: прежних скважин в запросе
+    # может быть сколько угодно, перебор «каждая с каждой» не нужен.
+    grid_index = [j for j, g in enumerate(generated) if g.source != "manual"]
+    candidates: list[tuple[float, int, int]] = []
+    if grid_index:
+        from scipy.spatial import cKDTree
+
+        tree = cKDTree([(generated[j].collar.x, generated[j].collar.y) for j in grid_index])
+        nodes = [(m.manual_offset.node_x, m.manual_offset.node_y) for m in moved]
+        for i, near in enumerate(tree.query_ball_point(nodes, NODE_TOLERANCE_M)):
+            for k in near:
+                g = generated[grid_index[k]]
+                distance = math.hypot(g.collar.x - nodes[i][0], g.collar.y - nodes[i][1])
+                candidates.append((distance, i, grid_index[k]))
+    candidates.sort()
     match: dict[int, int] = {}
     taken: set[int] = set()
     for distance, i, j in candidates:

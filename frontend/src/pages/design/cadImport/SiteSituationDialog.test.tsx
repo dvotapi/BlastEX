@@ -3,7 +3,7 @@
 // отбор слоёв при загрузке и запоминание выбора на объекте.
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import type { CadLayer, CadRolesResponse, CadSiteSources, CadSource } from "../../../types/cad";
+import type { CadLayer, CadRolesResponse, CadSource } from "../../../types/cad";
 import { SiteSituationDialog, type SiteSituationDialogProps } from "./SiteSituationDialog";
 import { CAD_META, cadEntity, cadSource } from "./testing/fixtures";
 
@@ -60,33 +60,6 @@ function plan(extra: Partial<CadSource> = {}): CadSource {
   });
 }
 
-const LIST: CadSiteSources = {
-  site_code: "SITE_ZK",
-  truncated: false,
-  sources: [
-    {
-      id: "blk-70",
-      title: "граница блока 70",
-      file_name: "граница блока 70.dwg",
-      survey_date: null,
-      uploaded_at: "2026-11-10T10:00:00+00:00",
-      uploaded_by: "engineer@example.ru",
-      situation_count: 0,
-      purpose: "block",
-    },
-    {
-      id: "plan-1",
-      title: "Ситуационный план",
-      file_name: "24.09.2026 Ситуационный план.dwg",
-      survey_date: "2026-09-24",
-      uploaded_at: "2026-09-25T10:00:00+00:00",
-      uploaded_by: "engineer@example.ru",
-      situation_count: 900,
-      purpose: "situation",
-    },
-  ],
-};
-
 const META = {
   ...CAD_META,
   situation_kinds: [
@@ -103,7 +76,7 @@ function renderDialog(extra: Partial<SiteSituationDialogProps> = {}) {
   const props: SiteSituationDialogProps = {
     onClose: vi.fn(),
     onChanged: vi.fn(),
-    list: vi.fn(async () => LIST),
+    current: vi.fn(async () => ({ site_code: "SITE_ZK", source_id: "plan-1" })),
     load: vi.fn(async () => plan()),
     upload: vi.fn(async () => ({ sources: [plan()] })),
     saveRoles: vi.fn(),
@@ -117,7 +90,7 @@ function renderDialog(extra: Partial<SiteSituationDialogProps> = {}) {
 const checkbox = (name: string) => screen.getByRole("checkbox", { name: `Показывать слой «${name}»` }) as HTMLInputElement;
 
 describe("окно «Ситуация объекта»", () => {
-  it("открывает самый свежий план карьера объекта, а не чертёж блока", async () => {
+  it("открывает текущий план карьера объекта — тот же, что берут документы", async () => {
     const props = renderDialog();
     await screen.findByText("Ситуационный план");
     expect(props.load).toHaveBeenCalledWith("plan-1");
@@ -130,7 +103,7 @@ describe("окно «Ситуация объекта»", () => {
   });
 
   it("плана нет — загрузка файла с назначением «ситуация»", async () => {
-    const props = renderDialog({ list: vi.fn(async () => ({ ...LIST, sources: [LIST.sources[0]] })) });
+    const props = renderDialog({ current: vi.fn(async () => ({ site_code: "SITE_ZK", source_id: null })) });
     await screen.findByText("Плана карьера ещё нет");
     const input = screen.getByLabelText("Файл плана карьера") as HTMLInputElement;
     const file = new File(["dxf"], "24.09.2026 Ситуационный план.dwg");
@@ -187,11 +160,11 @@ describe("окно «Ситуация объекта»", () => {
   it("план из «Чертежей объекта» открывается без поиска", async () => {
     const props = renderDialog({ initialSource: plan({ title: "Старый план" }) });
     expect(await screen.findByText("Старый план")).toBeTruthy();
-    expect(props.list).not.toHaveBeenCalled();
+    expect(props.current).not.toHaveBeenCalled();
   });
 
   it("без объекта работ — подсказка выбрать объект", async () => {
-    renderDialog({ list: vi.fn(async () => ({ site_code: "", sources: [], truncated: false })) });
+    renderDialog({ current: vi.fn(async () => ({ site_code: "", source_id: null })) });
     await waitFor(() => expect(screen.getByText(/Объект работ не выбран/)).toBeTruthy());
     expect(screen.queryByText("Загрузить план")).toBeNull();
   });

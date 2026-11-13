@@ -17,6 +17,7 @@ const ZONE_STYLE: Record<string, { stroke: string; label: string }> = {
 };
 // Ситуация по видам слоёв — как на листе Г.5; прочее — серым.
 const SITUATION_STYLE: Record<string, { stroke: string; width: number; dash?: number[]; label: string }> = {
+  pit: { stroke: "#5f6b66", width: 0.35, label: "контур карьера" },
   road: { stroke: "#8c6d46", width: 0.4, label: "дороги" },
   building: { stroke: "#3a4540", width: 0.35, label: "здания и сооружения" },
   power_line: { stroke: "#1f6fb2", width: 0.3, dash: [2, 1], label: "ЛЭП" },
@@ -117,9 +118,14 @@ export function LayoutPlan({
   if (!box) return <small className="drill-hint">Нет геометрии блока для плана: проверьте проект.</small>;
   const unit = box.w / 140;
   // Легенда — только виды, которые есть на плане, в порядке стилей.
-  const situationKinds = [...new Set(graphics.situation.filter((layer) => layer.lines.length).map((layer) => layer.kind))].sort(
-    (a, b) => Object.keys(SITUATION_STYLE).indexOf(a) - Object.keys(SITUATION_STYLE).indexOf(b),
-  );
+  // Неизвестные виды и «прочее» — одной строкой в конце.
+  const situationKinds = [
+    ...new Set(
+      graphics.situation
+        .filter((layer) => layer.lines.length)
+        .map((layer) => (layer.kind in SITUATION_STYLE ? layer.kind : "other")),
+    ),
+  ].sort((a, b) => (a === "other" ? 1 : b === "other" ? -1 : Object.keys(SITUATION_STYLE).indexOf(a) - Object.keys(SITUATION_STYLE).indexOf(b)));
 
   function world(event: { clientX: number; clientY: number }): Pt | null {
     const element = svg.current;

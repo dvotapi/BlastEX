@@ -14,7 +14,7 @@ import type {
   CadOrigin,
   CadRolesPayload,
   CadRolesResponse,
-  CadSiteSources,
+  CadSiteSituation,
   CadSituationKind,
   CadSource,
   CadUploadParams,
@@ -30,7 +30,8 @@ export type SiteSituationDialogProps = {
   onChanged: () => void;
   /** Открыть этот план (из «Чертежей объекта»), а не самый свежий. */
   initialSource?: CadSource | null;
-  list?: () => Promise<CadSiteSources>;
+  /** Текущий план объекта — тот же, что берут документы (самый свежий по дате съёмки). */
+  current?: () => Promise<CadSiteSituation>;
   load?: (id: string) => Promise<CadSource>;
   upload?: (files: File[], params: CadUploadParams) => Promise<CadImportResponse>;
   saveRoles?: (id: string, payload: CadRolesPayload) => Promise<CadRolesResponse>;
@@ -57,7 +58,7 @@ export function SiteSituationDialog({
   onClose,
   onChanged,
   initialSource = null,
-  list = api.cad.siteSources,
+  current = api.cad.siteSituation,
   load = api.cad.source,
   upload = api.cad.upload,
   saveRoles = api.cad.saveRoles,
@@ -100,16 +101,15 @@ export function SiteSituationDialog({
   useEffect(() => {
     if (initialSource) return;
     let alive = true;
-    list()
-      .then(async (sources) => {
+    current()
+      .then(async (found) => {
         if (!alive) return;
-        if (!sources.site_code) {
+        if (!found.site_code) {
           setNoSite(true);
           return;
         }
-        const plan = sources.sources.find((item) => item.purpose === "situation");
-        if (plan) {
-          const loaded = await load(plan.id);
+        if (found.source_id) {
+          const loaded = await load(found.source_id);
           if (alive) open(loaded);
         }
       })
@@ -138,6 +138,13 @@ export function SiteSituationDialog({
   const needle = filter.trim().toLocaleLowerCase("ru");
   const visible = needle ? layers.filter((layer) => layer.name.toLocaleLowerCase("ru").includes(needle)) : layers;
 
+  // Вид вписывается по слоям, показанным при открытии плана, и не прыгает от флажков и наведения.
+  const fitEntities = useMemo(
+    () => (source ? source.entities.filter((entity) => entity.geometry_type === "line" && entity.role === "situation") : []),
+    // Только смена плана: сохранение отбора вид не перевписывает.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [source?.id],
+  );
   // Холст: показанные слои и слой под курсором (чтобы увидеть, что включаешь).
   const canvasEntities = useMemo(() => {
     if (!source) return [];
@@ -301,6 +308,7 @@ export function SiteSituationDialog({
             <div className="cad-site-situation-canvas">
               <CadCanvas
                 entities={canvasEntities}
+                fitEntities={fitEntities.length ? fitEntities : undefined}
                 fitKey={source.id}
                 hover={hover}
                 selected={null}

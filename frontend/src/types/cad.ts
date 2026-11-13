@@ -246,6 +246,9 @@ export type CadSiteSource = {
   purpose?: CadPurpose;
 };
 
+/** Текущий план карьера активного объекта — тот, что берут документы блоков без ссылок. */
+export type CadSiteSituation = { site_code: string; source_id: string | null };
+
 export type CadSiteSources = { site_code: string; sources: CadSiteSource[]; truncated: boolean };
 
 /** Ответ на правку ролей: без геометрии — слои и только изменившиеся роли объектов. */

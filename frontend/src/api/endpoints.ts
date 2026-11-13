@@ -191,6 +191,7 @@ import type {
   CadRoleCode,
   CadRolesPayload,
   CadRolesResponse,
+  CadSiteSituation,
   CadSiteSources,
   CadSituationCatalogue,
   CadSituationGeometry,
@@ -514,6 +515,7 @@ export const api = {
       put<CadCrsResponse>(`${V1}/design/cad/sources/${encodeURIComponent(id)}/crs`, crs),
     /** «Чертежи объекта» — объект берёт сервер (активный объект организации). */
     siteSources: () => get<CadSiteSources>(`${V1}/design/cad/sources`),
+    siteSituation: () => get<CadSiteSituation>(`${V1}/design/cad/site-situation`),
     deleteSource: (id: string) => del<void>(`${V1}/design/cad/sources/${encodeURIComponent(id)}`),
     /**
      * Серии ситуации объекта паспорта: по ссылкам паспорта, без ссылки — активного

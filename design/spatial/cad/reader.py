@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import math
 import os
+import re
 import tempfile
 from collections import Counter
 from dataclasses import dataclass
@@ -65,6 +66,33 @@ class ReadOptions:
     scale: float = 1.0
     label_radius_m: float = 3.0
     closure_tolerance_m: float = CLOSURE_TOLERANCE_M
+
+
+# Дробь MTEXT `\S<верх><разделитель><низ>;`: разделитель ^ (верхний/нижний индекс),
+# / или # (дробь). ezdxf 1.4 оставляет из `\S3^;` хвост «3y}\S3y».
+_STACK = re.compile(r"\\S([^;^/#]*)([\^/#])([^;]*);")
+_SUPERSCRIPT = {"2": "²", "3": "³"}
+
+
+def _unstack(match: re.Match[str]) -> str:
+    upper, divider, lower = match.group(1), match.group(2), match.group(3)
+    if divider == "^":
+        # «м{\S3^;}» — м³, «V{\S^отв;}» — Vотв: индекс без верхней части — нижний.
+        if upper and not lower:
+            return _SUPERSCRIPT.get(upper, upper)
+        return upper or lower
+    return f"{upper}/{lower}" if upper and lower else upper or lower
+
+
+def mtext_plain(entity) -> str:
+    """Текст MTEXT без кодов форматирования: дроби и индексы — словами и знаками ²/³."""
+
+    raw = str(entity.text or "")
+    if "\\S" not in raw:
+        return entity.plain_text()
+    from ezdxf.tools.text import plain_mtext
+
+    return plain_mtext(_STACK.sub(_unstack, raw), split=False)
 
 
 def read_cad(data: bytes, filename: str = "", options: ReadOptions | None = None) -> CadDrawing:
@@ -443,7 +471,7 @@ class _Collector:
             height = float(entity.dxf.get("height", 0.0) or 0.0)
         else:
             location = entity.dxf.insert
-            text = entity.plain_text()
+            text = mtext_plain(entity)
             height = float(entity.dxf.get("char_height", 0.0) or 0.0)
         label = CadEntity(
             handle=handle,

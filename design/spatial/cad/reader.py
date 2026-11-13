@@ -68,20 +68,26 @@ class ReadOptions:
     closure_tolerance_m: float = CLOSURE_TOLERANCE_M
 
 
-# Дробь MTEXT `\S<верх><разделитель><низ>;`: разделитель ^ (верхний/нижний индекс),
-# / или # (дробь). ezdxf 1.4 оставляет из `\S3^;` хвост «3y}\S3y».
-_STACK = re.compile(r"\\S([^;^/#]*)([\^/#])([^;]*);")
-_SUPERSCRIPT = {"2": "²", "3": "³"}
+# Дробь MTEXT `\S<верх><разделитель><низ>;`: разделитель ^ (верхний/нижний индекс
+# или допуск), / или # (дробь); `\;` внутри — точка с запятой. Перед `\S` — не
+# экранированный обратный слэш (`\\S` — буквальный текст). ezdxf 1.4 оставляет из
+# `\S3^;` хвост «3y}\S3y».
+_STACK = re.compile(r"(?<!\\)((?:\\\\)*)\\S((?:\\;|[^;^/#])*)([\^/#])((?:\\;|[^;])*);")
+_SUPERSCRIPT = str.maketrans("0123456789-+", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻⁺")
 
 
 def _unstack(match: re.Match[str]) -> str:
-    upper, divider, lower = match.group(1), match.group(2), match.group(3)
-    if divider == "^":
-        # «м{\S3^;}» — м³, «V{\S^отв;}» — Vотв: индекс без верхней части — нижний.
-        if upper and not lower:
-            return _SUPERSCRIPT.get(upper, upper)
-        return upper or lower
-    return f"{upper}/{lower}" if upper and lower else upper or lower
+    prefix = match.group(1)
+    upper, divider, lower = (match.group(index).replace("\\;", ";") for index in (2, 3, 4))
+    if divider == "^" and upper and not lower:
+        # «м{\S3^;}» — м³, «м{\S-1^;}» — м⁻¹; цифры без надстрочного знака — как есть.
+        lifted = upper.translate(_SUPERSCRIPT)
+        return prefix + (lifted if all(char in "⁰¹²³⁴⁵⁶⁷⁸⁹⁻⁺" for char in lifted) else upper)
+    if not upper or not lower:
+        # «V{\S^отв;}» — Vотв: индекс без верхней части — нижний.
+        return prefix + (upper or lower)
+    # Дробь и допуск («+0.1^-0.2») — обе части.
+    return f"{prefix}{upper}/{lower}"
 
 
 def mtext_plain(entity) -> str:

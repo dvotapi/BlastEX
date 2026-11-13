@@ -606,6 +606,8 @@ def test_mtext_stacked_units_are_plain_text() -> None:
         msp.add_mtext("\\A1;Отвал\\PV{\\H0.7x;\\S^отв;}=521,51 тыс. м{\\H0.7x;\\S3^;}", dxfattribs={"insert": (10, 0)})
         msp.add_mtext("Площадь {\\S1/2;} га, уклон {\\S1#10;}", dxfattribs={"insert": (20, 0)})
         msp.add_mtext("{\\fArial|b1;ДСК}", dxfattribs={"insert": (30, 0)})
+        msp.add_mtext("Допуск {\\S+0.1^-0.2;}, расход м{\\S-1^;}", dxfattribs={"insert": (40, 0)})
+        msp.add_mtext("Путь C:\\\\Survey;1", dxfattribs={"insert": (50, 0)})
         msp.add_line((0, 0), (40, 0))
 
     texts = [item.text for item in read_cad(_dxf_bytes(build), "plan.dxf").entities if item.kind == "MTEXT"]
@@ -614,4 +616,6 @@ def test_mtext_stacked_units_are_plain_text() -> None:
         "Отвал\nVотв=521,51 тыс. м³",
         "Площадь 1/2 га, уклон 1/10",
         "ДСК",
+        "Допуск +0.1/-0.2, расход м⁻¹",
+        "Путь C:\\Survey;1",
     ]

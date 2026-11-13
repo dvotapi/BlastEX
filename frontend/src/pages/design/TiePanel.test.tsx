@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // Панель «Коммутация»: шаблон «Магистраль + цепочки» — ступени НСИ, вруб у фланга,
 // подбор внутрискважинного замедления сервером и предупреждения построения.
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_TIE_PARAMS, type InitiationNetwork } from "../../types/design";
 import { TiePanel } from "./TiePanel";
@@ -17,13 +17,10 @@ function renderPanel(over: Record<string, unknown> = {}) {
     params: DEFAULT_TIE_PARAMS,
     network: { starters: [], connectors: [], surface_connectors: [], starter_items: [] } as unknown as InitiationNetwork,
     selectedCount: 0,
-    pendingFromId: null,
     warnings: [],
     onSchemeChange: noop,
     onParamsChange: noop,
     onGenerate: noop,
-    onUpdateTie: noop,
-    onRemoveTie: noop,
     onToggleStarters: noop,
     busy: false,
     catalog: TEST_TIE_CATALOG,
@@ -241,5 +238,42 @@ describe("TiePanel: пересчёт после сдвига (TASK-017, PR 3)", 
     cleanup();
     renderPanel({ retie: { ...retie, error: "Сервер недоступен" }, onRecompute: noop });
     expect(screen.getByText("Сервер недоступен")).toBeInTheDocument();
+  });
+});
+
+describe("TiePanel: правка связей на плане (TASK-017, PR 4)", () => {
+  const network = {
+    system: "nonel",
+    starters: ["a"],
+    starter_items: [{ id: "st-a", hole_id: "a", delay_ms: 0, kind: "starter" }],
+    connectors: [],
+    surface_connectors: [
+      { id: "sc-a-b", from_hole: "a", to_hole: "b", delay_ms: 25, kind: "surface_nsi", product: "" },
+      { id: "sc-b-c", from_hole: "b", to_hole: "c", delay_ms: 42, kind: "surface_nsi", product: "" },
+      { id: "sc-c-d", from_hole: "c", to_hole: "d", delay_ms: 42, kind: "surface_nsi", product: "" },
+    ],
+  } as unknown as InitiationNetwork;
+
+  it("списка связей нет", () => {
+    renderPanel({ network });
+    expect(screen.queryByText("Ручная правка связей")).not.toBeInTheDocument();
+    expect(screen.queryByText("a → b")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "×" })).not.toBeInTheDocument();
+  });
+
+  it("легенда ступеней с числом связей; клик — активная ступень", () => {
+    const onActiveMsChange = vi.fn();
+    renderPanel({ network, activeMs: 25, onActiveMsChange });
+    const legend = screen.getByRole("group", { name: "Ступени сети" });
+    expect(legend).toHaveTextContent("25 мс1");
+    expect(legend).toHaveTextContent("42 мс2");
+    expect(within(legend).getByRole("button", { name: /^25 мс/ })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(within(legend).getByRole("button", { name: /^42 мс/ }));
+    expect(onActiveMsChange).toHaveBeenCalledWith(42);
+  });
+
+  it("счётчики связей, стартовых и без сигнала", () => {
+    renderPanel({ network, unsignaledCount: 2 });
+    expect(screen.getByText("Связей: 3 · стартовых: 1 · без сигнала: 2")).toBeInTheDocument();
   });
 });

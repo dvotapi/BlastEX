@@ -3,12 +3,13 @@ import {
   networkTies,
   type InitiationNetwork,
   type SchemeType,
-  type SurfaceConnector,
   type SystemType,
   type TieCatalog,
   type TieParams,
 } from "../../types/design";
-import { nearestNominal, systemCatalog } from "./tieSteps";
+import { ruNumber } from "../../lib/format";
+import { stepCounts } from "./tieEdits";
+import { nearestNominal, stepColor, systemCatalog } from "./tieSteps";
 import { RoleBadge } from "./RoleBadge";
 import type { NetworkRetieView } from "./useNetworkRetie";
 
@@ -45,30 +46,27 @@ export function TiePanel({
   params,
   network,
   selectedCount,
-  pendingFromId,
   warnings,
   onSchemeChange,
   onParamsChange,
   onGenerate,
-  onUpdateTie,
-  onRemoveTie,
   onToggleStarters,
   busy,
   retie,
   onRecompute,
   catalog = null,
+  activeMs,
+  onActiveMsChange,
+  unsignaledCount = 0,
 }: {
   scheme: SchemeType;
   params: TieParams;
   network: InitiationNetwork;
   selectedCount: number;
-  pendingFromId: string | null;
   warnings: string[];
   onSchemeChange: (scheme: SchemeType) => void;
   onParamsChange: (patch: Partial<TieParams>) => void;
   onGenerate: () => void;
-  onUpdateTie: (connector: SurfaceConnector, delayMs: number) => void;
-  onRemoveTie: (connectorId: string) => void;
   onToggleStarters: () => void;
   busy: boolean;
   /** Пересчёт после сдвига скважин (TASK-017, PR 3); подтверждение — у страницы. */
@@ -76,8 +74,20 @@ export function TiePanel({
   onRecompute?: () => void;
   /** Номиналы систем (`GET /design/tie/catalog`). */
   catalog?: TieCatalog | null;
+  /** Активная ступень палитры правки на плане (TASK-017, PR 4). */
+  activeMs?: number;
+  onActiveMsChange?: (ms: number) => void;
+  /** Включённые скважины без сигнала (клиентский расчёт времён). */
+  unsignaledCount?: number;
 }) {
   const ties = networkTies(network);
+  // Легенда палитры: номиналы системы сети и ступени вне них, с числом связей.
+  const networkNominals = systemCatalog(catalog, network.system ?? "nonel")?.surface_ms ?? [];
+  const counts = stepCounts(network);
+  const legend = [...new Set([...networkNominals, ...counts.keys()])]
+    .sort((a, b) => a - b)
+    .map((ms) => ({ ms, count: counts.get(ms) ?? 0 }));
+  const starterCount = network.starter_items?.length || network.starters.length;
   const electronic = params.system === "electronic";
   const mode = params.timing_mode;
   const trunkChains = scheme === "trunk_chains";
@@ -278,39 +288,34 @@ export function TiePanel({
         </small>
 
         <div className="tie-edit-block">
-          <b>Ручная правка связей</b>
-          <small>
-            {pendingFromId
-              ? `От ${pendingFromId}: кликните вторую скважину на плане.`
-              : "Клик по двум скважинам добавляет связь. Выделение + кнопка ниже — стартовые."}
-          </small>
-          <button className="secondary-button" type="button" onClick={onToggleStarters} disabled={!selectedCount}>
-            Стартовые из выделенных ({selectedCount})
-          </button>
-          {ties.length === 0 ? (
-            <small>Связей пока нет.</small>
-          ) : (
-            <div className="tie-list">
-              {ties.map((tie) => (
-                <div key={tie.id} className="tie-row">
-                  <span>{tie.from_hole} → {tie.to_hole}</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={tie.delay_ms}
-                    onChange={(e) => onUpdateTie(tie, Number(e.target.value))}
-                  />
-                  <button type="button" className="ghost-button" onClick={() => onRemoveTie(tie.id)}>×</button>
-                </div>
+          <b>Связи на плане</b>
+          {legend.length > 0 && (
+            <div className="tie-legend" role="group" aria-label="Ступени сети">
+              {legend.map(({ ms, count }) => (
+                <button
+                  key={ms}
+                  type="button"
+                  className={activeMs === ms ? "active" : ""}
+                  style={{ borderColor: stepColor(ms, networkNominals), color: stepColor(ms, networkNominals) }}
+                  aria-pressed={activeMs === ms}
+                  title={`Сделать ${ruNumber(ms, 0)} мс активной ступенью палитры`}
+                  disabled={!onActiveMsChange}
+                  onClick={() => onActiveMsChange?.(ms)}
+                >
+                  <b>{ruNumber(ms, 0)} мс</b><small>{count}</small>
+                </button>
               ))}
             </div>
           )}
-          <small>
-            Стартовых: {network.starter_items?.length || network.starters.length}
+          <small className="tie-counters">
+            Связей: {ties.length} · стартовых: {starterCount} · без сигнала: {unsignaledCount}
             {network.electronic_channels?.length ? ` · каналов: ${network.electronic_channels.length}` : ""}
             {network.detonating_cords?.length ? ` · ДШ: ${network.detonating_cords.length}` : ""}
           </small>
+          <small>Связи, ступени, стартовые и замедление в скважине правятся на плане — палитра над ним, «？» — все жесты.</small>
+          <button className="secondary-button" type="button" onClick={onToggleStarters} disabled={!selectedCount}>
+            Стартовые из выделенных ({selectedCount})
+          </button>
         </div>
       </div>
     </section>

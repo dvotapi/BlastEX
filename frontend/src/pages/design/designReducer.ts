@@ -4,6 +4,7 @@
 import { faceAngleForImportedBlock } from "../../lib/faceAngle";
 import { renameHoleIds } from "./holeRenumber";
 import { clearMoved, isMovedHole, layoutAxes, markMoved, type LayoutAxes } from "./holeMove";
+import { isNetworkEmpty, markGeometryStale } from "./retie";
 import { isRecordFrozen } from "../../lib/lifecycle";
 import { collarZFromSurfaces } from "../../lib/surfaces";
 import type { CadCrs } from "../../types/cad";
@@ -96,6 +97,13 @@ export type DesignAction =
   | { type: "MOVE_HOLES"; ids: string[]; dx: number; dy: number; series?: number; axes?: LayoutAxes }
   /** «Вернуть в узел сетки»: устье — в узел, пометка сдвига снимается (TASK-017, PR 2). */
   | { type: "RETURN_TO_NODE"; ids: string[] }
+  /**
+   * Сеть, пересчитанная после сдвига (TASK-017, PR 3). `base` — документ, по
+   * которому спрошен пересчёт: документ с тех пор сменился — ответ не
+   * применяется. `merge` — автопересчёт: вливается в запись отмены сдвига
+   * (одна отмена возвращает и скважины, и прежнюю сеть); иначе — своя запись.
+   */
+  | { type: "RETIE_NETWORK"; network: InitiationNetwork; base: BlastDesign; merge: boolean }
   | { type: "UPDATE_HOLE"; id: string; patch: Partial<Hole> }
   | { type: "ADD_HOLE"; hole: Hole }
   | { type: "DELETE_HOLES"; ids: string[] }
@@ -185,6 +193,12 @@ function serverFields(design: BlastDesign): ServerFields {
 
 function edgeKey(index: number, total: number): number[] {
   return [index, (index + 1) % total];
+}
+
+/** Сеть после сдвига скважин: непустая помечается «устаревшей по геометрии». */
+function networkAfterMove(document: BlastDesign): InitiationNetwork {
+  const network = normalizeNetwork(document.network);
+  return isNetworkEmpty(network) ? document.network : markGeometryStale(network);
 }
 
 function moveHole(hole: Hole, dx: number, dy: number, document: BlastDesign): Hole {
@@ -412,6 +426,7 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
           const moved = moveHole(h, action.dx, action.dy, document);
           return markMoved({ ...moved, intervals: [], water_intervals: [] }, h, axes);
         }),
+        network: networkAfterMove(document),
       };
     }
     case "RETURN_TO_NODE": {
@@ -424,7 +439,7 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
         const back = moveHole(h, node_x - h.collar.x, node_y - h.collar.y, document);
         return clearMoved({ ...back, collar: { ...back.collar, x: node_x, y: node_y }, intervals: [], water_intervals: [] });
       });
-      return changed ? { ...document, holes } : document;
+      return changed ? { ...document, holes, network: networkAfterMove(document) } : document;
     }
     case "UPDATE_HOLE":
       return {
@@ -679,6 +694,14 @@ export function designReducer(state: DesignState, action: DesignAction): DesignS
       // стрелок: следующее нажатие — новая запись, а не продолжение.
       moveSeries: undefined,
     };
+  }
+  if (action.type === "RETIE_NETWORK") {
+    // Пока шёл пересчёт, документ сменился (сдвиг, отмена, другая правка):
+    // сеть посчитана не для него.
+    if (action.base !== state.present) return state;
+    const present = { ...state.present, network: normalizeNetwork(action.network) };
+    if (action.merge) return { ...state, present, moveSeries: undefined };
+    return { ...state, past: [...state.past, state.present].slice(-HISTORY_LIMIT), present, future: [], moveSeries: undefined };
   }
   if (action.type === "REDO") {
     if (state.future.length === 0) return state;

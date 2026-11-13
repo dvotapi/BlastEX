@@ -21,7 +21,7 @@ import {
   zoomAt,
   angleAzimuth,
 } from "../../lib/geometry2d";
-import type { AsChargedHole, AsDrilledHole, AsFiredHole, BlastDomain, BlockContour, BurdenRelief, Hole, HoleKind, HoleLoad, InitiationNetwork, Isoline, Point3, PredictedHoleMovement, Receptor, ToeLine, VibrationPrediction } from "../../types/design";
+import type { AsChargedHole, AsDrilledHole, AsFiredHole, BlastDomain, BlockContour, BurdenRelief, Hole, HoleKind, HoleLoad, InitiationNetwork, Isoline, PatternParams, Point3, PredictedHoleMovement, Receptor, ToeLine, VibrationPrediction } from "../../types/design";
 import { HOLE_KIND_LABELS, SELECTABLE_HOLE_KINDS, RECEPTOR_KIND_LABELS, networkTies } from "../../types/design";
 import { insertContourVertex, removeContourVertices } from "./contourEdits";
 import { RELIEF_BANDS, reliefBand } from "./relief";
@@ -30,6 +30,20 @@ import { DEFAULT_MAP_LAYERS, type MapLayerVisibility } from "./MapLegend";
 import { SituationCanvas } from "./SituationCanvas";
 import { situationStrokes, type SituationShown } from "./situationLayer";
 import { lspToeTitle, SURVEY_TOE_TITLE } from "./toeLineText";
+import {
+  AXIS_SNAP_OPTIONS,
+  FINE_STEP_M,
+  arrowDelta,
+  dragDelta,
+  gridSteps,
+  layoutAxes,
+  snapStepM,
+  toAxes,
+  withFacePairs,
+  type ArrowKey,
+  type AxisSnap,
+} from "./holeMove";
+import { designBurdenM, liveCheck, liveFloorBurdens } from "./liveChecks";
 import {
   holeMarkerRadiusPx,
   labelsVisibleAtScale,
@@ -73,12 +87,15 @@ export type PlanMeasureState = {
 };
 
 const SNAP_OPTIONS = [0, 0.25, 0.5, 1, 2.5, 5];
+const ARROW_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
 
 type DragState =
   | { kind: "none" }
   | { kind: "pan"; pointerId: number; startScreen: Vec2; startCamera: Camera; moved: boolean; button: number }
   | { kind: "vertex"; pointerId: number; index: number; startScreen: Vec2; grabOffset: Vec2; moved: boolean }
-  | { kind: "holes"; pointerId: number; ids: string[]; anchorId: string; startScreen: Vec2; startWorld: Vec2; deltaWorld: Vec2; moved: boolean }
+  // Сдвиг скважин (TASK-017): `deltaWorld` — уже в осях раскладки и с привязкой,
+  // отсчёт от положения в начале жеста; `cursor` — для подсказки у курсора.
+  | { kind: "holes"; pointerId: number; ids: string[]; anchorId: string; startScreen: Vec2; startWorld: Vec2; deltaWorld: Vec2; cursor: Vec2; moved: boolean }
   | { kind: "rubber"; pointerId: number; startScreen: Vec2; currentScreen: Vec2; additive: boolean; moved: boolean };
 
 type Hover =
@@ -96,6 +113,7 @@ export function PlanCanvas({
   onContourChange,
   onToggleFreeFace,
   onMoveHoles,
+  patternParams = null,
   onAddHole,
   onDeleteHoles,
   onSetHolesEnabled,
@@ -164,7 +182,10 @@ export function PlanCanvas({
   onSelectedChange: (ids: Set<string>) => void;
   onContourChange: (vertices: Point3[], freeFaces?: number[][], coalesce?: boolean) => void;
   onToggleFreeFace: (edgeIndex: number) => void;
-  onMoveHoles: (ids: string[], dx: number, dy: number) => void;
+  /** Сдвиг скважин; `series` — время нажатия стрелки (серия — одна запись отмены). */
+  onMoveHoles: (ids: string[], dx: number, dy: number, series?: number) => void;
+  /** Параметры раскладки: оси сдвига (азимут рядов), шаги привязки, W и отступ от кромки. */
+  patternParams?: Partial<PatternParams> | null;
   onAddHole: (world: Vec2) => void;
   onDeleteHoles: (ids: string[]) => void;
   onSetHolesEnabled: (ids: string[], enabled: boolean) => void;
@@ -249,6 +270,9 @@ export function PlanCanvas({
   const [selectedVertices, setSelectedVertices] = useState<Set<number>>(new Set());
   const [showGrid, setShowGrid] = useState(true);
   const [snapStep, setSnapStep] = useState(0.5);
+  // Привязка сдвига скважин по осям раскладки (TASK-017): a/4 вдоль ряда, b/4 поперёк.
+  const [snapAlong, setSnapAlong] = useState<AxisSnap>("a4");
+  const [snapAcross, setSnapAcross] = useState<AxisSnap>("b4");
   const [showHelp, setShowHelp] = useState(false);
 
   // Актуальные значения для нативных слушателей (wheel/keydown) — без них
@@ -537,6 +561,13 @@ export function PlanCanvas({
     () => (situation ? situationStrokes(situation.shown, situation.hidden, camera, viewport) : []),
     [situation, camera, viewport],
   );
+
+  const gridStepsM = useMemo(() => gridSteps(patternParams), [patternParams]);
+  const moveAxes = useMemo(
+    () => layoutAxes(Number(patternParams?.row_azimuth_deg ?? 0), contour),
+    [patternParams?.row_azimuth_deg, contour],
+  );
+  const moveSteps = { along: snapStepM(snapAlong, gridStepsM), across: snapStepM(snapAcross, gridStepsM) };
 
   function toScreenPoint(e: { clientX: number; clientY: number }): Vec2 {
     const rect = wrapRef.current!.getBoundingClientRect();
@@ -867,11 +898,13 @@ export function PlanCanvas({
       setDrag({
         kind: "holes",
         pointerId: e.pointerId,
-        ids,
+        // Пара у откоса едет со своей вертикальной; выбранная одна — одна.
+        ids: withFacePairs(ids, holes),
         anchorId: hole.id,
         startScreen: screen,
         startWorld: worldOf(screen),
         deltaWorld: { x: 0, y: 0 },
+        cursor: screen,
         moved: false,
       });
       return;
@@ -946,19 +979,15 @@ export function PlanCanvas({
     }
     if (drag.kind === "holes") {
       if (!drag.moved && distance(screen, drag.startScreen) <= CLICK_SLOP_PX) return;
-      const anchor = holes.find((h) => h.id === drag.anchorId);
       const raw = worldOf(screen);
-      let delta = { x: raw.x - drag.startWorld.x, y: raw.y - drag.startWorld.y };
-      if (e.shiftKey) {
-        // Shift — ортогональное перемещение вдоль преобладающей оси.
-        if (Math.abs(delta.x) >= Math.abs(delta.y)) delta = { x: delta.x, y: 0 };
-        else delta = { x: 0, y: delta.y };
-      }
-      if (anchor && snapStep > 0) {
-        const snapped = applySnap({ x: anchor.collar.x + delta.x, y: anchor.collar.y + delta.y });
-        delta = { x: snapped.x - anchor.collar.x, y: snapped.y - anchor.collar.y };
-      }
-      setDrag({ ...drag, deltaWorld: delta, moved: true });
+      // Сдвиг в осях раскладки (вдоль ряда / к откосу), каждая ось — к своему
+      // шагу привязки от исходного положения; Shift — только преобладающая ось.
+      const delta = dragDelta({ x: raw.x - drag.startWorld.x, y: raw.y - drag.startWorld.y }, moveAxes, {
+        lockAxis: e.shiftKey,
+        stepAlong: moveSteps.along,
+        stepAcross: moveSteps.across,
+      });
+      setDrag({ ...drag, deltaWorld: delta, cursor: screen, moved: true });
       return;
     }
     if (drag.kind === "rubber") {
@@ -1002,8 +1031,7 @@ export function PlanCanvas({
         }
       }
       if (drag.kind === "holes" && drag.moved) {
-        const dx = round2(drag.deltaWorld.x);
-        const dy = round2(drag.deltaWorld.y);
+        const { x: dx, y: dy } = drag.deltaWorld;
         if (dx !== 0 || dy !== 0) onMoveHoles(drag.ids, dx, dy);
       }
       if (drag.kind === "rubber") {
@@ -1096,6 +1124,27 @@ export function PlanCanvas({
       setDrag({ kind: "none" });
       return;
     }
+    // Стрелки при выделенных скважинах — сдвиг по осям раскладки на шаг
+    // привязки (выкл — 0,1 м), Alt+стрелка — на 0,1 м. Нажатия подряд — одна
+    // запись отмены. Без выделения стрелки двигают план.
+    if (
+      ARROW_KEYS.has(e.key) &&
+      mode === "holes" &&
+      tool === "select" &&
+      selected.size > 0 &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      dragRef.current.kind === "none"
+    ) {
+      e.preventDefault();
+      const steps = e.altKey
+        ? { along: FINE_STEP_M, across: FINE_STEP_M }
+        : { along: moveSteps.along || FINE_STEP_M, across: moveSteps.across || FINE_STEP_M };
+      const delta = arrowDelta(e.key as ArrowKey, moveAxes, steps);
+      const ids = withFacePairs(holes.filter((h) => selected.has(h.id)).map((h) => h.id), holes);
+      if (ids.length && (delta.x !== 0 || delta.y !== 0)) onMoveHoles(ids, delta.x, delta.y, performance.now());
+      return;
+    }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (key === "v" || key === "1" || key === "м") setTool("select");
     else if (key === "a" || key === "2" || key === "ф") setTool("add");
@@ -1146,6 +1195,31 @@ export function PlanCanvas({
   const dimensionLines = draggedSingleHole
     ? buildDimensionLines(draggedSingleHole, drag.kind === "holes" ? drag.deltaWorld : { x: 0, y: 0 }, holes, spacingHint)
     : [];
+
+  // Живая проверка сдвига (TASK-017): на клиенте, без запроса к серверу.
+  // ЛСП до жеста считается один раз — скважины во время жеста не меняются.
+  const holeDragActive = drag.kind === "holes";
+  const baseBurdens = useMemo(
+    () => (holeDragActive ? liveFloorBurdens(holes, floorToeLine, patternParams) : null),
+    [holeDragActive, holes, floorToeLine, patternParams],
+  );
+  const liveMove = useMemo(() => {
+    if (drag.kind !== "holes" || !drag.moved || !baseBurdens) return null;
+    const moved = new Set(drag.ids);
+    const { x: dx, y: dy } = drag.deltaWorld;
+    const preview = holes.map((h) =>
+      moved.has(h.id)
+        ? { ...h, collar: { ...h.collar, x: h.collar.x + dx, y: h.collar.y + dy }, toe: { ...h.toe, x: h.toe.x + dx, y: h.toe.y + dy } }
+        : h,
+    );
+    const result = liveCheck({ holes: preview, base: holes, moved, contour, toeLine: floorToeLine, params: patternParams, baseBurdens });
+    const parts = toAxes(drag.deltaWorld, moveAxes);
+    // ЛСП ведущей скважины, а у вертикальной, закрытой своей парой, — пары.
+    const pairId = `${drag.anchorId}T`;
+    const anchorBurden = result.burdens[drag.anchorId] ?? (moved.has(pairId) ? result.burdens[pairId] : undefined);
+    return { ...result, along: parts.along, across: parts.across, anchorBurden, ids: drag.ids };
+  }, [drag, baseBurdens, holes, contour, floorToeLine, patternParams, moveAxes]);
+  const designW = designBurdenM(patternParams);
 
   const origin = toScreen({ x: 0, y: 0 });
   const freeFaceSet = new Set(contour.free_faces.map((f) => f.join("-")));
@@ -1247,6 +1321,22 @@ export function PlanCanvas({
           </select>
         </label>
       </div>
+      {mode === "holes" && (
+        <div className="plan-tool-group" title="Привязка сдвига скважин по осям сетки — от их исходного положения">
+          <label className="plan-toggle">
+            Сдвиг вдоль ряда
+            <select aria-label="Привязка сдвига вдоль ряда" value={snapAlong} onChange={(e) => setSnapAlong(e.target.value as AxisSnap)}>
+              {AXIS_SNAP_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+            </select>
+          </label>
+          <label className="plan-toggle">
+            {moveAxes.towardFace ? "к откосу" : "поперёк"}
+            <select aria-label="Привязка сдвига поперёк ряда" value={snapAcross} onChange={(e) => setSnapAcross(e.target.value as AxisSnap)}>
+              {AXIS_SNAP_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+            </select>
+          </label>
+        </div>
+      )}
       {mode === "contour" ? (
         <div className="plan-tool-group">
           <button
@@ -1669,13 +1759,19 @@ export function PlanCanvas({
           const extraLabel = labelField !== "none" && labelField !== "id"
             ? secondaryLabelText(h, load, labelField, t)
             : null;
+          const violations = liveMove?.byHole[h.id];
           return (
             <g
               key={h.id}
-              className={`hole-marker kind-${h.kind}${isSelected ? " selected" : ""}${isHovered ? " hovered" : ""}${!h.enabled ? " disabled" : ""}${isStarter ? " starter" : ""}${pending ? " pending-tie" : ""}${animClass}${showHealthLayer && healthCode !== "ok" ? " health-issue" : ""}`}
+              className={`hole-marker kind-${h.kind}${violations ? " live-violation" : ""}${isSelected ? " selected" : ""}${isHovered ? " hovered" : ""}${!h.enabled ? " disabled" : ""}${isStarter ? " starter" : ""}${pending ? " pending-tie" : ""}${animClass}${showHealthLayer && healthCode !== "ok" ? " health-issue" : ""}`}
             >
               {showHealthLayer && healthCode !== "ok" && (
                 <circle cx={p.x} cy={p.y} r={radius + 3} className={`health-ring code-${healthCode}`} fill="none" />
+              )}
+              {violations && (
+                <circle cx={p.x} cy={p.y} r={radius + 5} className="live-violation-ring" fill="none">
+                  <title>{violations.map((v) => v.text).join("\n")}</title>
+                </circle>
               )}
               <circle cx={p.x} cy={p.y} r={pending ? Math.max(radius, 7) : radius} style={fillColor ? { fill: fillColor } : undefined} />
               {charged && <circle cx={p.x + 7} cy={p.y - 6} r={2.2} className="as-charged-dot" />}
@@ -1759,6 +1855,27 @@ export function PlanCanvas({
         </g>
       </svg>
 
+      {liveMove && drag.kind === "holes" && (
+        <div
+          className={`plan-drag-tip${Object.keys(liveMove.byHole).length ? " warn" : ""}`}
+          style={{ left: drag.cursor.x + 16, top: drag.cursor.y + 16 }}
+          role="status"
+        >
+          <div>Δ вдоль {formatSigned(liveMove.along)} м · Δ {moveAxes.towardFace ? "к откосу" : "поперёк"} {formatSigned(liveMove.across)} м</div>
+          {liveMove.nearestM !== null && <div>До соседа {ruNumber(liveMove.nearestM, 2)} м</div>}
+          {liveMove.anchorBurden && (
+            <div className={liveMove.anchorBurden.excess ? "bad" : undefined}>
+              ЛСП {ruNumber(liveMove.anchorBurden.valueM, 2)} м{designW !== null ? ` / W ${ruNumber(designW, 2)} м` : ""}
+            </div>
+          )}
+          {Object.entries(liveMove.byHole).flatMap(([id, items]) =>
+            items.map((v) => (
+              <div key={`${id}:${v.code}`} className="bad">{liveMove.ids.length > 1 || id !== drag.anchorId ? `${id}: ` : ""}{v.text}</div>
+            )),
+          )}
+        </div>
+      )}
+
       {hoveredVertexScreen && tool === "select" && !drawingDomainId && (
         <button
           type="button"
@@ -1786,13 +1903,18 @@ export function PlanCanvas({
         <div className="plan-help">
           <b>Управление планом</b>
           <ul>
-            <li><i>Перемещение:</i> тянуть правой или средней кнопкой мыши, либо пробел + перетаскивание, либо инструмент «Панорама», либо стрелки на клавиатуре.</li>
+            <li><i>Перемещение:</i> тянуть правой или средней кнопкой мыши, либо пробел + перетаскивание, либо инструмент «Панорама», либо стрелки на клавиатуре (когда скважины не выделены).</li>
             <li><i>Масштаб:</i> колесо мыши над планом, щипок на тачпаде, Ctrl/⌘ с прокруткой, кнопки ＋/−, клавиши + и −. «По размеру» или 0 — вписать всё в окно.</li>
             <li><i>Тачпад:</i> двумя пальцами — панорама, щипок — масштаб. Страница под планом при этом не прокручивается и не масштабируется.</li>
             <li><i>Контур:</i> «Точка» — клик добавляет вершину, клик по ребру вставляет её в середину ребра. «Выбор» — перетаскивание вершины, рамка выделяет несколько.</li>
             <li><i>Удаление точки:</i> двойной клик по ней, правый клик, крестик рядом с ней или Delete для выделенных.</li>
             <li><i>Откосы:</i> инструмент «Откос» — клик по ребру помечает его открытым.</li>
-            <li><i>Скважины:</i> «Скважина» — клик добавляет. Двойной клик по маркеру открывает карточку. «Выбор» — перетаскивание (Shift — строго по оси), рамка выделяет, Delete удаляет.</li>
+            <li><i>Скважины:</i> «Скважина» — клик добавляет. Двойной клик по маркеру открывает карточку. «Выбор» — рамка выделяет, Delete удаляет.</li>
+            <li><i>Сдвиг скважин:</i> тянуть мышью выделенные. Сдвиг идёт по осям сетки — вдоль ряда и к откосу (поперёк ряда), а не по X/Y карты. Shift — только по одной оси, той, по которой сдвиг больше.</li>
+            <li><i>Привязка сдвига:</i> «Сдвиг вдоль ряда» и «к откосу» в панели — выкл, 0,1 м, a/4 или b/4 (по умолчанию a/4 вдоль и b/4 поперёк); отсчёт — от положения скважины до сдвига.</li>
+            <li><i>Стрелки:</i> при выделенных скважинах двигают их на шаг привязки по оси сетки, ближней к стрелке на экране (привязка выключена — на 0,1 м); Alt+стрелка — на 0,1 м. Нажатия подряд без паузы больше секунды отменяются одним Ctrl+Z. Без выделения стрелки двигают план.</li>
+            <li><i>Проверка при сдвиге:</i> у курсора — сдвиг вдоль и поперёк, расстояние до ближайшей скважины и ЛСП/W первого ряда. Красным кольцом — ЛСП больше W + 3 %, сосед ближе половины меньшего шага, устье ближе допустимого отступа к кромке или вне контура. Отпустить можно — после сдвига действует обычная проверка проекта.</li>
+            <li><i>Пара у откоса:</i> «…T» едет вместе со своей вертикальной; выделенную одну пару можно сдвинуть отдельно.</li>
             <li><i>Клавиши:</i> V — выбор, A — добавление, F — откос, H — панорама, Esc — снять выделение.</li>
             <li><i>Геология:</i> в режиме рисования региона клик ставит вершину полигона; остальные инструменты плана при этом не срабатывают.</li>
             <li><i>Связи:</i> в режиме «Связь» клик по скважине начинает коннектор, вторая скважина его замыкает, клик по пустому месту сбрасывает.</li>
@@ -1843,6 +1965,11 @@ function chargeMassColor(massKg: number, maxMassKg: number): string {
   const ratio = Math.max(0, Math.min(1, massKg / maxMassKg));
   const hue = 48 - 48 * ratio; // жёлтый (лёгкий заряд) → красный (тяжёлый)
   return `hsl(${hue}, 72%, 46%)`;
+}
+
+function formatSigned(value: number): string {
+  const text = ruNumber(Math.abs(value) < 0.005 ? 0 : value, 2);
+  return value >= 0.005 ? `+${text}` : text;
 }
 
 function round2(v: number): number {

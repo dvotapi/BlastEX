@@ -653,3 +653,8 @@
 .relief-notes { display:flex; flex-direction:column; gap:2px; }
 .relief-note-warning { color:#745014; }
 .relief-legend-item { display:inline-flex; align-items:center; gap:4px; white-space:nowrap; }
+/* Сдвиг скважин (TASK-017): подсказка у курсора и нарушения живой проверки. */
+.hole-marker .live-violation-ring { stroke:#c0392b; stroke-width:2.5; stroke-dasharray:4 2; }
+.plan-drag-tip { position:absolute; z-index:5; max-width:320px; padding:6px 9px; border-radius:8px; background:rgba(16,41,31,.9); color:#eaf3ef; font-size:11px; line-height:1.45; pointer-events:none; white-space:nowrap; box-shadow:0 4px 14px rgba(16,41,31,.25); }
+.plan-drag-tip.warn { box-shadow:0 0 0 2px #c0392b, 0 4px 14px rgba(16,41,31,.25); }
+.plan-drag-tip .bad { color:#ffb4a8; font-weight:var(--font-weight-strong); white-space:normal; }

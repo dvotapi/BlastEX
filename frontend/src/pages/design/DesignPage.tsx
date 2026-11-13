@@ -892,9 +892,10 @@ export function DesignPage({
     dispatch({ type: "TOGGLE_FREE_FACE", edgeIndex });
   }
 
-  function onMoveHoles(ids: string[], dx: number, dy: number) {
+  function onMoveHoles(ids: string[], dx: number, dy: number, series?: number) {
     if (rejectLocked("designed")) return;
-    dispatch({ type: "MOVE_HOLES", ids, dx, dy });
+    // `series` — нажатие стрелки: нажатия подряд — одна запись отмены (TASK-017).
+    dispatch({ type: "MOVE_HOLES", ids, dx, dy, ...(series !== undefined ? { series } : {}) });
   }
 
   function onUpdateHole(id: string, patch: Partial<Hole>) {
@@ -3302,6 +3303,7 @@ export function DesignPage({
               onContourChange={onContourChange}
               onToggleFreeFace={onToggleFreeFace}
               onMoveHoles={onMoveHoles}
+              patternParams={patternParams}
               onAddHole={onAddHole}
               onDeleteHoles={deleteHoles}
               onSetHolesEnabled={setHolesEnabled}

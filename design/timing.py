@@ -83,7 +83,6 @@ _ELECTRONIC_PARAM_KEYS = (
     "direction_azimuth_deg",
     "gradient_from_ms",
     "gradient_to_ms",
-    "selected_hole_ids",
 )
 # `timing_mode` у «Магистраль + цепочки» не применяется, но даёт предупреждение
 # построения — хранится, чтобы пересчёт его повторил.
@@ -97,7 +96,9 @@ _TRUNK_PARAM_KEYS = (
     "burning_front_m",
     "timing_mode",
 )
-_SERVICE_KEYS = ("scheme", "origin", GEOMETRY_STALE_KEY)
+# Порядок «по выбору» — поле сети `selected_hole_ids` (его переименовывает
+# перенумерация), а не копия в `timing_params`.
+_SERVICE_KEYS = ("scheme", "origin", GEOMETRY_STALE_KEY, "selected_hole_ids")
 
 
 def template_timing_params(scheme: str, system: str, params: dict[str, Any], built: dict[str, Any]) -> dict[str, Any]:
@@ -134,6 +135,8 @@ def retie_params(network: InitiationNetwork) -> tuple[str, dict[str, Any]] | Non
         return None
     params = {key: value for key, value in timing.items() if key not in _SERVICE_KEYS}
     params["system"] = network.system
+    if network.selected_hole_ids:
+        params["selected_hole_ids"] = list(network.selected_hole_ids)
     return str(scheme), params
 
 

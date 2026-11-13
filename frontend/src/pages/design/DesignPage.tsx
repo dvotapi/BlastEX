@@ -686,11 +686,11 @@ export function DesignPage({
     else starterItems.push({ id: `st-${holeId}`, hole_id: holeId, delay_ms: 0, kind: "starter" });
     dispatch({
       type: "SET_NETWORK",
-      network: {
+      network: markNetworkEdited({
         ...network,
         starter_items: starterItems,
         starters: starterItems.map((item) => item.hole_id),
-      },
+      }),
     });
   }
 

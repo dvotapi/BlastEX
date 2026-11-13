@@ -49,6 +49,15 @@ describe("параметры пересчёта", () => {
     });
   });
 
+  it("порядок «по выбору» — из поля сети, а не из копии в timing_params", () => {
+    const selection = net({
+      system: "electronic",
+      selected_hole_ids: ["1-02", "1-01"],
+      timing_params: { scheme: "row", origin: "template", timing_mode: "selection", selected_hole_ids: ["old"] },
+    });
+    expect(retieRequest(selection)?.params).toEqual({ timing_mode: "selection", system: "electronic", selected_hole_ids: ["1-02", "1-01"] });
+  });
+
   it("сеть до PR 3 и неизвестная схема — параметров не хватает", () => {
     expect(retieRequest(net({ timing_params: { scheme: "row", interval_ms: 25 } }))).toBeNull();
     expect(retieRequest(net({ timing_params: { scheme: "spiral", origin: "template" } }))).toBeNull();

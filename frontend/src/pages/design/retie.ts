@@ -17,7 +17,9 @@ export const RETIE_INCOMPLETE_HINT =
   "Сеть построена до сохранения параметров схемы — постройте её заново во вкладке „Коммутация“";
 export const RETIE_EDITED_CONFIRM = "Ручные правки коммутации будут потеряны. Пересчитать коммутацию?";
 
-const SERVICE_KEYS: ReadonlySet<string> = new Set(["scheme", "origin", GEOMETRY_STALE_KEY]);
+// Порядок «по выбору» — поле сети `selected_hole_ids` (его переименовывает
+// перенумерация), а не копия в `timing_params`.
+const SERVICE_KEYS: ReadonlySet<string> = new Set(["scheme", "origin", GEOMETRY_STALE_KEY, "selected_hole_ids"]);
 
 /** Происхождение сети; нет ключа (сеть до PR 3) — правленая: автопересчёта нет. */
 export function networkOrigin(network: InitiationNetwork): NetworkOrigin {
@@ -36,7 +38,8 @@ export function retieRequest(network: InitiationNetwork): { scheme: SchemeType; 
   const timing = network.timing_params ?? {};
   if (!("origin" in timing) || typeof timing.scheme !== "string" || !SCHEME_TYPES.has(timing.scheme)) return null;
   const params = Object.fromEntries(Object.entries(timing).filter(([key]) => !SERVICE_KEYS.has(key)));
-  return { scheme: timing.scheme as SchemeType, params: { ...params, system: network.system } };
+  const selected = network.selected_hole_ids?.length ? { selected_hole_ids: [...network.selected_hole_ids] } : {};
+  return { scheme: timing.scheme as SchemeType, params: { ...params, system: network.system, ...selected } };
 }
 
 /** В сети нет ни стартовых, ни связей, ни электронных времён. */

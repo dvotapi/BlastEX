@@ -126,6 +126,16 @@ class RetieParamsTest(unittest.TestCase):
         unknown = InitiationNetwork(system="nonel", timing_params={"scheme": "spiral", "origin": "template"})
         self.assertIsNone(retie_params(unknown))
 
+    def test_selection_order_comes_from_network_field(self):
+        # Перенумерация переименовывает `network.selected_hole_ids`; копии в
+        # `timing_params` нет, пересчёт берёт поле сети.
+        holes = _holes()
+        params = {**FORM, "system": "electronic", "timing_mode": "selection", "selected_hole_ids": ["2-01", "1-01"]}
+        network = InitiationNetwork.from_dict(_generate(holes, "row", params).network.model_dump())
+        self.assertNotIn("selected_hole_ids", network.timing_params)
+        network.selected_hole_ids = ["1-01", "2-01"]
+        self.assertEqual(retie_params(network)[1]["selected_hole_ids"], ["1-01", "2-01"])
+
     def test_retie_params_drop_service_keys(self):
         network = InitiationNetwork(
             system="detcord",

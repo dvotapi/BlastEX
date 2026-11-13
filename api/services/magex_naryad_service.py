@@ -313,6 +313,15 @@ def approve(
     if errors:
         raise MagexValidationError(errors)
     payload = layers_service.effective_payload(viewed)
+    own = viewed.get("payload") or {}
+    if own.get("warehouse_code") and not own.get("magex_warehouse_id"):
+        # Выбранный склад не заведён в MagEX: склад объекта по умолчанию тут не подставляется —
+        # печатался бы один склад, а резерв шёл бы на другом.
+        raise MagexValidationError([{
+            "level": "error", "code": "magex_warehouse_missing",
+            "message": "У выбранного склада выдачи нет «Склада MagEX» в справочнике «Склады»: укажите его или выберите другой склад.",
+            "path": "payload.warehouse_code",
+        }])
     client = client_for(organization_id, transport)
     try:
         items = catalog(organization_id, client, fresh=True)

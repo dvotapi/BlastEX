@@ -159,13 +159,16 @@ function MagexFields({ layer, draft, set, disabled, locked }: TextProps & { lock
       alive = false;
     };
   }, []);
-  const chosen = str(draft.magex_warehouse_id) || str(layerDefaults(layer).magex_warehouse_id?.value);
+  // Выбран склад из справочника — его склад MagEX, без подстановки склада объекта.
+  const picked = Boolean(str(draft.warehouse_code));
+  const chosen = str(draft.magex_warehouse_id) || (picked ? "" : str(layerDefaults(layer).magex_warehouse_id?.value));
   const label = warehouses.find((item) => item.value === chosen)?.label;
   return (
     <div className="drill-grid">
       <small className={chosen ? "drill-hint" : "form-error"}>
         {chosen ? `Склад MagEX: ${label ?? "указан"} — с него MagEX резервирует и выдаёт ВМ.`
-          : "Склад MagEX не задан: укажите его у склада в справочнике «Склады» или в реквизитах объекта."}
+          : picked ? "У выбранного склада выдачи нет «Склада MagEX» в справочнике «Склады»."
+            : "Склад MagEX не задан: укажите его у склада в справочнике «Склады» или в реквизитах объекта."}
       </small>
       <Field label="Допуски взрывника, водителя и спецавтомобиля проверены" hint="подтверждает начальник участка: источника допусков в SafetyMAIN пока нет">
         {(id) => (

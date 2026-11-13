@@ -575,3 +575,11 @@ def test_signed_warehouse_name_is_snapshotted_for_print():
     _approve(repository, fake)
     context = repository.revisions[repository.layer["current_revision_id"]]["context"]
     assert context["magex"]["print"]["warehouse"] == "Склад ВМ № 1"
+
+
+def test_chosen_warehouse_without_magex_is_an_error_not_a_silent_fallback():
+    repository = MemoryRepository(payload={"number": "1", "issue_date": "2026-10-14", "admissions_confirmed": True,
+                                           "warehouse_code": "W-02", "warehouse": "Склад без MagEX"})
+    with pytest.raises(magex.MagexValidationError) as caught:
+        _approve(repository, FakeMagex())
+    assert [item["code"] for item in caught.value.issues] == ["magex_warehouse_missing"]

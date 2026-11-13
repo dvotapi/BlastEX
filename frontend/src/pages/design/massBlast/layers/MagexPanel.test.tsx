@@ -58,6 +58,9 @@ beforeEach(() => {
   vi.mocked(api.massBlast.addressees).mockReset().mockResolvedValue({ registry: false, items: [] });
   vi.mocked(api.massBlast.magexWarehouses).mockReset().mockResolvedValue([{ value: "wh-1", label: "Склад ВМ № 1" }]);
   vi.mocked(api.massBlast.naryadOptions).mockReset().mockResolvedValue({
+    warehouses: [{ value: "W-01", label: "Склад ВМ №1", fill: { warehouse: "Склад ВМ №1", magex_warehouse_id: "wh-1" } }],
+    drivers: [{ value: "D-01", label: "Петров П. П. — водитель", fill: { driver: "Петров П. П." } }],
+    escorts: [{ value: "E-01", label: "Сидоров С. С. — взрывник", fill: { delivery: "Сидоров С. С." } }],
     blasters: [{ value: "BL-01", label: "Трегубов А. И. — ЮФ60АВ", fill: { blaster_name: "Трегубов А. И.", blaster_index: "ЮФ60АВ" } }],
     vehicles: [{ value: "V-01", label: "КамАЗ — А123ВС96", fill: { vehicle_model: "КамАЗ 43118", vehicle_plate: "А123ВС96", driver: "Петров П. П." } }],
   });
@@ -78,7 +81,7 @@ describe("наряд-путёвка в учёте MagEX", () => {
     expect(screen.queryByRole("button", { name: "Выпустить ревизию" })).toBeNull();
     expect(screen.getByRole("button", { name: "Разрешить" })).toBeTruthy();
     expect(screen.getByText(/В MagEX не отправлена/)).toBeTruthy();
-    expect(screen.getByLabelText("Склад MagEX")).toBeTruthy();
+    expect(screen.getByLabelText("Склад выдачи (справочник)")).toBeTruthy();
   });
 
   it("отказ из-за нехватки — таблица «позиция / нужно / доступно»", async () => {
@@ -101,12 +104,12 @@ describe("наряд-путёвка в учёте MagEX", () => {
   it("после выдачи склад, запас и № заблокированы", async () => {
     vi.mocked(api.massBlast.layers).mockResolvedValue([online({
       issued: true, accepted_ver: 1,
-      locked_fields: ["magex_warehouse_id", "blaster_code", "blaster_index", "issue_date", "reserve", "number", "admissions_confirmed"],
+      locked_fields: ["magex_warehouse_id", "warehouse_code", "blaster_code", "blaster_index", "issue_date", "reserve", "number", "admissions_confirmed"],
     })]);
     render(<DayTab project={approved} />);
     expect(((await screen.findByLabelText("Запас: ВВ")) as HTMLInputElement).disabled).toBe(true);
     expect((screen.getByLabelText("№ наряда-путёвки") as HTMLInputElement).disabled).toBe(true);
-    expect((screen.getByLabelText("Склад MagEX") as HTMLSelectElement).disabled).toBe(true);
+    expect((screen.getByLabelText("Склад выдачи (справочник)") as HTMLSelectElement).disabled).toBe(true);
     expect(screen.getByText(/ВМ выданы: склад, взрывник/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Отменить в MagEX" })).toBeNull();
   });
@@ -207,11 +210,11 @@ describe("наряд-путёвка в учёте MagEX", () => {
     vi.mocked(api.massBlast.saveLayer).mockReset().mockImplementation(async (_id, body) => layer({ payload: body.payload, version: 3 }));
     render(<DayTab project={approved} />);
     await screen.findByRole("option", { name: "КамАЗ — А123ВС96" });
-    await user.selectOptions(screen.getByLabelText("Спецавтомобиль"), "КамАЗ — А123ВС96");
+    await user.selectOptions(screen.getByLabelText("Спецавтомобиль (справочник)"), "КамАЗ — А123ВС96");
     expect((screen.getByLabelText("Спецавтомобиль: марка") as HTMLInputElement).value).toBe("КамАЗ 43118");
     expect((screen.getByLabelText("Спецавтомобиль: гос. номер") as HTMLInputElement).value).toBe("А123ВС96");
     expect((screen.getByLabelText("Водитель") as HTMLInputElement).value).toBe("Петров П. П.");
-    await user.selectOptions(screen.getByLabelText("Взрывник"), "Трегубов А. И. — ЮФ60АВ");
+    await user.selectOptions(screen.getByLabelText("Взрывник (справочник)"), "Трегубов А. И. — ЮФ60АВ");
     expect((screen.getByLabelText("Индивидуальный индекс взрывника") as HTMLInputElement).value).toBe("ЮФ60АВ");
     await user.click(screen.getByRole("button", { name: "Сохранить" }));
     await waitFor(() => expect(api.massBlast.saveLayer).toHaveBeenCalled());
@@ -241,5 +244,25 @@ describe("наряд-путёвка в учёте MagEX", () => {
     const row = (await screen.findByLabelText("Запас: Патроны, шт")).closest("tr")!;
     await waitFor(() => expect(within(row).getByText(/10/)).toBeTruthy());
     expect(screen.queryByText(/не хватает/)).toBeNull();
+  });
+
+  it("склад выдачи, водитель и сопровождающий — списками из справочников", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.massBlast.layers).mockResolvedValue([online()]);
+    vi.mocked(api.massBlast.saveLayer).mockReset().mockImplementation(async (_id, body) => layer({ payload: body.payload, version: 3 }));
+    render(<DayTab project={approved} />);
+    await screen.findByRole("option", { name: "Склад ВМ №1" });
+    await user.selectOptions(screen.getByLabelText("Склад выдачи (справочник)"), "Склад ВМ №1");
+    await user.selectOptions(screen.getByLabelText("Водитель (справочник)"), "Петров П. П. — водитель");
+    await user.selectOptions(screen.getByLabelText("Сопровождающее лицо (справочник)"), "Сидоров С. С. — взрывник");
+    expect((screen.getByLabelText("Склад выдачи") as HTMLInputElement).value).toBe("Склад ВМ №1");
+    expect((screen.getByLabelText("Водитель") as HTMLInputElement).value).toBe("Петров П. П.");
+    expect((screen.getByLabelText("Лица, привлекаемые к доставке") as HTMLTextAreaElement | HTMLInputElement).value).toBe("Сидоров С. С.");
+    await user.click(screen.getByRole("button", { name: "Сохранить" }));
+    await waitFor(() => expect(api.massBlast.saveLayer).toHaveBeenCalled());
+    expect(vi.mocked(api.massBlast.saveLayer).mock.calls[0][1].payload).toMatchObject({
+      warehouse_code: "W-01", warehouse: "Склад ВМ №1", magex_warehouse_id: "wh-1",
+      driver_code: "D-01", driver: "Петров П. П.", escort_code: "E-01", delivery: "Сидоров С. С.",
+    });
   });
 });

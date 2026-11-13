@@ -28,6 +28,7 @@ from cost.v2.schemas.base import RefField, ReferencePayload, UnitField, field_er
 __all__ = [
     "BlastNotificationPayload",
     "BlasterPayload",
+    "TransportStaffPayload",
     "VehiclePayload",
     "MassBlastProfilePayload",
     "MassBlastSitePayload",
@@ -310,5 +311,22 @@ class VehiclePayload(ReferencePayload):
     )
     driver: str = Field(
         default="", title="Водитель по умолчанию", description="Фамилия, инициалы — подставляются в наряд, можно поменять",
+        max_length=200,
+    )
+
+
+TransportRole = Literal["DRIVER", "ESCORT", "BOTH"]
+
+
+class TransportStaffPayload(ReferencePayload):
+    """Водитель спецавтомобиля или сопровождающее лицо при перевозке ВМ: ФИО — наименование
+    записи. В наряде выбирается списком «Водитель» или «Сопровождающее лицо» по роли."""
+
+    role: TransportRole = Field(
+        default="DRIVER", title="Роль", description="Водитель, сопровождающий или и то и другое",
+    )
+    position: str = Field(default="", title="Должность", description="Должность работника", max_length=200)
+    document: str = Field(
+        default="", title="Удостоверение, допуск", description="№ и дата удостоверения или допуска к перевозке ВМ",
         max_length=200,
     )

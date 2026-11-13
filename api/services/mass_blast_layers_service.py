@@ -852,39 +852,60 @@ def notification_addressees(
 
 
 def naryad_options(economics_repository: EconomicsRepository | None, organization_id: str) -> dict[str, list[dict[str, Any]]]:
-    """Списки выбора наряда-путёвки (TASK-018 PR 7): взрывники и спецавтомобили из справочников.
+    """Списки выбора наряда-путёвки (TASK-018 PR 7): склад выдачи, взрывник, спецавтомобиль,
+    водитель и сопровождающее лицо — из справочников.
 
     Каждый вариант — подпись и `fill`: какие поля наряда выбор подставит. Окно полей
     справочников не знает: оно берёт значения из `fill` как есть.
     """
 
+    empty: dict[str, list[dict[str, Any]]] = {key: [] for key in ("warehouses", "blasters", "vehicles", "drivers", "escorts")}
     try:
         snapshot = economics_repository.get_reference_snapshot(organization_id) if economics_repository is not None else None
     except Exception:  # noqa: BLE001 — без справочника списков нет, поля вводятся вручную
         snapshot = None
     if snapshot is None:
-        return {"blasters": [], "vehicles": []}
-    blasters = [
-        {
-            "value": str(item.code),
-            "label": f"{item.name} — {item.payload.get('blaster_index', '')}",
-            "fill": {"blaster_name": str(item.name), "blaster_index": str(item.payload.get("blaster_index") or "")},
-        }
-        for item in snapshot.active_items("blasters")
-    ]
-    vehicles = [
-        {
-            "value": str(item.code),
-            "label": f"{item.name} — {item.payload.get('vehicle_plate', '')}",
-            "fill": {
-                key: str(item.payload.get(key) or "")
-                for key in ("vehicle_model", "vehicle_plate", "driver")
-                if key != "driver" or item.payload.get("driver")
-            },
-        }
-        for item in snapshot.active_items("vehicles")
-    ]
+        return empty
+
+    def by_label(options: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return sorted(options, key=lambda option: option["label"])
+
+    staff = list(snapshot.active_items("transport_staff"))
+    drivers = [item for item in staff if item.payload.get("role", "DRIVER") in ("DRIVER", "BOTH")]
+    escorts = [item for item in staff if item.payload.get("role") in ("ESCORT", "BOTH")]
+
+    def person_label(item: Any) -> str:
+        return " — ".join(part for part in (str(item.name), str(item.payload.get("position") or "")) if part)
+
+    def driver_code(name: str) -> str:
+        found = [item for item in drivers if str(item.name).strip().casefold() == name.strip().casefold()]
+        return str(found[0].code) if len(found) == 1 else ""
+
+    vehicles = []
+    for item in snapshot.active_items("vehicles"):
+        fill = {key: str(item.payload.get(key) or "") for key in ("vehicle_model", "vehicle_plate")}
+        driver = str(item.payload.get("driver") or "")
+        if driver:
+            # Водитель машины по умолчанию — и в списке «Водитель», если он есть в справочнике.
+            fill.update(driver=driver, driver_code=driver_code(driver))
+        vehicles.append({"value": str(item.code), "label": f"{item.name} — {item.payload.get('vehicle_plate', '')}", "fill": fill})
     return {
-        "blasters": sorted(blasters, key=lambda option: option["label"]),
-        "vehicles": sorted(vehicles, key=lambda option: option["label"]),
+        "warehouses": by_label([
+            {
+                "value": str(item.code), "label": str(item.name),
+                "fill": {"warehouse": str(item.name), "magex_warehouse_id": str(item.payload.get("magex_warehouse_id") or "")},
+            }
+            for item in snapshot.active_items("warehouses")
+        ]),
+        "blasters": by_label([
+            {
+                "value": str(item.code),
+                "label": f"{item.name} — {item.payload.get('blaster_index', '')}",
+                "fill": {"blaster_name": str(item.name), "blaster_index": str(item.payload.get("blaster_index") or "")},
+            }
+            for item in snapshot.active_items("blasters")
+        ]),
+        "vehicles": by_label(vehicles),
+        "drivers": by_label([{"value": str(item.code), "label": person_label(item), "fill": {"driver": str(item.name)}} for item in drivers]),
+        "escorts": by_label([{"value": str(item.code), "label": person_label(item), "fill": {"delivery": str(item.name)}} for item in escorts]),
     }

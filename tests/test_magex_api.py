@@ -100,7 +100,8 @@ def test_material_options_and_blasters(fake):
     assert options["blasters"] == [{"value": "BL-01", "label": "Трегубов Александр Иванович — ЮФ60АВ",
                                     "fill": {"blaster_name": "Трегубов Александр Иванович", "blaster_index": "ЮФ60АВ"}}]
     assert options["vehicles"] == [{"value": "V-01", "label": "КамАЗ стенда — А123ВС96",
-                                    "fill": {"vehicle_model": "КамАЗ 43118", "vehicle_plate": "А123ВС96", "driver": "Петров П. П."}}]
+                                    "fill": {"vehicle_model": "КамАЗ 43118", "vehicle_plate": "А123ВС96",
+                                             "driver": "Петров П. П.", "driver_code": "D-01"}}]
     assert client.get(f"{BASE}/magex/warehouses").json()[0]["label"] == "Склад ВМ № 1"
 
 

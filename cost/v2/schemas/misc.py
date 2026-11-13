@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from uuid import UUID
 from typing import Any, Literal
 
 from pydantic import Field, model_validator
@@ -64,6 +65,12 @@ class WarehousePayload(ReferencePayload):
     resource_code: str | None = RefField("resource_pools", description="Пул ёмкости склада", default=None)
     area_m2: Decimal | None = UnitField("м²", description="Площадь хранения", default=None)
     licence_number: str | None = Field(default=None, description="Номер лицензии")
+    # Наряд-путёвка ↔ MagEX (TASK-018 PR 7): склад выдачи выбирается в наряде этим справочником.
+    magex_warehouse_id: UUID | None = Field(
+        default=None,
+        title="Склад MagEX",
+        description="Идентификатор этого склада в MagEX: по нему наряд-путёвка резервирует ВМ",
+    )
 
 
 class RoutePayload(ReferencePayload):

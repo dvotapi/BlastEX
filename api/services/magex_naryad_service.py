@@ -61,7 +61,7 @@ STATUS_LABELS = {
 # Поля ручного ввода наряда, которые после выдачи ВМ не меняются (§7): склад, взрывник,
 # дата выписки, запас (меняет количества), а также № и подтверждение допусков — бумага на руках.
 LOCKED_PAYLOAD_KEYS = (
-    "magex_warehouse_id", "blaster_code", "blaster_index", "issue_date", "reserve", "number", "admissions_confirmed",
+    "magex_warehouse_id", "warehouse_code", "blaster_code", "blaster_index", "issue_date", "reserve", "number", "admissions_confirmed",
 )
 RETRY_STEPS_S = (30, 60, 120, 300, 600, 1800, 3600)
 # Версия ещё «живая»: ответ отправки её меняет. Заменённую ответ не воскрешает (замечание Codex);
@@ -160,12 +160,17 @@ def _blasters(snapshot: Any) -> list[Any]:
 
 
 def warehouse_options(economics_repository: Any, organization_id: str) -> list[dict[str, str]]:
-    """Склады MagEX, указанные у объектов организации (служебного списка складов в MagEX пока нет)."""
+    """Склады MagEX с названиями: из справочника «Склады» и из реквизитов объектов (служебного
+    списка складов в MagEX пока нет)."""
 
     snapshot = _current_snapshot(economics_repository, organization_id)
     if snapshot is None:
         return []
     found: dict[str, str] = {}
+    for item in snapshot.active_items("warehouses"):
+        value = str(item.payload.get("magex_warehouse_id") or "")
+        if value and value not in found:
+            found[value] = str(item.name)
     for item in snapshot.active_items("mass_blast_sites"):
         value = str(item.payload.get("magex_warehouse_id") or "")
         if value and value not in found:

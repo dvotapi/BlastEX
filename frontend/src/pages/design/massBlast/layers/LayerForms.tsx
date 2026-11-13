@@ -146,8 +146,11 @@ function ChoicePick({ draft, set, disabled, name, label, options, empty, hint }:
 
 type ChoicePickProps = Pick<FormProps, "draft" | "set" | "disabled">;
 
-/** Поля MagEX (TASK-018 PR 7): склад выдачи в MagEX и подтверждение допусков. */
-function MagexFields({ layer, draft, set, disabled, remember, locked }: TextProps & { locked: (name: string) => boolean }) {
+const NO_OPTIONS: NaryadOptions = { warehouses: [], blasters: [], vehicles: [], drivers: [], escorts: [] };
+
+/** Поля MagEX (TASK-018 PR 7): подтверждение допусков. Склад MagEX — от выбранного склада выдачи
+ * (справочник «Склады») или реквизитов объекта; здесь он показывается названием. */
+function MagexFields({ layer, draft, set, disabled, locked }: TextProps & { locked: (name: string) => boolean }) {
   const [warehouses, setWarehouses] = useState<MagexOption[]>([]);
   useEffect(() => {
     let alive = true;
@@ -156,13 +159,14 @@ function MagexFields({ layer, draft, set, disabled, remember, locked }: TextProp
       alive = false;
     };
   }, []);
-  const common = { draft, set, disabled, layer, remember };
-  const defaultWarehouse = warehouses.find((item) => item.value === str(layerDefaults(layer).magex_warehouse_id?.value));
+  const chosen = str(draft.magex_warehouse_id) || str(layerDefaults(layer).magex_warehouse_id?.value);
+  const label = warehouses.find((item) => item.value === chosen)?.label;
   return (
     <div className="drill-grid">
-      <Choice {...common} disabled={disabled || locked("magex_warehouse_id")} name="magex_warehouse_id" label="Склад MagEX"
-        options={warehouses} empty={defaultWarehouse ? `склад объекта: ${defaultWarehouse.label}` : "склад объекта"}
-        hint="с него MagEX резервирует и выдаёт ВМ" />
+      <small className={chosen ? "drill-hint" : "form-error"}>
+        {chosen ? `Склад MagEX: ${label ?? "указан"} — с него MagEX резервирует и выдаёт ВМ.`
+          : "Склад MagEX не задан: укажите его у склада в справочнике «Склады» или в реквизитах объекта."}
+      </small>
       <Field label="Допуски взрывника, водителя и спецавтомобиля проверены" hint="подтверждает начальник участка: источника допусков в SafetyMAIN пока нет">
         {(id) => (
           <input id={id} type="checkbox" checked={Boolean(draft.admissions_confirmed)} disabled={disabled || locked("admissions_confirmed")}
@@ -179,11 +183,11 @@ export function NaryadForm({ layer, draft, set, disabled, errors, afterBlast, re
   const locked = (name: string) => lockedFields.has(name);
   const online = magex?.mode === "ONLINE";
   const [availability, setAvailability] = useState<MagexAvailability | null>(null);
-  const [options, setOptions] = useState<NaryadOptions>({ blasters: [], vehicles: [] });
+  const [options, setOptions] = useState<NaryadOptions>(NO_OPTIONS);
   // Списки взрывников и спецавтомобилей — из справочников (сервер называет, что подставить).
   useEffect(() => {
     let alive = true;
-    api.massBlast.naryadOptions().then((value) => alive && setOptions(value)).catch(() => undefined);
+    api.massBlast.naryadOptions().then((value) => alive && setOptions({ ...NO_OPTIONS, ...value })).catch(() => undefined);
     return () => {
       alive = false;
     };
@@ -232,20 +236,27 @@ export function NaryadForm({ layer, draft, set, disabled, errors, afterBlast, re
       <div className="drill-grid">
         <Text {...common} disabled={disabled || locked("number")} name="number" label="№ наряда-путёвки" max={40} />
         <Text {...common} disabled={disabled || locked("issue_date")} name="issue_date" label="Дата выписки" type="date" />
-        <Text {...common} name="warehouse" label="Склад выдачи" max={200} />
+        <ChoicePick draft={draft} set={set} disabled={disabled || locked("warehouse_code")} name="warehouse_code" label="Склад выдачи (справочник)"
+          options={options.warehouses} empty="не выбран — из реквизитов объекта"
+          hint="справочник «Склады»: подставляет склад и его склад в MagEX" />
+        <Text {...common} disabled={disabled || locked("warehouse_code")} name="warehouse" label="Склад выдачи" max={200} />
         <Text {...common} name="permit_number" label="Разрешение на ВР: №" max={200} />
         <Text {...common} name="permit_date" label="Разрешение на ВР: дата" type="date" />
-        <ChoicePick draft={draft} set={set} disabled={disabled || locked("blaster_code")} name="blaster_code" label="Взрывник"
+        <ChoicePick draft={draft} set={set} disabled={disabled || locked("blaster_code")} name="blaster_code" label="Взрывник (справочник)"
           options={options.blasters} empty={online ? "по персоналу проекта" : "не выбран — ФИО из персонала проекта"}
           hint="справочник «Взрывники»: подставляет ФИО и индивидуальный индекс" />
         {/* В учёте MagEX индекс — из справочника «Взрывники» (он же в выписке); вне учёта — правится здесь. */}
         <Text {...common} disabled={disabled || online || locked("blaster_index")} name="blaster_index" label="Индивидуальный индекс взрывника" max={40} />
-        <ChoicePick draft={draft} set={set} disabled={disabled} name="vehicle_code" label="Спецавтомобиль"
+        <ChoicePick draft={draft} set={set} disabled={disabled} name="vehicle_code" label="Спецавтомобиль (справочник)"
           options={options.vehicles} empty="не выбран — из реквизитов объекта"
           hint="справочник «Спецавтомобили ВМ»: подставляет марку, гос. номер и водителя" />
         <Text {...common} name="vehicle_model" label="Спецавтомобиль: марка" max={200} />
         <Text {...common} name="vehicle_plate" label="Спецавтомобиль: гос. номер" max={200} />
+        <ChoicePick draft={draft} set={set} disabled={disabled} name="driver_code" label="Водитель (справочник)"
+          options={options.drivers} empty="не выбран" hint="справочник «Водители и сопровождающие ВМ»" />
         <Text {...common} name="driver" label="Водитель" max={200} />
+        <ChoicePick draft={draft} set={set} disabled={disabled} name="escort_code" label="Сопровождающее лицо (справочник)"
+          options={options.escorts} empty="не выбрано" hint="подставляет ФИО в «Лица, привлекаемые к доставке»; ещё — через «;»" />
         <Text {...common} name="delivery" label="Лица, привлекаемые к доставке" max={300} />
         <Field label="ВВ изготавливаются на месте (СЗМ)" hint="возврата ВВ нет: остаток заряжается в крайние скважины">
           {(id) => <input id={id} type="checkbox" checked={vvSite} disabled={disabled} onChange={(event) => set("vv_site", event.target.checked)} />}

@@ -554,9 +554,15 @@ def test_send_result_does_not_resurrect_a_superseded_version():
 
 def test_naryad_options_fill_fields_from_references():
     options = layers.naryad_options(economics(), ORG)
-    assert options["vehicles"][0]["fill"] == {"vehicle_model": "КамАЗ 43118", "vehicle_plate": "А123ВС96", "driver": "Петров П. П."}
+    assert options["vehicles"][0]["fill"] == {
+        "vehicle_model": "КамАЗ 43118", "vehicle_plate": "А123ВС96", "driver": "Петров П. П.", "driver_code": "D-01",
+    }
+    assert options["warehouses"] == [{"value": "W-01", "label": "Склад ВМ № 1",
+                                      "fill": {"warehouse": "Склад ВМ № 1", "magex_warehouse_id": WAREHOUSE}}]
+    assert [item["value"] for item in options["drivers"]] == ["D-01"]
+    assert options["escorts"] == [{"value": "E-01", "label": "Сидоров С. С. — взрывник", "fill": {"delivery": "Сидоров С. С."}}]
     assert options["blasters"][0]["fill"] == {"blaster_name": "Трегубов Александр Иванович", "blaster_index": "ЮФ60АВ"}
-    assert layers.naryad_options(None, ORG) == {"blasters": [], "vehicles": []}
+    assert layers.naryad_options(None, ORG) == {key: [] for key in ("warehouses", "blasters", "vehicles", "drivers", "escorts")}
 
 
 def test_choice_keys_are_written_only_when_set():

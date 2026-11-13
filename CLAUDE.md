@@ -656,8 +656,10 @@ API, `process_due`). Наряд онлайн не выпускается обы�
 0015). Справочники: `materials.magex_material_id` (`x-options:
 magex.materials` — форма рисует список, `ExternalSelect`),
 `mass_blast_sites.magex_warehouse_id` и № / дата разрешения, марка / номер
-автомобиля, разделы «Взрывники» (`blasters`) и «Спецавтомобили ВМ»
-(`vehicles`) — за флагом `mass_blast_v2`, не MagEX: в наряде они выпадающими
+автомобиля, `warehouses.magex_warehouse_id`, разделы «Взрывники» (`blasters`),
+«Спецавтомобили ВМ» (`vehicles`) и «Водители и сопровождающие ВМ»
+(`transport_staff`) — за флагом `mass_blast_v2`, не MagEX: в наряде склад
+выдачи, взрывник, машина, водитель и сопровождающий — выпадающими
 списками (`GET …/options/naryad`, `layers_service.naryad_options`: подпись и
 `fill` — какие поля наряда подставить, окно полей справочника не знает). Поля
 PR 7 в payload наряда пишутся только когда заданы (`NARYAD_OPTIONAL_KEYS`). Подробности —

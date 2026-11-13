@@ -153,6 +153,12 @@ REFERENCE_SECTION_DEFINITIONS: dict[str, dict[str, Any]] = {
         "columns": ["name", "vehicle_model", "vehicle_plate", "driver"],
         "feature": "mass_blast_v2",
     },
+    "transport_staff": {
+        "group": "blast_design",
+        "label": "Водители и сопровождающие ВМ",
+        "columns": ["name", "role", "position", "document"],
+        "feature": "mass_blast_v2",
+    },
     "drilling_conditions": {
         "group": "drilling", "label": "Условия бурения",
         "view": "matrix",

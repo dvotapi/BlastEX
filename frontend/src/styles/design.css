@@ -461,7 +461,6 @@
 
 .tie-edit-block { display:grid; gap:8px; padding-top:6px; border-top:1px solid #e2eae6; }
 .tie-edit-block b { font-size:12px; }
-.tie-list { display:grid; gap:6px; max-height:180px; overflow:auto; }
 .tie-row { display:grid; grid-template-columns:1fr 70px 28px; gap:6px; align-items:center; font-size:11px; }
 .tie-row input { padding:6px 8px; }
 .ghost-button { border:0; background:#f3f6f4; border-radius:7px; cursor:pointer; font-size:14px; }

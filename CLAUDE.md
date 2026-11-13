@@ -738,6 +738,28 @@ b/4, умолчание a/4 и b/4, от положения до жеста; Shi
 несохранённой проектной части (`designParams.ts::designedChanged`,
 `snapshotStale`). План — `Docs/plans/2026-11-13-task-017-pr3.md`.
 
+## Правка коммутации на плане (TASK-017, PR 4)
+
+Только план, этап «Тайминг» ставит план в режим `tie` (анимация — по этапу).
+Номиналы ступеней — с сервера (`GET /design/tie/catalog`,
+`design/timing.py::tie_catalog`), во фронте копии нет (`useTieCatalog`,
+цвета и умолчания — `tieSteps.ts`). Правки — чистые функции
+`frontend/src/pages/design/tieEdits.ts` (`addTies` — и протяжка, и клик по
+двум; `setTiesDelay`, `removeTies`, `reverseTie`, `reconnectTie`,
+`toggleStarter`, `setDownholeDelay`): одна правка — один `SET_NETWORK` (одна
+запись отмены) и `markNetworkEdited`; у скважины одна входящая (новая
+заменяет, `replaced` мигает), цикл не ставится (`cycles`, подсказка
+`tieEditNotice`). План шлёт намерения (`TieEditAction`), ступень и замедление
+в скважине подставляет страница (`applyTieEdit`); жесты — `PlanCanvas`
+(протяжка `chain`, перецепка `tieEnd`, рамка «Ступени»/«В скважине»),
+попадания по линиям — `tieHits.ts`, палитра — `TiePalette`, меню —
+`TieContextMenu`. Времена и «без сигнала» до «Рассчитать тайминг» —
+`networkTimes.ts::resolveNetworkTimes` (порт `resolve_network`; совпадение
+держит `testing/networkTimesFixture.json`, его пишет
+`tests/test_network_times_fixture.py`, перезапись — `BLASTEX_WRITE_FIXTURES=1`).
+Панель «Коммутация» без списка связей: легенда ступеней с числом связей и
+счётчики. План — `Docs/plans/2026-11-13-task-017-pr4.md`.
+
 ## Нумерация скважин
 
 `design/numbering.py::number_by_position`, зовёт `pattern._finish_pattern`.

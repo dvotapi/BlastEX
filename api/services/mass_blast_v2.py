@@ -81,8 +81,11 @@ def _situation(
 
     refs: list[Mapping[str, Any]] = []
     seen: set[str] = set()
+    site_refs: dict = {}
     for design in designs:
-        block_refs, _ = block_situation_refs(get_cad_repository, organization_id, design.contour.cad, site_code)
+        block_refs, _ = block_situation_refs(
+            get_cad_repository, organization_id, design.contour.cad, site_code, site_refs=site_refs
+        )
         for ref in block_refs:
             if ref["source_id"] not in seen:
                 seen.add(str(ref["source_id"]))

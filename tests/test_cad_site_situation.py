@@ -84,6 +84,8 @@ def test_kinds_of_pit_plan_layers():
         ("Горизонт +410", True, False),
         ("Блок 48 факт 14.10.2024", False, False),
         ("блк 55 факт", False, False),
+        ("граница блока 67 для проектирования", False, False),
+        ("Блоки_2025", False, False),
         ("Сетка координат_2000", False, False),
         ("DIM-GRID", False, False),
         ("Надписи", False, False),
@@ -190,15 +192,19 @@ def test_pit_plan_refuses_block_roles_and_entity_overrides(repository):
     assert bad_entity.status_code == 422
 
 
-def test_same_file_uploaded_as_block_then_as_pit_plan_is_reparsed(repository):
+def test_same_file_as_block_and_as_pit_plan_are_separate_sources(repository):
+    """Чертёж блока и план карьера из одного файла — разные источники: план не ломает разбор блока."""
+
     client = _client(repository)
     content = pit_plan_dxf()
     block = _upload(client, PLAN, content)
-    assert block["purpose"] == "block"
     plan = _upload(client, PLAN, content, purpose="situation")
-    assert plan["id"] == block["id"]
-    assert plan["purpose"] == "situation"
-    assert {item["role"] for item in plan["layers"]} <= {"situation", "ignore"}
+    assert block["purpose"] == "block" and plan["purpose"] == "situation"
+    assert plan["id"] != block["id"]
+    assert repository.get_source("org-a", block["id"]).summary.get("purpose") == "block"
+    # Повтор плана открывает прежний план, повтор блока — прежний блок.
+    assert _upload(client, PLAN, content, purpose="situation")["id"] == plan["id"]
+    assert _upload(client, PLAN, content)["id"] == block["id"]
 
 
 def test_unknown_purpose_is_refused(repository):
@@ -270,3 +276,23 @@ def test_graphics_keep_labels_inside_the_frame():
     # Без подписей ключа нет: Г.5 прежних ревизий не меняется.
     plain = [{**layers[0], "labels": []}]
     assert "labels" not in _clipped_situation(plain, (X0 - 100, Y0 - 100, X0 + 100, Y0 + 100))[0][0]
+
+
+def test_pit_plans_with_different_names_are_one_series(repository):
+    """Съёмки плана карьера с разными именами файлов — одна серия, по умолчанию самая свежая."""
+
+    client = _client(repository)
+    old = _upload(client, "24.09.2026 Блок 66 ВЗ А3 5000.dxf", pit_plan_dxf(), purpose="situation")
+    new = _upload(client, "15.11.2026 Блок 67 ВЗ А3 5000.dxf", pit_plan_dxf(extra_layer="x"), purpose="situation")
+    _upload(client, "28.09.2026 граница блока 70.dxf", block_dxf())
+    catalogue = client.get(f"{BASE}/situation").json()
+    plans = [series for series in catalogue["series"] if {item["source_id"] for item in series["versions"]} & {old["id"], new["id"]}]
+    assert len(plans) == 1
+    assert [item["source_id"] for item in plans[0]["versions"]] == [new["id"], old["id"]]
+    assert plans[0]["default_source_id"] == new["id"]
+    current = client.get(f"{BASE}/site-situation").json()
+    assert current == {"site_code": "SITE_ZK", "source_id": new["id"]}
+
+
+def test_site_situation_without_plan(repository):
+    assert _client(repository).get(f"{BASE}/site-situation").json() == {"site_code": "SITE_ZK", "source_id": None}

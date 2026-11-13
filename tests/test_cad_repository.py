@@ -289,6 +289,21 @@ def test_find_source_by_sha_is_per_site_and_organization(repository) -> None:
     assert repository.find_source_by_sha(ORG_A, "SITE_ZK", "b" * 64) is None
 
 
+def test_find_source_by_sha_keeps_block_and_pit_plan_apart(repository) -> None:
+    """Ситуация объекта: план карьера и чертёж блока из одного файла — разные источники."""
+
+    from dataclasses import replace
+
+    block = _site_record("src-1", sha="c" * 64)
+    plan = replace(_site_record("src-2", sha="c" * 64, day=2), summary={"purpose": "situation"})
+    repository.create_sources(ORG_A, [(block, [])])
+    assert repository.find_source_by_sha(ORG_A, "SITE_ZK", "c" * 64, purpose="situation") is None
+    reused = repository.create_sources(ORG_A, [(plan, [])], reuse_same_file=True)
+    assert reused == {}
+    assert repository.find_source_by_sha(ORG_A, "SITE_ZK", "c" * 64, purpose="situation").id == "src-2"
+    assert repository.find_source_by_sha(ORG_A, "SITE_ZK", "c" * 64).id == "src-1"
+
+
 def test_site_sources_are_listed_newest_upload_first_without_file(repository) -> None:
     repository.create_sources(
         ORG_A,

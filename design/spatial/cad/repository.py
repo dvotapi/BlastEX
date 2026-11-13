@@ -30,6 +30,7 @@ from sqlalchemy import (
     delete,
     func,
     insert,
+    or_,
     select,
     text,
     update,
@@ -124,7 +125,9 @@ class CadRepository(Protocol):
 
     def set_area_basis(self, organization_id: str, site_code: str, area_basis: str, actor: str) -> None: ...
 
-    def find_source_by_sha(self, organization_id: str, site_code: str, sha256: str) -> CadSourceRecord | None: ...
+    def find_source_by_sha(
+        self, organization_id: str, site_code: str, sha256: str, *, purpose: str = "block"
+    ) -> CadSourceRecord | None: ...
 
     def list_site_sources(
         self, organization_id: str, site_code: str, *, limit: int, summary_keys: tuple[str, ...] = ()
@@ -188,6 +191,14 @@ def _merge_situation_template(
                 current.pop("kind", None)
         merged[key] = current
     return merged
+
+
+# Назначение файла в сводке: "situation" — план карьера, иначе (и без ключа) — чертёж блока.
+PURPOSE_SITUATION = "situation"
+
+
+def _purpose_of(summary: dict[str, Any] | None) -> str:
+    return PURPOSE_SITUATION if (summary or {}).get("purpose") == PURPOSE_SITUATION else "block"
 
 
 def _now() -> datetime:
@@ -441,7 +452,9 @@ class PostgresCadRepository:
                     session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
             for record, entities in items:
                 if reuse_same_file and record.site_code:
-                    found = self._find_by_sha(session, organization_id, record.site_code, record.file_sha256)
+                    found = self._find_by_sha(
+                        session, organization_id, record.site_code, record.file_sha256, _purpose_of(record.summary)
+                    )
                     if found is not None:
                         existing[record.file_sha256] = _record(found)
                         continue
@@ -585,19 +598,30 @@ class PostgresCadRepository:
         with self.session_factory() as session, session.begin():
             session.execute(statement)
 
-    def find_source_by_sha(self, organization_id: str, site_code: str, sha256: str) -> CadSourceRecord | None:
+    def find_source_by_sha(
+        self, organization_id: str, site_code: str, sha256: str, *, purpose: str = "block"
+    ) -> CadSourceRecord | None:
         with self.session_factory() as session:
-            row = self._find_by_sha(session, organization_id, site_code, sha256)
+            row = self._find_by_sha(session, organization_id, site_code, sha256, purpose)
             return None if row is None else _record(row)
 
     @staticmethod
-    def _find_by_sha(session: Any, organization_id: str, site_code: str, sha256: str) -> CadSourceRow | None:
+    def _find_by_sha(
+        session: Any, organization_id: str, site_code: str, sha256: str, purpose: str = "block"
+    ) -> CadSourceRow | None:
+        """Тот же файл того же назначения: план карьера и чертёж блока из одного файла — разные источники."""
+
+        stored = CadSourceRow.summary["purpose"].as_string()
+        same_purpose = stored == PURPOSE_SITUATION if purpose == PURPOSE_SITUATION else or_(
+            stored.is_(None), stored != PURPOSE_SITUATION
+        )
         return session.execute(
             select(CadSourceRow)
             .where(
                 CadSourceRow.organization_id == organization_id,
                 CadSourceRow.site_code == site_code,
                 CadSourceRow.file_sha256 == sha256,
+                same_purpose,
             )
             .order_by(CadSourceRow.uploaded_at.desc())
             .limit(1)
@@ -892,7 +916,7 @@ class InMemoryCadRepository:
         existing: dict[str, CadSourceRecord] = {}
         for record, entities in items:
             if reuse_same_file and record.site_code:
-                found = self._latest_by_sha(organization_id, record.site_code, record.file_sha256)
+                found = self._latest_by_sha(organization_id, record.site_code, record.file_sha256, _purpose_of(record.summary))
                 if found is not None:
                     existing[record.file_sha256] = found
                     continue
@@ -972,14 +996,21 @@ class InMemoryCadRepository:
     def set_area_basis(self, organization_id: str, site_code: str, area_basis: str, actor: str) -> None:
         self._area_bases[(organization_id, site_code)] = area_basis
 
-    def find_source_by_sha(self, organization_id: str, site_code: str, sha256: str) -> CadSourceRecord | None:
-        return self._latest_by_sha(organization_id, site_code, sha256)
+    def find_source_by_sha(
+        self, organization_id: str, site_code: str, sha256: str, *, purpose: str = "block"
+    ) -> CadSourceRecord | None:
+        return self._latest_by_sha(organization_id, site_code, sha256, purpose)
 
-    def _latest_by_sha(self, organization_id: str, site_code: str, sha256: str) -> CadSourceRecord | None:
+    def _latest_by_sha(
+        self, organization_id: str, site_code: str, sha256: str, purpose: str = "block"
+    ) -> CadSourceRecord | None:
         found = [
             record
             for (org, _), record in self._sources.items()
-            if org == organization_id and record.site_code == site_code and record.file_sha256 == sha256
+            if org == organization_id
+            and record.site_code == site_code
+            and record.file_sha256 == sha256
+            and _purpose_of(record.summary) == purpose
         ]
         if not found:
             return None

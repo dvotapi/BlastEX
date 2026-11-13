@@ -237,3 +237,23 @@ describe("устаревание от набора скважин", () => {
     expect(undone.present.network).toEqual(THREE);
   });
 });
+
+describe("удаление скважины на шнуре ДШ", () => {
+  it("шнур рвётся на удалённой скважине, а не склеивается через неё", () => {
+    const corded: InitiationNetwork = {
+      ...emptyNetwork(),
+      system: "detcord",
+      starters: ["1-01"],
+      detonating_cords: [{ id: "dc-main", hole_ids: ["1-01", "1-02", "1-03", "1-04", "1-05"], velocity_m_s: 7000, relay_delay_ms: 0, product: "" }],
+      timing_params: { scheme: "row", origin: "edited" },
+    };
+    const design: BlastDesign = {
+      ...emptyDesign(),
+      design_id: "a",
+      holes: ["1-01", "1-02", "1-03", "1-04", "1-05"].map((id, i) => hole(id, i * 5, 0)),
+      network: corded,
+    };
+    const next = designReducer(initDesignState(design), { type: "DELETE_HOLES", ids: ["1-03"] });
+    expect(next.present.network.detonating_cords.map((cord) => cord.hole_ids)).toEqual([["1-01", "1-02"], ["1-04", "1-05"]]);
+  });
+});

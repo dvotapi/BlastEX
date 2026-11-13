@@ -16,6 +16,7 @@ import type {
   CoordinateSystem,
   Hole,
   HoleLoad,
+  DetonatingCord,
   InitiationNetwork,
   PatternParams,
   SurfaceKind,
@@ -276,6 +277,26 @@ function normalizeDesign(design: BlastDesign): BlastDesign {
   };
 }
 
+/**
+ * Шнур без удалённых скважин: рвётся на каждой, а не склеивается через неё
+ * (прямой отрезок мимо удалённой дал бы фантомное время; сервер отрезок с
+ * отсутствующей скважиной тоже пропускает). Куски короче двух скважин уходят.
+ */
+function cordRuns(cord: DetonatingCord, holeIds: Set<string>): DetonatingCord[] {
+  const runs: string[][] = [];
+  let run: string[] = [];
+  for (const id of [...cord.hole_ids, null]) {
+    if (id !== null && holeIds.has(id)) {
+      run.push(id);
+      continue;
+    }
+    if (run.length >= 2) runs.push(run);
+    run = [];
+  }
+  if (runs.length === 1 && runs[0].length === cord.hole_ids.length) return [cord];
+  return runs.map((hole_ids, index) => ({ ...cord, id: index ? `${cord.id}-${index + 1}` : cord.id, hole_ids }));
+}
+
 function pruneLoadsAndNetwork(document: BlastDesign, holeIds: Set<string>): Pick<BlastDesign, "loads" | "network"> {
   const loads = document.loads.filter((ld) => holeIds.has(ld.hole_id));
   const network = normalizeNetwork(document.network);
@@ -290,10 +311,7 @@ function pruneLoadsAndNetwork(document: BlastDesign, holeIds: Set<string>): Pick
       detonators: network.detonators.filter((item) => holeIds.has(item.hole_id)),
       surface_connectors: network.surface_connectors.filter((item) => holeIds.has(item.from_hole) && holeIds.has(item.to_hole)),
       downhole_connectors: network.downhole_connectors.filter((item) => holeIds.has(item.hole_id)),
-      detonating_cords: network.detonating_cords.map((cord) => ({
-        ...cord,
-        hole_ids: cord.hole_ids.filter((id) => holeIds.has(id)),
-      })).filter((cord) => cord.hole_ids.length >= 2),
+      detonating_cords: network.detonating_cords.flatMap((cord) => cordRuns(cord, holeIds)),
       starter_items: network.starter_items.filter((item) => holeIds.has(item.hole_id)),
       electronic_channels: network.electronic_channels.filter((item) => holeIds.has(item.hole_id)),
       firing_events: network.firing_events.filter((item) => holeIds.has(item.hole_id)),
@@ -698,7 +716,7 @@ function retiesItself(document: BlastDesign): boolean {
  * (TASK-017, PR 3 — сдвиг; PR 5 — добавление, удаление, исключение, вид).
  * Пересчёт — только если действие пометило сеть устаревшей.
  */
-export const HOLE_SET_ACTIONS: ReadonlySet<DesignAction["type"]> = new Set([
+const HOLE_SET_ACTIONS: ReadonlySet<DesignAction["type"]> = new Set([
   "MOVE_HOLES",
   "RETURN_TO_NODE",
   "ADD_HOLE",

@@ -312,6 +312,7 @@ def test_availability_column_and_shortage():
     answer = magex.availability(repository, economics(), ORG, LAYER_ID, transport=fake)
     assert answer["items"]["primer:ПД Сферит-ДП 1000 г:"] == {
         "available": 100.0, "short": True, "shared": False, "material_id": MATERIAL_IDS["MAT_PD_1000"],
+        "available_magex": 100.0, "factor": 1.0, "whole": True,
     }
     assert answer["shortages"][0]["required"] == 198.0
     assert answer["calculated_at"] == "2026-10-14T02:11:00Z"

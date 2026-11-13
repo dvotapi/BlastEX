@@ -677,13 +677,19 @@ def availability(
         for key in row["keys"]:
             line = next((entry for entry in lines if entry.get("key") == key), {})
             value = free
+            # Множитель «количество строки → единица учёта MagEX»: окно складывает строки одной
+            # позиции в единице MagEX (штуки — вверх до целого), как их сложит выписка.
+            factor = 1.0
             unit_mass = catalog_item.get("unit_mass_kg")
             if line.get("unit") == "кг" and row["unit"] == "pcs" and unit_mass:
                 value = free * float(unit_mass)
+                factor = 1.0 / float(unit_mass)
             elif line.get("unit") == "шт" and row["unit"] == "kg" and line.get("unit_mass_kg"):
                 value = free / float(line["unit_mass_kg"])
+                factor = float(line["unit_mass_kg"])
             result[key] = {"available": round(value, 3), "short": short, "shared": len(row["keys"]) > 1,
-                           "material_id": row["material_id"]}
+                           "material_id": row["material_id"], "available_magex": free, "factor": factor,
+                           "whole": row["unit"] == "pcs"}
     return {
         "items": result, "shortages": shortages, "calculated_at": answer.get("calculated_at"),
         "warehouse_id": warehouse, "error": "",

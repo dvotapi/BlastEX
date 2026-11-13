@@ -206,16 +206,21 @@ export function NaryadForm({ layer, draft, set, disabled, errors, afterBlast, re
     if (typeof parsed === "number") return line.project_qty + parsed;
     return own?.trim() ? null : line.project_qty + line.reserve_qty;
   };
-  const demandFor = (key: string): number | null => {
-    const group = availability?.items?.[key]?.material_id;
+  // Нехватка по позиции MagEX: строки позиции — в её единице учёта (кг ↔ шт по множителю
+  // сервера, штуки — вверх до целого), сравнение с доступным в той же единице.
+  const shortFor = (key: string): boolean | null => {
+    const item = availability?.items?.[key];
+    if (!item) return null;
+    const group = item.material_id;
     const members = group ? lines.filter((line) => availability?.items?.[line.key]?.material_id === group) : lines.filter((line) => line.key === key);
     let total = 0;
     for (const line of members) {
       const value = toIssueNow(line);
       if (value === null) return null;
-      total += value;
+      total += value * (availability?.items?.[line.key]?.factor ?? 1);
     }
-    return total;
+    if (item.whole) total = Math.ceil(total - 1e-9);
+    return total > (item.available_magex ?? item.available) + 1e-9;
   };
   const reserve = (draft.reserve ?? {}) as Record<string, string>;
   const issued = (draft.issued ?? {}) as Record<string, string>;
@@ -280,7 +285,7 @@ export function NaryadForm({ layer, draft, set, disabled, errors, afterBlast, re
                   {errors[`reserve:${line.key}`] && <small className="form-error">{errors[`reserve:${line.key}`]}</small>}
                 </td>
                 <td title={extra === null ? "пересчитается после сохранения" : undefined}>{toIssue}</td>
-                {online && <AvailableCell availability={availability} line={line} demand={demandFor(line.key)} digits={digits} />}
+                {online && <AvailableCell availability={availability} line={line} short={shortFor(line.key)} digits={digits} />}
                 {afterBlast && (
                   <>
                     <td>
@@ -334,13 +339,13 @@ function magexValue(value: number | null | undefined): string {
 }
 
 /** Графа «Доступно на складе»: в единице строки; нехватка — по выписанному сейчас в форме. */
-function AvailableCell({ availability, line, demand, digits }: {
-  availability: MagexAvailability | null; line: NaryadLine; demand: number | null; digits: number;
+function AvailableCell({ availability, line, short: computed, digits }: {
+  availability: MagexAvailability | null; line: NaryadLine; short: boolean | null; digits: number;
 }) {
   const item = availability?.items?.[line.key];
   if (!item) return <td>—</td>;
-  // Нехватка — по всей позиции MagEX (сумма строк), как её проверит MagEX.
-  const short = demand === null ? item.short : demand > item.available + 1e-9;
+  // Нехватка — по всей позиции MagEX (сумма строк в её единице), как её проверит MagEX.
+  const short = computed === null ? item.short : computed;
   return (
     <td className={short ? "form-error" : undefined} title={item.shared ? "одна позиция MagEX на несколько строк наряда" : undefined}>
       {ruNum(item.available, digits)}{short ? " — не хватает" : ""}{item.shared ? " *" : ""}

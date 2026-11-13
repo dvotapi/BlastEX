@@ -221,4 +221,25 @@ describe("наряд-путёвка в учёте MagEX", () => {
       blaster_code: "BL-01", blaster_name: "Трегубов А. И.", blaster_index: "ЮФ60АВ",
     });
   });
+
+  it("строки в кг и в штуках одной позиции — нехватка в штуках MagEX", async () => {
+    const mixed = online();
+    mixed.view.lines = [
+      { key: "vv:kg:", kind: "explosive", name: "Патроны, кг", unit: "кг", delay_ms: null, project_qty: 100, reserve_qty: 0, reserve_source: "REFERENCE", issue_qty: 100, issue_kg: 100 },
+      { key: "vv:pcs:", kind: "explosive", name: "Патроны, шт", unit: "шт", delay_ms: null, project_qty: 5, reserve_qty: 0, reserve_source: "REFERENCE", issue_qty: 5, issue_kg: 125 },
+    ];
+    vi.mocked(api.massBlast.layers).mockResolvedValue([mixed]);
+    vi.mocked(api.massBlast.magexAvailability).mockResolvedValue({
+      items: {
+        "vv:kg:": { available: 250, short: false, shared: true, material_id: "m", available_magex: 10, factor: 1 / 25, whole: true },
+        "vv:pcs:": { available: 10, short: false, shared: true, material_id: "m", available_magex: 10, factor: 1, whole: true },
+      },
+      error: "",
+    });
+    render(<DayTab project={approved} />);
+    // 100 кг = 4 патрона по 25 кг + 5 шт = 9 ≤ 10 — хватает.
+    const row = (await screen.findByLabelText("Запас: Патроны, шт")).closest("tr")!;
+    await waitFor(() => expect(within(row).getByText(/10/)).toBeTruthy());
+    expect(screen.queryByText(/не хватает/)).toBeNull();
+  });
 });

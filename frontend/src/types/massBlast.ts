@@ -342,7 +342,11 @@ export type MagexApproveResult = MagexState & {
 };
 
 export type MagexAvailability = {
-  items: Record<string, { available: number; short: boolean; shared: boolean; material_id?: string }>;
+  items: Record<string, {
+    available: number; short: boolean; shared: boolean; material_id?: string;
+    /** Доступно в единице учёта MagEX, множитель строки к ней и «штучная позиция» (вверх до целого). */
+    available_magex?: number; factor?: number; whole?: boolean;
+  }>;
   shortages?: Array<{ material: string; required: number; available: number; unit: string }>;
   calculated_at?: string | null;
   error: string;

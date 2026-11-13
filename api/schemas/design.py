@@ -140,6 +140,15 @@ class WaterIntervalSchema(BaseModel):
     notes: str = ""
 
 
+class ManualOffsetSchema(BaseModel):
+    """Узел сетки и смещение от него в осях раскладки, м (TASK-017, PR 2)."""
+
+    node_x: float
+    node_y: float
+    along: float
+    across: float
+
+
 class HoleSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -157,8 +166,10 @@ class HoleSchema(BaseModel):
     water_intervals: list[WaterIntervalSchema] = Field(default_factory=list)
     measured_intervals: list[HoleIntervalSchema] = Field(default_factory=list)
     measured_water_intervals: list[WaterIntervalSchema] = Field(default_factory=list)
-    # Ручная правка (TASK-013, PR 3): отметка устья и/или длина не пересчитываются.
-    manual: list[Literal["collar_z", "length"]] = Field(default_factory=list)
+    # Ручная правка (TASK-013, PR 3): отметка устья и/или длина не пересчитываются;
+    # `xy` — скважина сетки сдвинута от узла (TASK-017, PR 2), см. `manual_offset`.
+    manual: list[Literal["collar_z", "length", "xy"]] = Field(default_factory=list)
+    manual_offset: ManualOffsetSchema | None = None
 
 
 class DeckSchema(BaseModel):

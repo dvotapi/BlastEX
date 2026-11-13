@@ -114,6 +114,11 @@ describe("ступень, удаление, разворот, перецепка
     expect(tieEditNotice(result)).toBe("Связь c → d заменена");
     const from = reconnectTie(net([tie("a", "b"), tie("a", "c")]), "sc-a-c", "from", "b");
     expect(pairs(from.network)).toEqual(["a>b@42", "b>c@42"]);
+    expect(from.network.starters).toEqual(["a"]);
+    // Начало на скважину без входа — она становится стартовой, как у новой связи.
+    const fresh = reconnectTie(net([tie("a", "b")]), "sc-a-b", "from", "x");
+    expect(pairs(fresh.network)).toEqual(["x>b@42"]);
+    expect(fresh.network.starters).toEqual(["a", "x"]);
   });
 
   it("перецепка в цикл отклоняется — и началом, и концом", () => {

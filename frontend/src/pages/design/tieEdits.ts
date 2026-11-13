@@ -195,7 +195,13 @@ export function reverseTie(network: InitiationNetwork, id: string): TieEditResul
 export function reconnectTie(network: InitiationNetwork, id: string, end: "from" | "to", holeId: string): TieEditResult {
   const old = networkTies(network).find((item) => item.id === id);
   if (!old) return unchanged(network);
-  return end === "from" ? replaceTie(network, old, holeId, old.to_hole) : replaceTie(network, old, old.from_hole, holeId);
+  if (end === "to") return replaceTie(network, old, old.from_hole, holeId);
+  const result = replaceTie(network, old, holeId, old.to_hole);
+  // Новое начало без входа и не стартовая — стартовая, как у новой связи (`addTies`).
+  if (!result.changed) return result;
+  const items = starterItems(result.network);
+  if (items.some((item) => item.hole_id === holeId) || networkTies(result.network).some((item) => item.to_hole === holeId)) return result;
+  return { ...result, network: withStarters(result.network, [...items, { id: `st-${holeId}`, hole_id: holeId, delay_ms: 0, kind: "starter" }]) };
 }
 
 /** «Стартер»: поставить или снять стартовую у скважины. */

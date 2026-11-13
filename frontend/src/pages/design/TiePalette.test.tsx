@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TiePalette } from "./TiePalette";
 import { nominalForKey, tieToolForKey } from "./tieSteps";
@@ -64,5 +65,35 @@ describe("палитра коммутации", () => {
     const props = renderPalette();
     fireEvent.change(screen.getByLabelText("Замедление в скважине, мс"), { target: { value: "700" } });
     expect(props.onDownholeMsChange).toHaveBeenCalledWith(700);
+  });
+});
+
+describe("поле «своё, мс»", () => {
+  function Controlled() {
+    const [ms, setMs] = useState(25);
+    return (
+      <TiePalette
+        catalog={TEST_TIE_CATALOG.systems.electronic}
+        tool="tie"
+        onToolChange={() => {}}
+        activeMs={ms}
+        onActiveMsChange={setMs}
+        downholeMs={0}
+        onDownholeMsChange={() => {}}
+      />
+    );
+  }
+
+  it("набор через номинал (17 → 170) не очищает поле", () => {
+    render(<Controlled />);
+    const input = screen.getByLabelText("Своя ступень, мс") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "1" } });
+    fireEvent.change(input, { target: { value: "17" } });
+    expect(input.value).toBe("17");
+    fireEvent.change(input, { target: { value: "170" } });
+    expect(input.value).toBe("170");
+    expect(screen.getByRole("button", { name: "17" })).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(screen.getByRole("button", { name: "42" }));
+    expect(input.value).toBe("");
   });
 });

@@ -1,6 +1,7 @@
 // Палитра правки коммутации над планом (TASK-017, PR 4): инструменты,
 // номиналы ступеней системы (активный — для новых связей и «Ступени») и
 // замедление в скважине. Номиналы — из каталога сервера.
+import { useEffect, useState } from "react";
 import { ruNumber } from "../../lib/format";
 import type { TieSystemCatalog } from "../../types/design";
 import { stepColor, TIE_TOOLS, type TieTool } from "./tieSteps";
@@ -26,6 +27,12 @@ export function TiePalette({
   const downhole = catalog?.downhole_ms ?? [];
   const custom = Boolean(catalog?.custom_surface);
   const offNominal = !nominals.includes(activeMs);
+  // Текст поля «своё, мс» — свой: набор «170» проходит через номинал 17, и
+  // поле, привязанное к активной ступени, очистилось бы посреди ввода.
+  const [draft, setDraft] = useState(offNominal ? String(activeMs) : "");
+  useEffect(() => {
+    setDraft((current) => (Number(current) === activeMs ? current : offNominal ? String(activeMs) : ""));
+  }, [activeMs, offNominal]);
   return (
     <div className="tie-palette" role="toolbar" aria-label="Правка коммутации">
       <div className="plan-tool-group">
@@ -64,11 +71,12 @@ export function TiePalette({
               min="1"
               step="1"
               aria-label="Своя ступень, мс"
-              value={offNominal ? activeMs : ""}
+              value={draft}
               placeholder="—"
               onChange={(e) => {
+                setDraft(e.target.value);
                 const value = Number(e.target.value);
-                if (Number.isFinite(value) && value > 0) onActiveMsChange(value);
+                if (e.target.value !== "" && Number.isFinite(value) && value > 0) onActiveMsChange(value);
               }}
             />
           </label>

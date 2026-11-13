@@ -2,7 +2,8 @@
 // Правка коммутации на плане (TASK-017, PR 4): протяжка цепочки, клик по двум
 // скважинам, «Ступень», выделение и Delete, перецепка конца, меню по линии,
 // «без сигнала» и стартер.
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { emptyNetwork, type BlockContour, type Hole, type InitiationNetwork } from "../../types/design";
 import { PlanCanvas, type TieEditProps } from "./PlanCanvas";
@@ -52,7 +53,7 @@ const at = (id: string) => {
   return point(h.collar.x, h.collar.y);
 };
 
-function setup(over: { unsignaled?: string[] } = {}) {
+function setup(over: { unsignaled?: string[]; onHoleInspect?: (id: string) => void } = {}) {
   const tieEdit: TieEditProps = {
     catalog: TEST_TIE_CATALOG.systems.nonel,
     activeMs: 25,
@@ -84,6 +85,7 @@ function setup(over: { unsignaled?: string[] } = {}) {
       tieEdit={tieEdit}
       tieNominals={TEST_TIE_CATALOG.systems.nonel.surface_ms}
       unsignaledIds={new Set(over.unsignaled ?? [])}
+      onHoleInspect={over.onHoleInspect}
     />,
   );
   return { view, plan: screen.getByRole("application"), tieEdit };
@@ -182,4 +184,61 @@ describe("PlanCanvas: правка коммутации", () => {
     expect(view.container.querySelectorAll(".starter-glyph")).toHaveLength(1);
     expect((view.container.querySelector(".tie-link") as HTMLElement).style.color).toBeTruthy();
   });
+
+  it("быстрая протяжка: скважины между редкими событиями указателя не пропускаются", () => {
+    const { plan, tieEdit } = setup();
+    fireEvent.pointerDown(plan, { ...at("a"), button: 0 });
+    fireEvent.pointerMove(plan, at("d"));
+    fireEvent.pointerUp(plan, at("d"));
+    expect(tieEdit.onEdit).toHaveBeenCalledWith({ type: "add", path: ["a", "b", "c", "d"] });
+  });
+
+  it("сеть сменилась не с плана — выделение связей снято; своя правка его не снимает", () => {
+    // Как на странице: правка с плана меняет сеть в том же событии.
+    let replaceNetwork: (network: InitiationNetwork) => void = () => {};
+    function Harness() {
+      const [network, setNetwork] = useState(NETWORK);
+      replaceNetwork = setNetwork;
+      const tieEdit: TieEditProps = {
+        catalog: TEST_TIE_CATALOG.systems.nonel,
+        activeMs: 25,
+        onActiveMsChange: noop,
+        downholeMs: 500,
+        onDownholeMsChange: noop,
+        onEdit: () => setNetwork({ ...network, surface_connectors: [{ ...network.surface_connectors[0], delay_ms: 25 }] }),
+      };
+      return (
+        <PlanCanvas
+          contour={contour} holes={HOLES} mode="tie" selected={new Set()} onSelectedChange={noop}
+          onContourChange={noop} onToggleFreeFace={noop} onMoveHoles={noop} onAddHole={noop}
+          onDeleteHoles={noop} onSetHolesEnabled={noop} camera={CAMERA} onCameraChange={noop}
+          pendingFit={false} onFitApplied={noop} spacingHint={{ a: 5, b: 4 }} network={network}
+          tieEdit={tieEdit} tieNominals={TEST_TIE_CATALOG.systems.nonel.surface_ms}
+        />
+      );
+    }
+    const view = render(<Harness />);
+    const plan = screen.getByRole("application");
+    fireEvent.keyDown(plan, { key: "d" });
+    click(plan, point(2.5, 0));
+    expect(view.container.querySelector(".tie-link.selected")).not.toBeNull();
+    expect(view.container.querySelector(".connector-label")?.textContent).toBe("25");
+    // Сеть сменилась сама (отмена, построение схемы) — выделения нет.
+    act(() => replaceNetwork({ ...NETWORK }));
+    expect(view.container.querySelector(".tie-link.selected")).toBeNull();
+  });
+
+  it("A в коммутации не включает скрытый инструмент «Скважина»", () => {
+    const { plan } = setup();
+    fireEvent.keyDown(plan, { key: "a" });
+    expect(screen.getByRole("button", { name: /Связь T/ })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("двойной клик по скважине открывает карточку", () => {
+    const onHoleInspect = vi.fn();
+    const { plan } = setup({ onHoleInspect });
+    fireEvent.doubleClick(plan, at("c"));
+    expect(onHoleInspect).toHaveBeenCalledWith("c");
+  });
 });
+

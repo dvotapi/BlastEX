@@ -150,11 +150,10 @@ def tie_catalog() -> dict[str, Any]:
     внутрискважинных детонаторов (у ДШ и электронной номиналов нет — своё).
     """
     def system(surface: tuple[int, ...], downhole: tuple[int, ...], name: str, custom: bool) -> dict[str, Any]:
-        default = DEFAULT_DOWNHOLE_MS[name]
         return {
             "surface_ms": list(surface),
             "downhole_ms": list(downhole),
-            "downhole_default_ms": int(default) if float(default).is_integer() else default,
+            "downhole_default_ms": DEFAULT_DOWNHOLE_MS[name],
             "custom_surface": custom,
         }
 

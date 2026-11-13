@@ -370,6 +370,34 @@ export function PlanCanvas({
     setPendingTieFrom(null);
   }, [mode]);
 
+  // Сеть сменилась не правкой с плана (построение схемы, отмена, другой
+  // паспорт) — выделение связей и начатая связь к ней не относятся.
+  // `editedFrom` — сеть, от которой сделана правка: следующая сеть после неё —
+  // результат правки (выделение остаётся). Правка ничего не поменяла —
+  // отметка снимается после той же отрисовки.
+  const editedFromRef = useRef<InitiationNetwork | null | undefined>(undefined);
+  const previousNetworkRef = useRef(network);
+  useEffect(() => {
+    const previous = previousNetworkRef.current;
+    previousNetworkRef.current = network;
+    if (previous === network) return;
+    if (editedFromRef.current !== undefined && previous === editedFromRef.current) {
+      editedFromRef.current = undefined;
+      return;
+    }
+    editedFromRef.current = undefined;
+    setSelectedTies(new Set());
+    setPendingTieFrom(null);
+  }, [network]);
+  useEffect(() => {
+    if (editedFromRef.current !== undefined && editedFromRef.current === network) editedFromRef.current = undefined;
+  });
+  const editTies = (action: TieEditAction) => {
+    if (!tieEdit) return;
+    editedFromRef.current = network ?? null;
+    tieEdit.onEdit(action);
+  };
+
   // Подсказка после правки связей видна несколько секунд; заменённая линия
   // мигает (анимация CSS) — новая подсказка начинает заново.
   const notice = tieEdit?.notice ?? null;
@@ -683,11 +711,10 @@ export function PlanCanvas({
   // Связи сети на экране (TASK-017, PR 4) — для попаданий по линиям.
   const networkTieList = useMemo(() => (network ? networkTies(network) : []), [network]);
   function tieSegments(): TieSegment[] {
-    const byId = new Map(holes.map((h) => [h.id, h]));
     const segments: TieSegment[] = [];
     for (const tie of networkTieList) {
-      const from = byId.get(tie.from_hole);
-      const to = byId.get(tie.to_hole);
+      const from = holesById.get(tie.from_hole);
+      const to = holesById.get(tie.to_hole);
       if (!from || !to) continue;
       segments.push({ id: tie.id, a: toScreen({ x: from.collar.x, y: from.collar.y }), b: toScreen({ x: to.collar.x, y: to.collar.y }) });
     }
@@ -698,6 +725,20 @@ export function PlanCanvas({
     if (!showNetworkLayer) return null;
     const id = hitTie(screen, tieSegments());
     return id ? networkTieList.find((tie) => tie.id === id) ?? null : null;
+  }
+
+  /**
+   * Скважины, через которые прошёл курсор между двумя событиями указателя, —
+   * по порядку прохода: при быстром движении события редкие, и одна точка
+   * под курсором пропускала бы скважины посередине.
+   */
+  function holesAlong(from: Vec2, to: Vec2): Hole[] {
+    const passed: { hole: Hole; t: number }[] = [];
+    for (const h of holes) {
+      const projection = projectOnSegment(toScreen({ x: h.collar.x, y: h.collar.y }), from, to);
+      if (projection.distance <= HOLE_HIT_RADIUS_PX) passed.push({ hole: h, t: projection.t });
+    }
+    return passed.sort((a, b) => a.t - b.t).map((item) => item.hole);
   }
 
   /** Конец выделенной связи под курсором — её можно перецепить. */
@@ -727,7 +768,7 @@ export function PlanCanvas({
     if (!tieEdit) return;
     if (tool === "tie") {
       if (pendingTieFrom && pendingTieFrom !== hole.id) {
-        tieEdit.onEdit({ type: "add", path: [pendingTieFrom, hole.id] });
+        editTies({ type: "add", path: [pendingTieFrom, hole.id] });
         setPendingTieFrom(null);
       } else {
         setPendingTieFrom(pendingTieFrom === hole.id ? null : hole.id);
@@ -735,11 +776,11 @@ export function PlanCanvas({
       return;
     }
     if (tool === "starter") {
-      tieEdit.onEdit({ type: "starter", holeId: hole.id });
+      editTies({ type: "starter", holeId: hole.id });
       return;
     }
     if (tool === "downhole") {
-      tieEdit.onEdit({ type: "downhole", holeIds: [hole.id] });
+      editTies({ type: "downhole", holeIds: [hole.id] });
       return;
     }
     // «Выбор» и «Ступень» — выделение скважины.
@@ -1023,7 +1064,7 @@ export function PlanCanvas({
       if (tie) {
         // В любом инструменте клик по линии выделяет связь; «Ступень» ставит ей номинал.
         selectTie(tie.id, additive);
-        if (tool === "step") tieEdit.onEdit({ type: "delay", ids: [tie.id] });
+        if (tool === "step") editTies({ type: "delay", ids: [tie.id] });
         return;
       }
       setPendingTieFrom(null);
@@ -1171,8 +1212,11 @@ export function PlanCanvas({
     }
     if (drag.kind === "chain") {
       const moved = drag.moved || distance(screen, drag.startScreen) > CLICK_SLOP_PX;
-      const hole = moved ? hitHole(screen) : null;
-      const path = hole && !drag.path.includes(hole.id) ? [...drag.path, hole.id] : drag.path;
+      if (!moved) return;
+      const path = [...drag.path];
+      for (const hole of holesAlong(drag.cursor, screen)) {
+        if (!path.includes(hole.id)) path.push(hole.id);
+      }
       setDrag({ ...drag, path, cursor: screen, moved });
       return;
     }
@@ -1226,7 +1270,7 @@ export function PlanCanvas({
       }
       if (drag.kind === "chain" && tieEdit) {
         if (drag.path.length >= 2) {
-          tieEdit.onEdit({ type: "add", path: drag.path });
+          editTies({ type: "add", path: drag.path });
           setPendingTieFrom(null);
         } else if (!drag.moved) {
           const hole = holes.find((h) => h.id === drag.path[0]);
@@ -1236,7 +1280,7 @@ export function PlanCanvas({
       if (drag.kind === "tieEnd" && tieEdit) {
         const target = hitHole(screen);
         if (drag.moved) {
-          if (target && target.id !== drag.holeId) tieEdit.onEdit({ type: "reconnect", id: drag.tieId, end: drag.end, holeId: target.id });
+          if (target && target.id !== drag.holeId) editTies({ type: "reconnect", id: drag.tieId, end: drag.end, holeId: target.id });
         } else {
           const hole = holes.find((h) => h.id === drag.holeId);
           if (hole) {
@@ -1251,13 +1295,13 @@ export function PlanCanvas({
           const ids = tiesInRect(rect, tieSegments());
           if (ids.length) {
             setSelectedTies(drag.additive ? new Set([...selectedTies, ...ids]) : new Set(ids));
-            tieEdit.onEdit({ type: "delay", ids });
+            editTies({ type: "delay", ids });
           }
         } else if (drag.moved && drag.purpose === "downhole") {
           const ids = holes
             .filter((h) => rectContains(rect, toScreen({ x: h.collar.x, y: h.collar.y })))
             .map((h) => h.id);
-          if (ids.length) tieEdit.onEdit({ type: "downhole", holeIds: ids });
+          if (ids.length) editTies({ type: "downhole", holeIds: ids });
         } else if (!drag.moved && !drag.additive && selected.size) {
           onSelectedChange(new Set());
         }
@@ -1309,9 +1353,20 @@ export function PlanCanvas({
   function handleDoubleClick(e: React.MouseEvent) {
     // Двойной клик — сокращение инструмента «Выбор». У остальных инструментов
     // одиночный клик уже что-то делает, и дублировать его не нужно.
-    if (tool !== "select") return;
+    // В коммутации одиночный клик по скважине не открывает карточку ни одним
+    // инструментом, поэтому двойной — тоже карточка (начало связи сбрасываем).
+    const tieInspect = mode === "tie" && tool !== "pan" && tool !== "measure";
+    if (tool !== "select" && !tieInspect) return;
     if (drawingDomainId) return;
     const screen = toScreenPoint(e);
+    if (tieInspect) {
+      const hole = hitHole(screen);
+      if (hole) {
+        setPendingTieFrom(null);
+        onHoleInspect?.(hole.id);
+      }
+      return;
+    }
     if (mode === "contour") {
       const vertexIndex = hitVertex(screen);
       if (vertexIndex !== null) {
@@ -1341,7 +1396,7 @@ export function PlanCanvas({
       e.preventDefault();
       e.stopPropagation();
       const ids = networkTieList.filter((tie) => selectedTies.has(tie.id)).map((tie) => tie.id);
-      if (ids.length && tieEdit) tieEdit.onEdit({ type: "remove", ids });
+      if (ids.length && tieEdit) editTies({ type: "remove", ids });
       setSelectedTies(new Set());
       return;
     }
@@ -1404,7 +1459,7 @@ export function PlanCanvas({
       if (/^[0-9]$/.test(e.key) && e.key !== "0") return;
     }
     if (key === "v" || key === "1" || key === "м") setTool("select");
-    else if (key === "a" || key === "2" || key === "ф") setTool("add");
+    else if (mode !== "tie" && (key === "a" || key === "2" || key === "ф")) setTool("add");
     else if (mode === "contour" && (key === "f" || key === "3" || key === "а")) setTool("face");
     else if (key === "h" || key === "4" || key === "р") setTool("pan");
     else if (key === "m" || key === "ь") setTool("measure");
@@ -2292,7 +2347,7 @@ export function PlanCanvas({
             <li><i>Коммутация (этап «Тайминг»):</i> над планом — палитра: инструменты и номиналы ступеней системы (СИНВ — 17/25/42/67/109 мс, ДШ — реле 10/20/25/35/42 мс, электронная — те же и «своё, мс»), у каждого номинала свой цвет — так же окрашены линии связей. Активная ступень — кликом или цифрами 1–5; при открытии этапа — ступень магистрали сети (по умолчанию 25 мс). Справа — замедление в скважине.</li>
             <li><i>«Связь» (T):</i> нажать на скважину и протянуть мышь через следующие — каждая пройденная связывается с предыдущей активной ступенью (вся цепочка отменяется одним Ctrl+Z). Клик по двум скважинам — одна связь, клик по пустому месту — сброс.</li>
             <li><i>«Ступень» (D):</i> клик по линии ставит ей активный номинал, рамка — всем захваченным линиям. <i>«Стартер» (S):</i> клик по скважине ставит или снимает стартер (зелёный флажок). <i>«В скважине» (H):</i> клик или рамка по скважинам — активное замедление в скважине.</li>
-            <li><i>Связь в любом инструменте:</i> клик по линии выделяет (Shift — добавить), Delete или Backspace удаляет выделенные, правая кнопка — меню: ступень, «Развернуть направление», «Удалить». Конец выделенной связи можно перетащить на другую скважину — связь перецепится.</li>
+            <li><i>Связь в любом инструменте:</i> клик по линии выделяет (Shift — добавить), Delete или Backspace удаляет выделенные, правая кнопка — меню: ступень, «Развернуть направление», «Удалить». Конец выделенной связи можно перетащить на другую скважину — связь перецепится (чтобы тянуть от этой скважины цепочку, сначала снимите выделение — Esc или клик по пустому месту). Двойной клик по скважине — её карточка.</li>
             <li><i>Правила:</i> у скважины одна входящая связь — новая заменяет прежнюю (прежняя мигает, внизу — «Связь … заменена»); связь, замыкающая цикл, не ставится («Цикл: скважина … уже срабатывает раньше») — и при развороте, и при перецепке. Любая правка — одна запись отмены, и сеть становится правленой: после сдвига скважин она сама не пересчитывается.</li>
             <li><i>Времена и «без сигнала»:</i> пересчитываются сразу после правки по связям (как на сервере; у ДШ — длина отрезка шнура / скорость и реле). Скважина без сигнала — красное кольцо; время у скважины — при подписи «время». Расчёт тайминга (изолинии, темп отбойки, проверки) правка сбрасывает — повторите «Рассчитать тайминг».</li>
             <li><i>Рецепторы:</i> при постановке рецептора клик ставит его на план, клик по существующему — выделяет.</li>

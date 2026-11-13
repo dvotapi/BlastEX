@@ -16,11 +16,15 @@ from datetime import date, datetime
 from pathlib import PurePath
 from typing import Protocol, TypeVar
 
+from design.spatial.cad.labels import parse_elevation
 from design.spatial.cad.model import (
     ORIGIN_AUTO,
     ORIGIN_MANUAL,
     ORIGIN_TEMPLATE,
+    ROLE_IGNORE,
     ROLE_SITUATION,
+    SITUATION_KIND_BENCH,
+    SITUATION_KIND_BOUNDARY,
     SITUATION_KIND_BUILDING,
     SITUATION_KIND_CODES,
     SITUATION_KIND_OTHER,
@@ -30,17 +34,29 @@ from design.spatial.cad.model import (
     SITUATION_KIND_STOCKPILE,
     CadEntity,
 )
-from design.spatial.cad.roles import layer_key
+from design.spatial.cad.roles import LayerRole, RoleAssignment, layer_key
 
-# Порядок важен: «Карьерная автодорога» — дорога, «Склад карьера» — склад;
-# слово «карьер» проверяется последним.
+# Порядок важен: «Карьерная автодорога» — дорога, «Склад карьера» — склад,
+# «31.10.25 карьер» — съёмка борта (бровки), «Граница горного отвода» —
+# граница; слово «карьер» проверяется последним.
 _KIND_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
-    (SITUATION_KIND_ROAD, re.compile(r"дорог|съезд|серпантин|проезд")),
+    (SITUATION_KIND_ROAD, re.compile(r"дорог|съезд|серпантин|проезд|автодор")),
     # «ВЛ» — только отдельным словом: «управление», «влажный» — не ЛЭП.
     (SITUATION_KIND_POWER_LINE, re.compile(r"(?<![а-яёa-z])(?:лэп|вл)(?![а-яёa-z])|электр|кабел")),
     (SITUATION_KIND_STOCKPILE, re.compile(r"склад|негабарит|штабел|отвал")),
-    (SITUATION_KIND_BUILDING, re.compile(r"здан|сооруж|строен|бытов|вагон")),
-    (SITUATION_KIND_PIT, re.compile(r"карьер|горного отвода")),
+    (
+        SITUATION_KIND_BUILDING,
+        re.compile(
+            r"здан|сооруж|строен|бытов|вагон|(?<![а-яёa-z])(?:кпп|дск|азс)(?![а-яёa-z])"
+            r"|дробил|конве[йе]|галере|весов|гараж|контор|мастерск"
+        ),
+    ),
+    (SITUATION_KIND_BOUNDARY, re.compile(r"горного отвода|лицензи|аренд|(?<![а-яёa-z])зо(?![а-яёa-z])")),
+    (
+        SITUATION_KIND_BENCH,
+        re.compile(r"горизонт(?!ал)\s*[+\-−]?\s*\d|откос|бровк|\d{1,2}[._]\d{1,2}[._]\d{2,4}[\s_]*карьер|карьер[\s_]*\d{1,2}[._]"),
+    ),
+    (SITUATION_KIND_PIT, re.compile(r"карьер")),
 )
 
 _DMY = re.compile(
@@ -136,6 +152,8 @@ def assign_kinds(
     entities: Iterable[CadEntity],
     template: Mapping[str, str],
     manual: Mapping[str, str] | None = None,
+    *,
+    all_layers: bool = False,
 ) -> list[LayerKind]:
     """Вид слоям, где есть объекты ситуации: вручную → шаблон объекта → по имени.
 
@@ -145,7 +163,8 @@ def assign_kinds(
     """
 
     manual = manual or {}
-    names = sorted({item.layer for item in entities if item.role == ROLE_SITUATION}, key=layer_key)
+    # `all_layers` — план карьера: вид выбирают и у слоя, который пока не показан.
+    names = sorted({item.layer for item in entities if all_layers or item.role == ROLE_SITUATION}, key=layer_key)
     result: list[LayerKind] = []
     for name in names:
         chosen = manual.get(name)
@@ -156,4 +175,82 @@ def assign_kinds(
             result.append(LayerKind(name, stored, ORIGIN_TEMPLATE))
         else:
             result.append(LayerKind(name, situation_kind_for_layer(name), ORIGIN_AUTO))
+    return result
+
+
+# --- ситуация объекта: отбор слоёв плана карьера --------------------------
+
+# Виды, которые на плане нужны всегда (решение владельца 13.11.2026): дороги
+# вокруг карьера и объекты на поверхности (КПП, ДСК…), ЛЭП — даже если слой
+# скрыт в чертеже. Старые склады и отвалы, скрытые маркшейдером, — нет.
+ALWAYS_SHOWN_KINDS = frozenset({SITUATION_KIND_ROAD, SITUATION_KIND_BUILDING, SITUATION_KIND_POWER_LINE})
+# Слои, которым на плане ситуации не место: другие блоки, сетки и рамки
+# печати, подписи и имена точек.
+_JUNK_LAYER = re.compile(
+    r"(?<![а-яёa-z])(?:блок|блк)(?![а-яёa-z])|сетк|grid|рамк|штамп|надпис|подпис|имена точек|point_desc"
+    r"|(?<![а-яёa-z])dim(?![а-яёa-z])|^0$|^defpoints$"
+)
+
+
+def situation_layer_shown(name: str, members: Iterable[CadEntity], hidden: bool) -> bool:
+    """Показывать ли слой плана карьера по умолчанию.
+
+    Слой из одних точек и подписей (отметки) — нет; дороги, объекты на
+    поверхности, ЛЭП — да, даже скрытые в чертеже; прочий слой, скрытый в
+    чертеже, — нет; другие блоки, сетки, рамки, подписи — нет.
+    """
+
+    # Слой без линий и знаков (одни отметки и подписи) на плане пуст.
+    if not any(item.geometry_type == "line" or item.kind == "INSERT" for item in members):
+        return False
+    if situation_kind_for_layer(name) in ALWAYS_SHOWN_KINDS:
+        return True
+    return not hidden and not _JUNK_LAYER.search(layer_key(name))
+
+
+def _situation_entity_role(item: CadEntity, shown: bool) -> str:
+    """Роль объекта показанного слоя: отметки (числа и точки с высотой) на плане не нужны."""
+
+    if not shown:
+        return ROLE_IGNORE
+    if item.geometry_type == "text":
+        return ROLE_IGNORE if parse_elevation(item.text) is not None or not item.text.strip() else ROLE_SITUATION
+    if item.geometry_type == "point" and item.kind != "INSERT":
+        return ROLE_IGNORE
+    return ROLE_SITUATION
+
+
+def assign_situation_roles(
+    entities: list[CadEntity],
+    template: Mapping[str, bool],
+    hidden_layers: Iterable[str] = (),
+    manual_layers: Mapping[str, str] | None = None,
+) -> RoleAssignment:
+    """Роли плана карьера: слой — «Ситуация» или «Не использовать».
+
+    Порядок для слоя: выбор в этом файле (`manual_layers`, роль) → выбор,
+    запомненный на объекте (`template`: ключ слоя → показывать) → умолчание
+    (`situation_layer_shown`). Ручной выбор и шаблон — подтверждены человеком.
+    """
+
+    manual_layers = manual_layers or {}
+    hidden = set(hidden_layers)
+    by_layer: dict[str, list[CadEntity]] = {}
+    for item in entities:
+        by_layer.setdefault(item.layer, []).append(item)
+    result = RoleAssignment()
+    for name in sorted(by_layer, key=layer_key):
+        members = by_layer[name]
+        manual = manual_layers.get(name)
+        stored = template.get(layer_key(name))
+        if manual in (ROLE_SITUATION, ROLE_IGNORE):
+            shown, origin, confirmed = manual == ROLE_SITUATION, ORIGIN_MANUAL, True
+        elif stored is not None:
+            shown, origin, confirmed = bool(stored), ORIGIN_TEMPLATE, True
+        else:
+            shown, origin, confirmed = situation_layer_shown(name, members, name in hidden), ORIGIN_AUTO, False
+        role = ROLE_SITUATION if shown else ROLE_IGNORE
+        result.layers.append(LayerRole(name=name, role=role, origin=origin, confirmed=confirmed))
+        for item in members:
+            item.role, item.role_origin = _situation_entity_role(item, shown), origin
     return result

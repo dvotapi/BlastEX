@@ -122,9 +122,11 @@ def read_cad(data: bytes, filename: str = "", options: ReadOptions | None = None
     warnings.extend(collector.notes())
 
     layers = {name: collector.layer_colors.get(name) for name in sorted({item.layer for item in entities})}
+    hidden = collector.hidden_layers()
     return CadDrawing(
         entities=entities,
         layers=layers,
+        hidden_layers=sorted(name for name in layers if name in hidden),
         insunits=insunits,
         extent=extent,
         source_format=source_format,
@@ -302,6 +304,18 @@ class _Collector:
             entity.handle = _compact_handle(f"{entity.handle}~{seen}")
             self._handles[entity.handle] += 1
         self.entities.append(entity)
+
+    def hidden_layers(self) -> set[str]:
+        """Слои, выключенные или замороженные в чертеже; у упрощённого DWG таблицы слоёв нет."""
+
+        hidden: set[str] = set()
+        try:
+            for layer in self.doc.layers:
+                if layer.is_off() or layer.is_frozen():
+                    hidden.add(str(layer.dxf.name))
+        except Exception:  # noqa: BLE001 — видимость слоя — подсказка, не повод не прочитать чертёж
+            return set()
+        return hidden
 
     def _layer_colors(self) -> dict[str, str | None]:
         from ezdxf import colors

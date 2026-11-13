@@ -11,8 +11,8 @@ import logging
 from typing import Any, Mapping, Sequence
 
 from api.services.cad_service import get_cad_repository
-from api.services.cad_situation_service import source_situation
-from api.services.situation_layers import design_situation, situation_refs
+from api.services.cad_situation_service import block_situation_refs, source_situation
+from api.services.situation_layers import design_situation
 from cost.v2.repository import EconomicsRepository
 from design import persistence as design_persistence
 from design.mass_blast import ProjectBlock
@@ -74,11 +74,16 @@ def _rock(snapshot: Any, rock_name: str) -> Mapping[str, Any] | None:
     return None
 
 
-def _situation(organization_id: str, designs: Sequence[BlastDesign]) -> tuple[list[dict[str, Any]], list[dict[str, str]], bool]:
+def _situation(
+    organization_id: str, designs: Sequence[BlastDesign], site_code: str = ""
+) -> tuple[list[dict[str, Any]], list[dict[str, str]], bool]:
+    """Ситуация проекта МВ: ссылки блоков, у блока без ссылок — ситуация объекта (план карьера)."""
+
     refs: list[Mapping[str, Any]] = []
     seen: set[str] = set()
     for design in designs:
-        for ref in situation_refs(design.contour.cad):
+        block_refs, _ = block_situation_refs(get_cad_repository, organization_id, design.contour.cad, site_code)
+        for ref in block_refs:
             if ref["source_id"] not in seen:
                 seen.add(str(ref["source_id"]))
                 refs.append(ref)
@@ -222,7 +227,7 @@ def context_v2(
         BlockSource(design=design, site_safety=site_safety, rock=_rock(snapshot, design.rock_name), materials=materials)
         for design in designs
     ]
-    layers, situation_issues, has_refs = _situation(organization_id, designs)
+    layers, situation_issues, has_refs = _situation(organization_id, designs, site_code)
     references = ContextReferences(
         site=site,
         profile=profile,

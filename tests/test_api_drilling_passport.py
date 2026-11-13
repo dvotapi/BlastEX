@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -558,6 +559,11 @@ class _CadRepository:
 
     def __init__(self) -> None:
         self.revisions = {"sit-1": 1}
+        # Источники объекта (план карьера — назначение «ситуация»).
+        self.plans: list = []
+
+    def list_site_sources(self, organization_id, site_code, *, limit, summary_keys=()):
+        return list(self.plans)
 
     def get_source(self, organization_id, source_id, *, with_file=False):
         revision = self.revisions.get(source_id)
@@ -632,15 +638,44 @@ def test_capped_situation_layer_warns(client, situation_refs, monkeypatch):
     assert "plan_situation_capped" in codes
 
 
-def test_no_situation_refs_no_cad_calls(client, monkeypatch):
-    def fail(*args, **kwargs):
-        raise AssertionError("ситуацию без ссылок не читают")
+def test_no_situation_refs_and_no_pit_plan_no_situation(client, cad_repository, monkeypatch):
+    """Без ссылок блока и без плана карьера у объекта ситуации нет — и предупреждений тоже."""
 
-    monkeypatch.setattr(drilling_passport_service, "get_cad_repository", fail)
+    def fail(*args, **kwargs):
+        raise AssertionError("без плана карьера геометрию не читают")
+
+    cad_repository.plans = []
     monkeypatch.setattr(drilling_passport_service, "source_situation", fail)
     passport = _create(client)
     body = client.post(f"{BASE}/{passport['id']}/validate").json()
     assert body["issues"] == []
+
+
+def test_block_without_refs_takes_pit_plan_of_site(client, block66, cad_repository, monkeypatch):
+    """Ситуация объекта (план карьера) — у блока без своих ссылок (план 2026-11-13, §3.3)."""
+
+    collar = block66.holes[0].collar
+    cad_repository.revisions["plan-2"] = 1
+    cad_repository.plans = [
+        SimpleNamespace(id="plan-1", title="Ситуационный план", file_name="", survey_date=date(2026, 9, 24),
+                        uploaded_at=datetime(2026, 9, 25, tzinfo=timezone.utc), summary={"purpose": "situation"}),
+        SimpleNamespace(id="plan-2", title="Ситуационный план", file_name="", survey_date=date(2026, 11, 1),
+                        uploaded_at=datetime(2026, 11, 2, tzinfo=timezone.utc), summary={"purpose": "situation"}),
+        SimpleNamespace(id="blk-70", title="граница блока 70", file_name="", survey_date=date(2026, 11, 5),
+                        uploaded_at=datetime(2026, 11, 5, tzinfo=timezone.utc), summary={}),
+    ]
+    calls = []
+
+    def source_situation(repository, organization_id, source_id):
+        calls.append(source_id)
+        return _situation_response(collar.x, collar.y)
+
+    monkeypatch.setattr(drilling_passport_service, "source_situation", source_situation)
+    passport = _create(client)
+    revision = client.post(f"{BASE}/{passport['id']}/revisions", json={"expected_version": passport["version"]})
+    assert revision.status_code == 201, revision.text
+    assert calls == ["plan-2"]
+    assert [layer["kind"] for layer in revision.json()["context"]["plan"]["situation"]] == ["road"]
 
 
 def test_broken_situation_source_warns(client, situation_refs, monkeypatch):

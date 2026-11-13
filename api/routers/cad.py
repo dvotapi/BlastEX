@@ -83,6 +83,7 @@ async def post_sources(
     floor_z_m: float | None = Form(None),
     bench_height_m: float = Form(10.0),
     survey_date: str = Form(""),
+    purpose: str = Form("block"),
     session: dict = Depends(require_internal_access),
     repository: CadRepository = Depends(get_cad_repository),
     snapshot: ReferenceSnapshot = Depends(current_reference_snapshot),
@@ -119,6 +120,7 @@ async def post_sources(
             work_object_name,
             cad_service.parse_survey_date(survey_date),
             snapshot,
+            purpose,
         )
     except (CadImportError, CadSourceNotFound) as exc:
         raise _http(exc) from exc

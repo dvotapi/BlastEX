@@ -230,10 +230,12 @@ def test_meta_lists_situation_kinds(repository):
 
     assert [item["code"] for item in meta["situation_kinds"]] == [
         "pit",
+        "bench",
         "road",
         "power_line",
         "stockpile",
         "building",
+        "boundary",
         "other",
     ]
 

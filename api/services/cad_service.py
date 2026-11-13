@@ -51,6 +51,7 @@ from design.spatial.cad.model import (
     ORIGIN_TEMPLATE,
     ORIGINS,
     ROLE_CODES,
+    ROLE_IGNORE,
     ROLE_SITUATION,
     ROLES,
     SITUATION_KIND_CODES,
@@ -80,6 +81,7 @@ from design.spatial.cad.roles import (
 from design.spatial.cad.situation import (
     LayerKind,
     assign_kinds,
+    assign_situation_roles,
     order_versions,
     series_key,
     title_and_date_from_file_name,
@@ -97,6 +99,10 @@ CHECK_EXTENT_KEYS = ("robust_extent", "extent")
 
 # Сколько раз повторить правку, если источник изменили между чтением и записью.
 WRITE_ATTEMPTS = 3
+# Назначение файла: чертёж блока или план карьера — ситуация объекта.
+PURPOSE_BLOCK = "block"
+PURPOSE_SITUATION = "situation"
+PURPOSES = (PURPOSE_BLOCK, PURPOSE_SITUATION)
 CONFLICT_MESSAGE = (
     "Этот чертёж одновременно правят в другом окне. Закройте импорт и откройте чертёж заново."
 )
@@ -249,7 +255,10 @@ def import_files(
     work_object_name: str,
     survey_date: date | None,
     snapshot: ReferenceSnapshot | None,
+    purpose: str = PURPOSE_BLOCK,
 ) -> CadImportResponse:
+    if purpose not in PURPOSES:
+        raise CadImportError(f"Назначение файла «{purpose}» неизвестно.")
     if not files:
         raise CadImportError("Выберите хотя бы один файл DXF или DWG.")
     if len(files) > MAX_FILES:
@@ -259,6 +268,11 @@ def import_files(
 
     site_code = resolve_site_code(snapshot, work_object_name)
     template = repository.get_layer_template(organization_id, site_code) if site_code else {}
+    situation_template = (
+        repository.get_situation_template(organization_id, site_code)
+        if site_code and purpose == PURPOSE_SITUATION
+        else {}
+    )
     site_crs = repository.get_site_crs(organization_id, site_code) if site_code else None
 
     # Тот же файл на том же объекте открывает прежний разбор: без копии байтов
@@ -289,11 +303,15 @@ def import_files(
     new_layers: dict[str, str] = {}
     kind_template = _site_kind_template(template)
     for name, content, sha, drawing in drawings:
-        assignment = assign_roles(drawing.entities, template, _role_params(params))
-        kinds = assign_kinds(drawing.entities, kind_template)
+        if purpose == PURPOSE_SITUATION:
+            assignment, kinds = _situation_assignment(drawing.entities, situation_template, drawing.hidden_layers)
+        else:
+            assignment = assign_roles(drawing.entities, template, _role_params(params))
+            kinds = assign_kinds(drawing.entities, kind_template)
         summary = _summary(
             drawing, assignment, kinds, manual_layers={}, site_code=site_code, work_object_name=work_object_name
         )
+        summary["purpose"] = purpose
         title, name_date = title_and_date_from_file_name(name)
         record = CadSourceRecord(
             id=str(uuid.uuid4()),
@@ -317,7 +335,7 @@ def import_files(
         )
         items.append((record, drawing.entities))
         created[sha] = (record, drawing.entities)
-        if site_code:
+        if site_code and purpose == PURPOSE_BLOCK:
             # Следующий файл той же загрузки размечается уже с этими слоями.
             for layer in assignment.layers:
                 new_layers.setdefault(layer.name, layer.role)
@@ -340,6 +358,11 @@ def import_files(
             sources.append(_source_schema(record, entities, context))
             continue
         record = reused[sha]
+        if _purpose(record.summary) != purpose:
+            # Тот же файл загружают с другим назначением (план карьера раньше
+            # грузили как чертёж блока): разбор пересчитывается под назначение.
+            sources.append(reparse(repository, organization_id, record.id, CadParamsSchema.model_validate(record.params), purpose))
+            continue
         note = CadWarning(
             code="already_loaded",
             message=(
@@ -363,9 +386,17 @@ def get_source(repository: CadRepository, organization_id: str, source_id: str) 
 
 
 def reparse(
-    repository: CadRepository, organization_id: str, source_id: str, params: CadParamsSchema
+    repository: CadRepository,
+    organization_id: str,
+    source_id: str,
+    params: CadParamsSchema,
+    purpose: str | None = None,
 ) -> CadSourceSchema:
+    """Повторный разбор файла; `purpose` — сменить назначение (ручной выбор слоёв прежнего назначения сбрасывается)."""
+
     record = _require(repository, organization_id, source_id, with_file=True)
+    if purpose is not None and purpose not in PURPOSES:
+        raise CadImportError(f"Назначение файла «{purpose}» неизвестно.")
     try:
         drawing = read_cad(record.file_data or b"", record.file_name, _read_options(params))
     except CadReadError as exc:
@@ -375,12 +406,31 @@ def reparse(
         if attempt:
             # Источник изменили между чтением и записью — ручные роли берём свежие.
             record = _require(repository, organization_id, source_id)
-        manual_entities = dict(record.summary.get("manual_entities") or {})
-        manual_layers = dict(record.summary.get("manual_layers") or {})
-        manual_kinds = dict(record.summary.get("manual_kinds") or {})
-        template = _source_template(record.summary)
-        assignment = assign_roles(drawing.entities, template, _role_params(params), manual_layers, manual_entities)
-        kinds = assign_kinds(drawing.entities, _source_kind_template(record.summary), manual_kinds)
+        current = _purpose(record.summary)
+        target = purpose or current
+        changed_purpose = target != current
+        manual_entities = {} if changed_purpose else dict(record.summary.get("manual_entities") or {})
+        manual_layers = {} if changed_purpose else dict(record.summary.get("manual_layers") or {})
+        manual_kinds = {} if changed_purpose else dict(record.summary.get("manual_kinds") or {})
+        if target == PURPOSE_SITUATION:
+            # Смена назначения — шаблон ситуации объекта сейчас, иначе — каким был при импорте.
+            stored = (
+                repository.get_situation_template(organization_id, record.site_code)
+                if changed_purpose and record.site_code
+                else _source_situation_template(record.summary)
+            )
+            assignment, kinds = _situation_assignment(
+                drawing.entities, stored, drawing.hidden_layers, manual_layers, manual_kinds
+            )
+        else:
+            template = {} if changed_purpose else _source_template(record.summary)
+            if changed_purpose and record.site_code:
+                template = repository.get_layer_template(organization_id, record.site_code)
+            assignment = assign_roles(drawing.entities, template, _role_params(params), manual_layers, manual_entities)
+            kind_template = (
+                _site_kind_template(template) if changed_purpose else _source_kind_template(record.summary)
+            )
+            kinds = assign_kinds(drawing.entities, kind_template, manual_kinds)
         summary = _summary(
             drawing,
             assignment,
@@ -391,6 +441,7 @@ def reparse(
             site_code=record.site_code,
             work_object_name=record.work_object_name,
         )
+        summary["purpose"] = target
         try:
             repository.replace_entities(
                 organization_id,
@@ -444,6 +495,8 @@ def _save_roles_once(
     layer_names = {item.layer for item in entities}
     handles = {item.handle for item in entities}
 
+    if _purpose(record.summary) == PURPOSE_SITUATION:
+        return _save_situation_layers(repository, organization_id, actor, record, entities, request)
     for name, role in request.layers.items():
         if name not in layer_names:
             raise CadImportError(f"Слоя «{name}» нет в этом чертеже.")
@@ -533,6 +586,117 @@ def _save_roles_once(
         layers=_layer_schemas(summary, entities),
         roles={handle: [role, origin] for handle, (role, origin) in changed.items()},
         overrides=sorted(manual_entities),
+    )
+
+
+def _purpose(summary: dict | None) -> str:
+    return PURPOSE_SITUATION if (summary or {}).get("purpose") == PURPOSE_SITUATION else PURPOSE_BLOCK
+
+
+def _situation_assignment(
+    entities: list[CadEntity],
+    template: dict[str, dict],
+    hidden_layers: list[str],
+    manual_layers: dict[str, str] | None = None,
+    manual_kinds: dict[str, str] | None = None,
+) -> tuple[RoleAssignment, list[LayerKind]]:
+    """Роли и виды плана карьера: выбор файла → шаблон ситуации объекта → умолчания.
+
+    Вид — у всех слоёв, а не только у показанных: в окне его выбирают и до того,
+    как слой включён.
+    """
+
+    shown = {key: bool(entry["shown"]) for key, entry in template.items() if "shown" in entry}
+    kind_template = {key: str(entry["kind"]) for key, entry in template.items() if entry.get("kind")}
+    assignment = assign_situation_roles(entities, shown, hidden_layers, manual_layers)
+    kinds = assign_kinds(entities, kind_template, manual_kinds, all_layers=True)
+    return assignment, kinds
+
+
+def _source_situation_template(summary: dict) -> dict[str, dict]:
+    """Шаблон ситуации объекта в том виде, каким он был при импорте файла (как роли)."""
+
+    template: dict[str, dict] = {}
+    for entry in summary.get("layer_roles") or []:
+        if entry.get("origin") == ORIGIN_TEMPLATE:
+            template.setdefault(layer_key(entry["name"]), {})["shown"] = entry.get("role") == ROLE_SITUATION
+    for entry in summary.get("layer_kinds") or []:
+        if entry.get("origin") == ORIGIN_TEMPLATE:
+            template.setdefault(layer_key(entry["name"]), {})["kind"] = entry["kind"]
+    return template
+
+
+def _save_situation_layers(
+    repository: CadRepository,
+    organization_id: str,
+    actor: str,
+    record: CadSourceRecord,
+    entities: list[CadEntity],
+    request: CadRolesRequest,
+) -> CadRolesResponse:
+    """Отбор слоёв плана карьера: слою — «Ситуация» или «Не использовать», вид — любому слою.
+
+    Выбор запоминается в шаблоне ситуации объекта, а не в шаблоне ролей
+    блоков: у файла блока тот же слой может быть бровками.
+    """
+
+    layer_names = {item.layer for item in entities}
+    for name, role in request.layers.items():
+        if name not in layer_names:
+            raise CadImportError(f"Слоя «{name}» нет в этом чертеже.")
+        if role not in (ROLE_SITUATION, ROLE_IGNORE):
+            raise CadImportError("У плана карьера слой либо показывается, либо не используется.")
+    if request.entities:
+        raise CadImportError("У плана карьера роли задаются слоям, а не отдельным объектам.")
+    for name, kind in request.kinds.items():
+        if name not in layer_names:
+            raise CadImportError(f"Слоя «{name}» нет в этом чертеже.")
+        if kind is not None and kind not in SITUATION_KIND_CODES:
+            raise CadImportError(f"Вид «{kind}» неизвестен.")
+
+    before = {item.handle: (item.role, item.role_origin) for item in entities}
+    manual_layers = {**(record.summary.get("manual_layers") or {}), **request.layers}
+    template = _source_situation_template(record.summary)
+    manual_kinds = dict(record.summary.get("manual_kinds") or {})
+    for name, kind in request.kinds.items():
+        if kind is None:
+            manual_kinds.pop(name, None)
+            template.get(layer_key(name), {}).pop("kind", None)
+        else:
+            manual_kinds[name] = kind
+    assignment, kinds = _situation_assignment(
+        entities, template, list(record.summary.get("hidden_layers") or []), manual_layers, manual_kinds
+    )
+
+    summary = dict(record.summary)
+    summary["manual_layers"] = manual_layers
+    summary["manual_entities"] = {}
+    summary["manual_kinds"] = manual_kinds
+    summary["layer_kinds"] = [item.to_dict() for item in kinds]
+    summary["layer_roles"] = [_layer_entry(layer) for layer in assignment.layers]
+    summary["role_warnings"] = []
+    changed = {
+        item.handle: (item.role, item.role_origin)
+        for item in entities
+        if before[item.handle] != (item.role, item.role_origin)
+    }
+    repository.update_roles(organization_id, record.id, changed, summary, expected_revision=record.revision)
+    entries: dict[str, dict] = {name: {"shown": role == ROLE_SITUATION} for name, role in request.layers.items()}
+    for name, kind in request.kinds.items():
+        entries.setdefault(name, {})["kind"] = kind
+    if record.site_code and entries:
+        repository.upsert_situation_template(organization_id, record.site_code, entries, actor)
+    return CadRolesResponse(
+        id=record.id,
+        template_saved=bool(record.site_code),
+        floor_z_m=None,
+        warnings=[
+            *_warnings(summary),
+            *_crs_warnings(record, site_context(repository, organization_id, record.site_code)),
+        ],
+        layers=_layer_schemas(summary, entities),
+        roles={handle: [role, origin] for handle, (role, origin) in changed.items()},
+        overrides=[],
     )
 
 
@@ -631,6 +795,7 @@ def _summary(
         "floor_z_m": assignment.floor_z_m,
         "layer_kinds": [item.to_dict() for item in kinds],
         "manual_kinds": dict(manual_kinds or {}),
+        "hidden_layers": list(drawing.hidden_layers),
         # Габарит без выбросов — для проверки СК по прежним чертежам объекта.
         "robust_extent": list(extent) if (extent := robust_extent_of(drawing.entities)) else None,
     }
@@ -649,6 +814,7 @@ def layer_kinds(summary: dict, entities: list[CadEntity]) -> dict[str, dict]:
 def _layer_schemas(summary: dict, entities: list[CadEntity]) -> list[CadLayerSchema]:
     colors = summary.get("layer_colors") or {}
     kinds = layer_kinds(summary, entities)
+    hidden = set(summary.get("hidden_layers") or ())
     # Один проход по объектам: слоёв бывают сотни, объектов — десятки тысяч.
     by_layer: dict[str, list[CadEntity]] = {}
     for item in entities:
@@ -670,6 +836,7 @@ def _layer_schemas(summary: dict, entities: list[CadEntity]) -> list[CadLayerSch
                 counts_by_role=dict(sorted(Counter(item.role for item in members).items())),
                 situation_kind=(kinds.get(entry["name"]) or {}).get("kind"),
                 situation_kind_origin=(kinds.get(entry["name"]) or {}).get("origin"),
+                hidden=entry["name"] in hidden,
             )
         )
     return layers
@@ -780,6 +947,7 @@ def _source_schema(
         file_name=record.file_name,
         title=source_title(record),
         format=record.file_format,
+        purpose=_purpose(summary),
         site_code=record.site_code,
         work_object_name=record.work_object_name,
         uploaded_at=record.uploaded_at.isoformat(),

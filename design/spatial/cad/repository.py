@@ -156,6 +156,39 @@ class CadRepository(Protocol):
         self, organization_id: str, site_code: str, kinds: dict[str, str | None], actor: str
     ) -> None: ...
 
+    def get_situation_template(self, organization_id: str, site_code: str) -> dict[str, dict[str, Any]]: ...
+
+    def upsert_situation_template(
+        self, organization_id: str, site_code: str, entries: dict[str, dict[str, Any]], actor: str
+    ) -> None: ...
+
+
+def _merge_situation_template(
+    stored: dict[str, dict[str, Any]] | None, entries: dict[str, dict[str, Any]]
+) -> dict[str, dict[str, Any]]:
+    """Шаблон ситуации объекта после правки: имя слоя → `shown` и/или `kind`.
+
+    Правка — разница: ключ, которого нет в записи, не трогается; `kind: None`
+    — «по имени слоя».
+    """
+
+    merged = copy.deepcopy(dict(stored or {}))
+    for name, entry in entries.items():
+        key = layer_key(name)
+        if not key:
+            continue
+        current = dict(merged.get(key) or {})
+        current["name"] = name
+        if "shown" in entry:
+            current["shown"] = bool(entry["shown"])
+        if "kind" in entry:
+            if entry["kind"]:
+                current["kind"] = str(entry["kind"])
+            else:
+                current.pop("kind", None)
+        merged[key] = current
+    return merged
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc).replace(microsecond=0)
@@ -260,6 +293,9 @@ class CadSiteSettingsRow(Base):
     crs_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     height_system: Mapped[str | None] = mapped_column(String(120), nullable=True)
     epsg: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Отбор слоёв плана карьера (ситуация объекта): ключ слоя → показывать, вид.
+    # Отдельно от шаблона ролей: «Горизонт +410» у блока — бровки, у плана — ситуация.
+    situation_layers: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False, default=dict)
     updated_by: Mapped[str] = mapped_column(String(320), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -646,6 +682,44 @@ class PostgresCadRepository:
         with self.session_factory() as session, session.begin():
             session.execute(statement)
 
+    def get_situation_template(self, organization_id: str, site_code: str) -> dict[str, dict[str, Any]]:
+        with self.session_factory() as session:
+            value = session.execute(
+                select(CadSiteSettingsRow.situation_layers).where(
+                    CadSiteSettingsRow.organization_id == organization_id, CadSiteSettingsRow.site_code == site_code
+                )
+            ).scalar_one_or_none()
+            return copy.deepcopy(dict(value or {}))
+
+    def upsert_situation_template(
+        self, organization_id: str, site_code: str, entries: dict[str, dict[str, Any]], actor: str
+    ) -> None:
+        if not entries:
+            return
+        with self.session_factory() as session, session.begin():
+            # Строка объекта — сначала (без перезаписи), затем правка под блокировкой:
+            # две правки из разных окон не затирают друг друга.
+            session.execute(
+                pg_insert(CadSiteSettingsRow)
+                .values(
+                    organization_id=organization_id,
+                    site_code=site_code,
+                    area_basis=DEFAULT_AREA_BASIS,
+                    situation_layers={},
+                    updated_by=actor,
+                    updated_at=_now(),
+                )
+                .on_conflict_do_nothing(index_elements=[CadSiteSettingsRow.organization_id, CadSiteSettingsRow.site_code])
+            )
+            row = session.execute(
+                select(CadSiteSettingsRow)
+                .where(CadSiteSettingsRow.organization_id == organization_id, CadSiteSettingsRow.site_code == site_code)
+                .with_for_update()
+            ).scalar_one()
+            row.situation_layers = _merge_situation_template(row.situation_layers, entries)
+            row.updated_by = actor
+            row.updated_at = _now()
+
     def count_entities_by_role(self, organization_id: str, source_ids: set[str], role: str) -> dict[str, int]:
         if not source_ids:
             return {}
@@ -806,6 +880,7 @@ class InMemoryCadRepository:
         self._templates: dict[tuple[str, str], dict[str, tuple[str, TemplateEntry]]] = {}
         self._area_bases: dict[tuple[str, str], str] = {}
         self._crs: dict[tuple[str, str], dict[str, Any]] = {}
+        self._situation_templates: dict[tuple[str, str], dict[str, dict[str, Any]]] = {}
 
     def create_sources(
         self,
@@ -959,6 +1034,15 @@ class InMemoryCadRepository:
             "height_system": crs.get("height_system") or "",
             "epsg": crs.get("epsg"),
         }
+
+    def get_situation_template(self, organization_id: str, site_code: str) -> dict[str, dict[str, Any]]:
+        return copy.deepcopy(self._situation_templates.get((organization_id, site_code), {}))
+
+    def upsert_situation_template(
+        self, organization_id: str, site_code: str, entries: dict[str, dict[str, Any]], actor: str
+    ) -> None:
+        key = (organization_id, site_code)
+        self._situation_templates[key] = _merge_situation_template(self._situation_templates.get(key), entries)
 
     def count_entities_by_role(self, organization_id: str, source_ids: set[str], role: str) -> dict[str, int]:
         counts: dict[str, int] = {}

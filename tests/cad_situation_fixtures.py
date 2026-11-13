@@ -76,3 +76,39 @@ def situation_dxf(dx: float = 0.0, dy: float = 0.0, *, origin_outlier: bool = Fa
     if origin_outlier:
         msp.add_point((0.0, 0.0, 0.0), dxfattribs={"layer": "Мусор"})
     return _bytes(doc)
+
+
+def pit_plan_dxf(*, extra_layer: str = "") -> bytes:
+    """План карьера (ситуация объекта): нужные слои и лишние, часть скрыта в чертеже.
+
+    Видны: дорога, сооружения с подписями («ДСК» и отметка), уступ «Горизонт +410»
+    с отметками, граница горного отвода, «Блок 48 факт» (чужой блок), сетка,
+    «Отметки рельеф» (одни точки). Скрыты: «Блок 42 факт» (выключен), «КПП»
+    (выключен — но объект на поверхности), «Склады_2023» (заморожен).
+    """
+
+    x0, y0 = X0, Y0
+    doc = ezdxf.new("R2010")
+    for name in ("Блок 42 факт 05_12_2023", "КПП"):
+        doc.layers.add(name).off()
+    doc.layers.add("Склады_2023").freeze()
+    msp = doc.modelspace()
+    msp.add_lwpolyline([(x0 - 300, y0 - 80), (x0 + 400, y0 - 60)], dxfattribs={"layer": "Дороги"})
+    msp.add_lwpolyline([(x0 + 150, y0 + 150), (x0 + 190, y0 + 150), (x0 + 190, y0 + 180)], dxfattribs={"layer": "Сооружения"})
+    msp.add_text("ДСК", dxfattribs={"layer": "Сооружения", "insert": (x0 + 160, y0 + 160)})
+    msp.add_text("423.47", dxfattribs={"layer": "Сооружения", "insert": (x0 + 170, y0 + 170)})
+    msp.add_lwpolyline([(x0 + 300, y0 + 300), (x0 + 310, y0 + 300), (x0 + 310, y0 + 310)], dxfattribs={"layer": "КПП"})
+    msp.add_text("КПП", dxfattribs={"layer": "КПП", "insert": (x0 + 305, y0 + 305)})
+    msp.add_polyline3d([(x0 - 50, y0, 420.5), (x0 + 50, y0 + 5, 420.8)], dxfattribs={"layer": "Горизонт +410"})
+    msp.add_point((x0, y0 + 2, 420.6), dxfattribs={"layer": "Горизонт +410"})
+    msp.add_text("420.60", dxfattribs={"layer": "Горизонт +410", "insert": (x0, y0 + 3)})
+    msp.add_lwpolyline([(x0 - 500, y0 - 500), (x0 + 500, y0 - 500), (x0 + 500, y0 + 500)], dxfattribs={"layer": "Граница горного отвода"})
+    msp.add_lwpolyline([(x0 + 10, y0 + 10), (x0 + 30, y0 + 10), (x0 + 30, y0 + 40)], close=True, dxfattribs={"layer": "Блок 48 факт 14.10.2024"})
+    msp.add_lwpolyline([(x0 + 60, y0 + 10), (x0 + 80, y0 + 10)], dxfattribs={"layer": "Блок 42 факт 05_12_2023"})
+    msp.add_lwpolyline([(x0 - 1000, y0), (x0 + 1000, y0)], dxfattribs={"layer": "Сетка координат_2000"})
+    msp.add_lwpolyline([(x0 + 200, y0 - 200), (x0 + 260, y0 - 200)], dxfattribs={"layer": "Склады_2023"})
+    for index in range(4):
+        msp.add_point((x0 + 5 * index, y0 + 50, 421.0 + index), dxfattribs={"layer": "Отметки рельеф"})
+    if extra_layer:
+        msp.add_lwpolyline([(x0 + 100, y0 + 100), (x0 + 120, y0 + 100)], dxfattribs={"layer": extra_layer})
+    return _bytes(doc)

@@ -59,9 +59,11 @@ def _layers(reader: Callable[..., Any], repository: Any, organization_id: str, s
                 "name": layer.name,
                 "kind": layer.kind,
                 "lines": [{"points": line.points, "closed": line.closed} for line in layer.lines],
+                # Подписи плана карьера («ДСК», «КПП»); у чертежа блока их нет.
+                "labels": [{"text": label.text, "point": list(label.point)} for label in getattr(layer, "labels", ())],
             }
             for layer in geometry.layers
-            if layer.lines
+            if layer.lines or getattr(layer, "labels", ())
         ],
         [layer.name for layer in geometry.layers if layer.omitted],
     )
@@ -80,7 +82,7 @@ def design_situation(
     reader: Callable[..., Any],
     on_error: Callable[[str], None] | None = None,
 ) -> tuple[list[dict[str, Any]], list[SituationProblem]]:
-    """Слои ситуации `{"name", "kind", "lines"}` по ссылкам и проблемы по версиям.
+    """Слои ситуации `{"name", "kind", "lines", "labels"}` по ссылкам и проблемы по версиям.
 
     Без ссылок база чертежей не открывается. Слои кэша только читаются —
     вызывающий не должен их менять.

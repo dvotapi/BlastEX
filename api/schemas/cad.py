@@ -118,9 +118,12 @@ class CadLayerSchema(BaseModel):
     z_max: float | None = None
     color: str | None = None
     counts_by_role: dict[str, int] = Field(default_factory=dict)
-    # Вид объектов ситуации слоя (есть только у слоёв с объектами ситуации).
+    # Вид объектов ситуации слоя (есть только у слоёв с объектами ситуации;
+    # у плана карьера — у всех слоёв, чтобы выбрать вид до включения).
     situation_kind: str | None = None
     situation_kind_origin: str | None = None
+    # Слой выключен или заморожен в самом чертеже.
+    hidden: bool = False
 
 
 class CadSourceSchema(BaseModel):
@@ -129,6 +132,9 @@ class CadSourceSchema(BaseModel):
     # Название источника: источники объекта с одинаковым названием — версии серии.
     title: str = ""
     format: str
+    # Назначение файла: "block" — чертёж блока, "situation" — план карьера
+    # (ситуация объекта: слои только «Ситуация» или «Не использовать»).
+    purpose: str = "block"
     site_code: str = ""
     work_object_name: str = ""
     uploaded_at: str
@@ -508,6 +514,13 @@ class CadSituationLineSchema(BaseModel):
     closed: bool = False
 
 
+class CadSituationLabelSchema(BaseModel):
+    """Подпись объекта ситуации («ДСК», «КПП»): точка вставки в локальной системе и текст."""
+
+    text: str
+    point: list[float]
+
+
 class CadSituationLayerSchema(BaseModel):
     name: str
     kind: str
@@ -515,6 +528,7 @@ class CadSituationLayerSchema(BaseModel):
     color: str | None = None
     lines: list[CadSituationLineSchema] = Field(default_factory=list)
     points: list[list[float]] = Field(default_factory=list)
+    labels: list[CadSituationLabelSchema] = Field(default_factory=list)
     vertex_count: int = 0
     # Слой не уместился в предел ответа — геометрии нет, только имя.
     omitted: bool = False
@@ -539,6 +553,7 @@ class CadSiteSourceSchema(BaseModel):
     uploaded_at: str
     uploaded_by: str = ""
     situation_count: int = 0
+    purpose: str = "block"
 
 
 class CadSiteSourcesResponse(BaseModel):

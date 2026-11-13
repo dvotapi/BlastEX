@@ -26,6 +26,21 @@ describe("MovedHolesDialog", () => {
     expect(props.onCancel).toHaveBeenCalledTimes(2);
   });
 
+  it("перерисовка не отбирает фокус; Escape не доходит до страницы", () => {
+    const props = { onKeep: vi.fn(), onReset: vi.fn() };
+    const view = render(<MovedHolesDialog count={2} {...props} onCancel={vi.fn()} />);
+    const reset = screen.getByRole("button", { name: "Сбросить" });
+    reset.focus();
+    view.rerender(<MovedHolesDialog count={2} {...props} onCancel={vi.fn()} />);
+    expect(document.activeElement).toBe(reset);
+
+    const page = vi.fn();
+    window.addEventListener("keydown", page);
+    fireEvent.keyDown(window, { key: "Escape" });
+    window.removeEventListener("keydown", page);
+    expect(page).not.toHaveBeenCalled();
+  });
+
   it("склонение", () => {
     expect(movedHolesText(1)).toBe("1 скважина сдвинута вручную");
     expect(movedHolesText(5)).toBe("5 скважин сдвинуты вручную");

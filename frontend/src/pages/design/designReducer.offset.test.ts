@@ -137,3 +137,19 @@ describe("APPLY_LAYOUT и сдвиги", () => {
     expect(isMovedHole(undone.present.holes[0])).toBe(true);
   });
 });
+
+describe("смещение без накопления округления", () => {
+  it("на повёрнутой раскладке узел + смещение — ровно устье после серии сдвигов", () => {
+    const rotated = layoutAxes(30, contour);
+    let state = start();
+    for (let i = 0; i < 12; i += 1) {
+      state = designReducer(state, { type: "MOVE_HOLES", ids: ["1-01"], dx: 0.123, dy: -0.077, axes: rotated });
+    }
+    const h = state.present.holes[0];
+    const o = h.manual_offset!;
+    const x = o.node_x + o.along * rotated.along.x + o.across * rotated.across.x;
+    const y = o.node_y + o.along * rotated.along.y + o.across * rotated.across.y;
+    expect(Math.abs(x - h.collar.x)).toBeLessThan(1e-5);
+    expect(Math.abs(y - h.collar.y)).toBeLessThan(1e-5);
+  });
+});

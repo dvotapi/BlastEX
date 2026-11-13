@@ -31,13 +31,19 @@ export function MovedHolesDialog({
 }) {
   const keepRef = useRef<HTMLButtonElement>(null);
 
+  // Фокус — один раз при открытии: перерисовка страницы его не отбирает.
+  useEffect(() => keepRef.current?.focus(), []);
+
   useEffect(() => {
-    keepRef.current?.focus();
+    // Escape закрывает только окно: перехват до обработчиков плана и страницы.
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onCancel();
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      onCancel();
     }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [onCancel]);
 
   return (

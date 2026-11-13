@@ -769,7 +769,8 @@ export function DesignPage({
       const existing = patternRequestHoles(document.holes, keepMoved);
       const result = await api.design.pattern(document.contour, patternParams, existing, document.surfaces, document.domains);
       dispatch({ type: "SET_HOLES", holes: result.holes });
-      if (result.warnings?.length) setNotice(result.warnings.join(" "));
+      // Предупреждения этой сетки; прежние (о другой сетке) снимаются.
+      setNotice(result.warnings?.length ? result.warnings.join(" ") : "");
       setBlockVolumeM3(result.block_volume_m3);
       setFragResult(null);
       setAsDrilledResult(null);

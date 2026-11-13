@@ -119,6 +119,11 @@ export function fromAxes(along: number, across: number, axes: LayoutAxes): Vec2 
   };
 }
 
+function round6(v: number): number {
+  const r = Math.round(v * 1e6) / 1e6;
+  return Object.is(r, -0) ? 0 : r;
+}
+
 function round3(v: number): number {
   const r = Math.round(v * 1000) / 1000;
   return Object.is(r, -0) ? 0 : r;
@@ -225,19 +230,21 @@ export function clearMoved(hole: Hole): Hole {
 }
 
 /**
- * Пометка после сдвига на `delta` (м, мир): узел — устье до первого сдвига,
- * смещение в осях раскладки копится до миллиметра. Вернулась в узел — без
- * пометки. Ручные скважины (`source = "manual"`) не помечаются: узла у них нет.
+ * Пометка после сдвига: узел — устье до первого сдвига, смещение — от узла
+ * до нового устья в осях раскладки. Вернулась в узел (ближе 0,5 мм по
+ * каждой оси) — без пометки. Ручные скважины (`source = "manual"`) не помечаются: узла у них нет.
  */
-export function markMoved(hole: Hole, before: Pick<Hole, "collar" | "source" | "manual" | "manual_offset">, delta: Vec2, axes: LayoutAxes): Hole {
+export function markMoved(hole: Hole, before: Pick<Hole, "collar" | "source" | "manual" | "manual_offset">, axes: LayoutAxes): Hole {
   if (before.source === "manual") return hole;
   const node = isMovedHole(before) && before.manual_offset
     ? before.manual_offset
-    : { node_x: before.collar.x, node_y: before.collar.y, along: 0, across: 0 };
-  const step = toAxes(delta, axes);
-  const along = round3(node.along + step.along);
-  const across = round3(node.across + step.across);
-  if (along === 0 && across === 0) return clearMoved(hole);
+    : { node_x: before.collar.x, node_y: before.collar.y };
+  // Смещение — от узла до нового устья, а не сумма шагов: округление шагов
+  // не копится, и узел + смещение — ровно то место, где скважину оставили.
+  const offset = toAxes({ x: hole.collar.x - node.node_x, y: hole.collar.y - node.node_y }, axes);
+  if (Math.abs(offset.along) < 0.0005 && Math.abs(offset.across) < 0.0005) return clearMoved(hole);
+  const along = round6(offset.along);
+  const across = round6(offset.across);
   const flags = hole.manual ?? [];
   return {
     ...hole,

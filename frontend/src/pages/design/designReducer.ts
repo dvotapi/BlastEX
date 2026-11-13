@@ -410,7 +410,7 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
         holes: document.holes.map((h) => {
           if (!ids.has(h.id)) return h;
           const moved = moveHole(h, action.dx, action.dy, document);
-          return markMoved({ ...moved, intervals: [], water_intervals: [] }, h, { x: action.dx, y: action.dy }, axes);
+          return markMoved({ ...moved, intervals: [], water_intervals: [] }, h, axes);
         }),
       };
     }

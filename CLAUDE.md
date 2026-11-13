@@ -672,6 +672,24 @@ magex.materials` — форма рисует список, `ExternalSelect`),
 PR 7 в payload наряда пишутся только когда заданы (`NARYAD_OPTIONAL_KEYS`). Подробности —
 `Docs/MAGEX_INTEGRATION.md`, `Docs/plans/2026-11-12-task-018-pr7.md`.
 
+## Сдвиг скважин на плане (TASK-017, PR 1)
+
+Сдвиг — в осях раскладки, а не X/Y карты: `frontend/src/pages/design/holeMove.ts`
+(«вдоль ряда» — `row_azimuth_deg`, «к откосу» — против продвижения рядов
+вглубь, как у `pattern_origin`; привязка каждой оси — выкл / 0,1 м / a/4 /
+b/4, умолчание a/4 и b/4, от положения до жеста; Shift — одна ось; стрелки —
+по оси, ближней к стрелке на экране, Alt — 0,1 м). Пара у откоса `<id>T`
+едет со своей вертикальной (`withFacePairs`), одна — одна. Серия стрелок —
+одна запись отмены: `MOVE_HOLES.series` и `DesignState.moveSeries` (пауза ≤
+1 с и тот же `present`). Живая проверка при перетаскивании — только на
+клиенте, только подсветка: `liveChecks.ts` (ЛСП — порт `floor_burdens` по
+линии подошвы с плана, без правила развала и `_angle_points`; сосед ближе
+0,5·min(a, b); отступ от кромки — всегда, как в переборе; вне контура).
+Совпадение с сервером держит общая фикстура
+`frontend/src/pages/design/testing/liveLspFixture.json`
+(`tests/test_live_lsp_fixture.py`, перезапись — `BLASTEX_WRITE_FIXTURES=1`).
+План — `Docs/plans/2026-11-13-task-017-pr1.md`.
+
 ## Нумерация скважин
 
 `design/numbering.py::number_by_position`, зовёт `pattern._finish_pattern`.

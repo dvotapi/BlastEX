@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import logging
 from collections import Counter
 
 import numpy as np
@@ -23,6 +24,7 @@ from api.schemas.cad import (
     CadSiteSourcesResponse,
     CadSituationCatalogueResponse,
     CadSituationGeometryResponse,
+    CadSituationLabelSchema,
     CadSituationLayerSchema,
     CadSituationLineSchema,
     CadSituationSeriesSchema,
@@ -30,10 +32,13 @@ from api.schemas.cad import (
     CadWarningSchema,
 )
 from api.services.cad_service import MAX_SITE_SOURCES, crs_named, layer_kinds, source_title
+from api.services.situation_layers import situation_refs
 from design.spatial.cad.model import ROLE_SITUATION, SITUATION_KIND_OTHER, SITUATION_KINDS, CadEntity, ru_number
 from design.spatial.cad.repository import CadRepository, CadSourceNotFound, CadSourceRecord
 from design.spatial.cad.roles import layer_key
 from design.spatial.cad.situation import order_versions, series_key
+
+logger = logging.getLogger(__name__)
 
 # Упрощение линий к показу — как допуск спрямления кривых при чтении.
 SITUATION_SIMPLIFY_M = 0.05
@@ -117,10 +122,16 @@ def catalogue(
     counts.update(repository.count_entities_by_role(organization_id, set(extra), ROLE_SITUATION))
     candidates.update(extra)
 
+    # Планы карьера объекта — одна серия, как бы ни назывались файлы съёмок
+    # («Блок 66 ВЗ…», «Блок 67 ВЗ…»): документы берут из неё самый свежий план.
+    plans = _site_plan_ids(repository, organization_id, site_code) | {
+        source_id for source_id, record in referenced.items() if (record.summary or {}).get("purpose") == "situation"
+    }
     grouped: dict[str, list[CadSourceRecord]] = {}
     for record in candidates.values():
         if counts.get(record.id):
-            grouped.setdefault(series_key(source_title(record)), []).append(record)
+            key = SITE_PLAN_SERIES if record.id in plans else series_key(source_title(record))
+            grouped.setdefault(key, []).append(record)
 
     truncated = over_limit or len(grouped) > MAX_SITUATION_SERIES
     grouped = _within_series_limit(grouped, referenced)
@@ -201,10 +212,12 @@ def _layer_color(members: list[CadEntity], fallback: str | None) -> str | None:
 
 
 def source_situation(repository: CadRepository, organization_id: str, source_id: str) -> CadSituationGeometryResponse:
-    """Геометрия ситуации источника по слоям: линии (упрощённые) и точки.
+    """Геометрия ситуации источника по слоям: линии (упрощённые), точки и подписи.
 
-    Подписи не отдаются — холст их не рисует. Слой, который не помещается в
-    предел вершин, отдаётся без геометрии (`omitted`) с заметкой.
+    Подписи («ДСК», «КПП») — только у плана карьера (ситуации объекта): там
+    числовые подписи (отметки) уже не используются. У чертежа блока подписи не
+    отдаются. Слой, который не помещается в предел вершин, отдаётся без
+    геометрии (`omitted`) с заметкой.
     """
 
     record = repository.get_source(organization_id, source_id)
@@ -215,9 +228,10 @@ def source_situation(repository: CadRepository, organization_id: str, source_id:
     kinds = layer_kinds(summary, entities)
     layer_colors = summary.get("layer_colors") or {}
 
+    with_labels = summary.get("purpose") == "situation"
     by_layer: dict[str, list[CadEntity]] = {}
     for item in entities:
-        if item.geometry_type != "text":
+        if item.geometry_type != "text" or (with_labels and item.text.strip() and item.points):
             by_layer.setdefault(item.layer, []).append(item)
     origin = np.asarray(next((item.points[0] for item in entities if item.points), (0.0, 0.0, 0.0)), dtype=float)
 
@@ -232,7 +246,12 @@ def source_situation(repository: CadRepository, organization_id: str, source_id:
             if item.geometry_type == "line" and len(item.points) >= 2
         ]
         points = [list(item.points[0]) for item in members if item.geometry_type == "point" and item.points]
-        count = sum(len(line.points) for line in lines) + len(points)
+        labels = [
+            CadSituationLabelSchema(text=" ".join(item.text.split())[:80], point=[item.points[0][0], item.points[0][1]])
+            for item in members
+            if item.geometry_type == "text"
+        ]
+        count = sum(len(line.points) for line in lines) + len(points) + len(labels)
         kind = (kinds.get(name) or {}).get("kind") or SITUATION_KIND_OTHER
         layer = CadSituationLayerSchema(
             name=name,
@@ -245,7 +264,7 @@ def source_situation(repository: CadRepository, organization_id: str, source_id:
             layer.omitted = True
             omitted += 1
         else:
-            layer.lines, layer.points = lines, points
+            layer.lines, layer.points, layer.labels = lines, points, labels
             budget -= count
         layers.append(layer)
 
@@ -270,13 +289,87 @@ def source_situation(repository: CadRepository, organization_id: str, source_id:
     )
 
 
+# Сколько источников объекта просматривает поиск ситуации объекта.
+SITE_SITUATION_SCAN = 2000
+# Ключ серии планов карьера объекта в каталоге (не совпадает с ключом названия:
+# в нём нет управляющих символов).
+SITE_PLAN_SERIES = "\x1fsite-plan"
+
+
+def _site_plan_ids(repository: CadRepository, organization_id: str, site_code: str) -> set[str]:
+    """Источники объекта с назначением «ситуация» (планы карьера)."""
+
+    if not site_code:
+        return set()
+    records = repository.list_site_sources(
+        organization_id, site_code, limit=SITE_SITUATION_SCAN, summary_keys=("purpose",)
+    )
+    return {item.id for item in records if (item.summary or {}).get("purpose") == "situation"}
+
+
+def site_situation_ref(repository: CadRepository, organization_id: str, site_code: str) -> dict | None:
+    """Текущая ситуация объекта: самый свежий план карьера (назначение «ситуация»).
+
+    План один на все блоки объекта: свежий по дате съёмки (без даты — по
+    загрузке) заменяет прежний, а не ложится поверх него.
+    """
+
+    if not site_code:
+        return None
+    records = repository.list_site_sources(
+        organization_id, site_code, limit=SITE_SITUATION_SCAN, summary_keys=("purpose",)
+    )
+    plans = [item for item in records if (item.summary or {}).get("purpose") == "situation"]
+    if not plans:
+        return None
+    latest = order_versions(plans)[0]
+    return {"source_id": latest.id, "title": source_title(latest), "survey_date": _iso(latest.survey_date)}
+
+
+def block_situation_refs(
+    repository_factory, organization_id: str, cad: dict | None, site_code: str = "", *, site_refs: dict | None = None
+) -> tuple[list[dict], bool]:
+    """Ссылки ситуации документа блока и признак «взята ситуация объекта».
+
+    Ссылки блока (`contour.cad.situation`) главнее; без них — текущая ситуация
+    объекта: объект — по источнику контура блока, иначе `site_code` документа.
+    База чертежей недоступна — ссылок нет (документ выпускается без ситуации),
+    сбой — в журнал. `site_refs` — найденное раньше по объекту (несколько блоков
+    одного проекта ищут план объекта один раз).
+    """
+
+    refs = [dict(ref) for ref in situation_refs(cad)]
+    if refs:
+        return refs, False
+    try:
+        repository = repository_factory()
+        site = ""
+        source_id = str((cad or {}).get("source_id") or "")
+        if source_id:
+            record = repository.get_source(organization_id, source_id)
+            site = record.site_code if record is not None else ""
+        site = site or site_code
+        if site_refs is not None and site in site_refs:
+            ref = site_refs[site]
+        else:
+            ref = site_situation_ref(repository, organization_id, site)
+            if site_refs is not None:
+                site_refs[site] = ref
+    except Exception:  # noqa: BLE001 — без базы чертежей документ выпускается без ситуации
+        logger.exception("Ситуация объекта не прочитана для документа блока")
+        return [], False
+    return ([ref], True) if ref else ([], False)
+
+
 def list_sources(repository: CadRepository, organization_id: str, site_code: str) -> CadSiteSourcesResponse:
     """«Чертежи объекта»: загруженные файлы активного объекта, новые первыми."""
 
     if not site_code:
         return CadSiteSourcesResponse()
     # На один больше предела: ровно 50 файлов — ещё не «показаны не все».
-    records = repository.list_site_sources(organization_id, site_code, limit=MAX_SITE_SOURCES + 1)
+    records = repository.list_site_sources(
+        organization_id, site_code, limit=MAX_SITE_SOURCES + 1, summary_keys=("purpose",)
+    )
     counts = repository.count_entities_by_role(organization_id, {item.id for item in records}, ROLE_SITUATION)
     return CadSiteSourcesResponse(
         site_code=site_code,
@@ -289,6 +382,7 @@ def list_sources(repository: CadRepository, organization_id: str, site_code: str
                 uploaded_at=item.uploaded_at.isoformat(),
                 uploaded_by=item.uploaded_by,
                 situation_count=counts.get(item.id, 0),
+                purpose="situation" if (item.summary or {}).get("purpose") == "situation" else "block",
             )
             for item in records[:MAX_SITE_SOURCES]
         ],

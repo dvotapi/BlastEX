@@ -91,6 +91,13 @@ L = (S − Z)/cos α + Δ (`geometry.hole_depth_m`), пересчёт —
 `contour.cad.situation` и `coordinate_system.height_system` (только когда
 заданы); на странице — `useSituation`, подложка `SituationCanvas`, группа
 «Ситуация» в «Виде». Базовый слой холста окна — `<canvas>` (`CanvasHitIndex`).
+Ситуация объекта (план карьера, одна на все блоки; план 2026-11-13) —
+`summary.purpose = "situation"`: слой только «Ситуация»/«Не использовать»
+(`situation.assign_situation_roles`, умолчания — `situation_layer_shown`:
+дороги, объекты на поверхности и ЛЭП всегда, скрытые в DWG и чужие блоки —
+нет), отбор — `cad_site_settings.situation_layers`, не шаблон ролей блоков;
+блок без ссылок `contour.cad.situation` берёт самый свежий план карьера
+объекта (`cad_situation_service.block_situation_refs`).
 Подробности — `Docs/CAD_IMPORT.md`; справка «?» окна обновляется в каждом PR
 задачи.
 

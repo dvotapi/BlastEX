@@ -15,6 +15,19 @@ const ZONE_STYLE: Record<string, { stroke: string; label: string }> = {
   mechanisms: { stroke: "#e07b00", label: "механизмы" },
   buildings: { stroke: "#5b6bb5", label: "здания" },
 };
+// Ситуация по видам слоёв — как на листе Г.5; прочее — серым.
+const SITUATION_STYLE: Record<string, { stroke: string; width: number; dash?: number[]; label: string }> = {
+  pit: { stroke: "#5f6b66", width: 0.35, label: "контур карьера" },
+  road: { stroke: "#8c6d46", width: 0.4, label: "дороги" },
+  building: { stroke: "#3a4540", width: 0.35, label: "здания и сооружения" },
+  power_line: { stroke: "#1f6fb2", width: 0.3, dash: [2, 1], label: "ЛЭП" },
+  bench: { stroke: "#7d8388", width: 0.2, label: "бровки и откосы" },
+  boundary: { stroke: "#7a3e9d", width: 0.3, dash: [3, 1, 0.6, 1], label: "границы" },
+  stockpile: { stroke: "#9a8a5a", width: 0.25, label: "склады и отвалы" },
+};
+const SITUATION_DEFAULT = { stroke: "#9aa59f", width: 0.25, label: "прочее" };
+const LABEL_KINDS = new Set(["building", "road", "power_line", "stockpile"]);
+
 const POINT_STYLE: Record<LayoutPointKind, { fill: string; short: string }> = {
   guard_post: { fill: "#b71c1c", short: "П" },
   blast_station: { fill: "#1f5fa8", short: "ВС" },
@@ -104,6 +117,15 @@ export function LayoutPlan({
   const box = view ?? initial;
   if (!box) return <small className="drill-hint">Нет геометрии блока для плана: проверьте проект.</small>;
   const unit = box.w / 140;
+  // Легенда — только виды, которые есть на плане, в порядке стилей.
+  // Неизвестные виды и «прочее» — одной строкой в конце.
+  const situationKinds = [
+    ...new Set(
+      graphics.situation
+        .filter((layer) => layer.lines.length)
+        .map((layer) => (layer.kind in SITUATION_STYLE ? layer.kind : "other")),
+    ),
+  ].sort((a, b) => (a === "other" ? 1 : b === "other" ? -1 : Object.keys(SITUATION_STYLE).indexOf(a) - Object.keys(SITUATION_STYLE).indexOf(b)));
 
   function world(event: { clientX: number; clientY: number }): Pt | null {
     const element = svg.current;
@@ -165,11 +187,28 @@ export function LayoutPlan({
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
       >
-        {graphics.situation.map((layer) =>
-          layer.lines.map((line, index) => (
-            <path key={`${layer.name}:${index}`} d={path(line as Pt[], false)} fill="none" stroke="#9aa59f" strokeWidth={unit * 0.25} />
-          )),
-        )}
+        {graphics.situation.map((layer) => {
+          const style = SITUATION_STYLE[layer.kind] ?? SITUATION_DEFAULT;
+          return layer.lines.map((line, index) => (
+            <path
+              key={`${layer.name}:${index}`}
+              d={path(line as Pt[], false)}
+              fill="none"
+              stroke={style.stroke}
+              strokeWidth={unit * style.width}
+              strokeDasharray={style.dash ? style.dash.map((item) => item * unit).join(" ") : undefined}
+            />
+          ));
+        })}
+        {graphics.situation
+          .filter((layer) => LABEL_KINDS.has(layer.kind))
+          .flatMap((layer) =>
+            (layer.labels ?? []).map((label, index) => (
+              <text key={`${layer.name}:label:${index}`} x={label.point[0]} y={-label.point[1]} fontSize={unit * 1.8} fill="#3a4540">
+                {label.text}
+              </text>
+            )),
+          )}
         {graphics.zones.map((zone) =>
           zone.rings.map((ring, index) => (
             <path key={`${zone.kind}:${index}`} d={path(ring as Pt[], true)} fill="none"
@@ -196,6 +235,14 @@ export function LayoutPlan({
         })}
       </svg>
       <div className="mb-plan-legend">
+        {situationKinds.map((kind) => {
+          const style = SITUATION_STYLE[kind] ?? SITUATION_DEFAULT;
+          return (
+            <span key={`situation:${kind}`} style={{ color: style.stroke }}>
+              — {style.label}
+            </span>
+          );
+        })}
         {graphics.zones.map((zone) => (
           <span key={zone.kind} style={{ color: ZONE_STYLE[zone.kind]?.stroke }}>— зона {ZONE_STYLE[zone.kind]?.label ?? zone.kind} {Math.round(zone.value_m)} м</span>
         ))}

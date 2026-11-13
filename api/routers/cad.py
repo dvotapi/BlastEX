@@ -14,6 +14,7 @@ from api.schemas.cad import (
     MAX_SITUATION_REFERENCES,
     CadAreaBasisRequest,
     CadAreaBasisResponse,
+    CadSiteSituationResponse,
     CadContourLinesRequest,
     CadContourLinesResponse,
     CadContourRequest,
@@ -83,6 +84,7 @@ async def post_sources(
     floor_z_m: float | None = Form(None),
     bench_height_m: float = Form(10.0),
     survey_date: str = Form(""),
+    purpose: str = Form("block"),
     session: dict = Depends(require_internal_access),
     repository: CadRepository = Depends(get_cad_repository),
     snapshot: ReferenceSnapshot = Depends(current_reference_snapshot),
@@ -119,6 +121,7 @@ async def post_sources(
             work_object_name,
             cad_service.parse_survey_date(survey_date),
             snapshot,
+            purpose,
         )
     except (CadImportError, CadSourceNotFound) as exc:
         raise _http(exc) from exc
@@ -139,6 +142,21 @@ def get_site_sources(
     organization_id, _ = _identity(session)
     site_code = cad_service.resolve_site_code(snapshot, work_object_name)
     return cad_situation_service.list_sources(repository, organization_id, site_code)
+
+
+@router.get("/site-situation", response_model=CadSiteSituationResponse)
+def get_site_situation(
+    session: dict = Depends(require_internal_access),
+    repository: CadRepository = Depends(get_cad_repository),
+    snapshot: ReferenceSnapshot = Depends(current_reference_snapshot),
+    work_object_name: str = Depends(current_work_object_name),
+) -> CadSiteSituationResponse:
+    """«Ситуация объекта»: самый свежий план карьера активного объекта (как у документов)."""
+
+    organization_id, _ = _identity(session)
+    site_code = cad_service.resolve_site_code(snapshot, work_object_name)
+    ref = cad_situation_service.site_situation_ref(repository, organization_id, site_code)
+    return CadSiteSituationResponse(site_code=site_code, source_id=ref["source_id"] if ref else None)
 
 
 @router.get("/situation", response_model=CadSituationCatalogueResponse)

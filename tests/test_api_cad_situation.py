@@ -87,7 +87,7 @@ def test_same_file_uploaded_concurrently_opens_the_source_that_won(repository, m
     content = situation_dxf()
     first = _upload(client, ("Положение горных работ на 01.09.2026.dxf", content))[0]
     # Проверка до разбора ещё не видела соседнюю запись.
-    monkeypatch.setattr(repository, "find_source_by_sha", lambda *args: None)
+    monkeypatch.setattr(repository, "find_source_by_sha", lambda *args, **kwargs: None)
 
     again = _upload(client, ("копия.dxf", content))[0]
 
@@ -230,10 +230,12 @@ def test_meta_lists_situation_kinds(repository):
 
     assert [item["code"] for item in meta["situation_kinds"]] == [
         "pit",
+        "bench",
         "road",
         "power_line",
         "stockpile",
         "building",
+        "boundary",
         "other",
     ]
 

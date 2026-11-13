@@ -81,12 +81,17 @@ SITUATION_KIND_POWER_LINE = "power_line"
 SITUATION_KIND_STOCKPILE = "stockpile"
 SITUATION_KIND_BUILDING = "building"
 SITUATION_KIND_OTHER = "other"
+# Ситуация объекта (план карьера): уступы борта и границы отвода, лицензии, аренды.
+SITUATION_KIND_BENCH = "bench"
+SITUATION_KIND_BOUNDARY = "boundary"
 SITUATION_KINDS: tuple[tuple[str, str], ...] = (
     (SITUATION_KIND_PIT, "Контур карьера"),
+    (SITUATION_KIND_BENCH, "Бровки и откосы"),
     (SITUATION_KIND_ROAD, "Дорога"),
     (SITUATION_KIND_POWER_LINE, "ЛЭП"),
     (SITUATION_KIND_STOCKPILE, "Склад"),
     (SITUATION_KIND_BUILDING, "Здание"),
+    (SITUATION_KIND_BOUNDARY, "Границы"),
     (SITUATION_KIND_OTHER, "Прочее"),
 )
 SITUATION_KIND_CODES = frozenset(code for code, _ in SITUATION_KINDS)
@@ -254,6 +259,8 @@ class CadDrawing:
 
     entities: list[CadEntity] = field(default_factory=list)
     layers: dict[str, str | None] = field(default_factory=dict)
+    # Слои, выключенные или замороженные в самом чертеже (маркшейдер их скрыл).
+    hidden_layers: list[str] = field(default_factory=list)
     insunits: int | None = None
     extent: tuple[float, float, float, float] | None = None
     source_format: str = "dxf"

@@ -27,8 +27,8 @@ from api.schemas.drilling_passport import (
     TEXT_LIMITS,
 )
 from api.services.cad_service import active_work_object_name, get_cad_repository, resolve_site_code
-from api.services.cad_situation_service import source_situation
-from api.services.situation_layers import SITUATION_CACHE, design_situation, situation_refs
+from api.services.cad_situation_service import block_situation_refs, source_situation
+from api.services.situation_layers import SITUATION_CACHE, design_situation
 from api.services.drilling_passport_prefill import drilling_condition, prefill, previous_of_site
 from cost.v2.repository import EconomicsRepository, EconomicsRepositoryError
 from design import persistence as design_persistence
@@ -312,10 +312,13 @@ def update_passport(
 _SITUATION_CACHE = SITUATION_CACHE
 
 
-def _plan_situation(organization_id: str, design: BlastDesign) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
-    """Ситуация TASK-013 для плана на стр. 4: версии из `contour.cad.situation`.
+def _plan_situation(
+    organization_id: str, design: BlastDesign, site_code: str = ""
+) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """Ситуация TASK-013 для плана на стр. 4: версии из `contour.cad.situation`,
+    без них — ситуация объекта (план карьера).
 
-    Без ссылок база чертежей не читается. Удалённая версия или слой, не
+    Без ссылок читается только список чертежей объекта. Удалённая версия или слой, не
     уместившийся в предел вершин, — предупреждение: план без них.
     """
 
@@ -328,7 +331,7 @@ def _plan_situation(organization_id: str, design: BlastDesign) -> tuple[list[dic
     # Только чтение: plan_geometry строит свои списки, кэш не меняется.
     layers, problems = design_situation(
         organization_id,
-        situation_refs(design.contour.cad),
+        block_situation_refs(get_cad_repository, organization_id, design.contour.cad, site_code)[0],
         repository_factory=lambda: get_cad_repository(),
         reader=lambda repository, org, source_id: source_situation(repository, org, source_id),
         on_error=log,
@@ -358,7 +361,7 @@ def _context(
     payload = dict(passport.get("payload") or {})
     design = _load_design(organization_id, str(passport["design_id"]))
     refs = _reference_inputs(economics_repository, organization_id, payload)
-    situation, situation_issues = _plan_situation(organization_id, design)
+    situation, situation_issues = _plan_situation(organization_id, design, str(payload.get("site_code") or ""))
     context = passport_context(
         design, payload, refs.site, refs.rig, profile=refs.profile, profile_code=refs.profile_code,
         situation=situation,

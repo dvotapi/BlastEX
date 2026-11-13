@@ -30,6 +30,7 @@ from sqlalchemy import (
     delete,
     func,
     insert,
+    or_,
     select,
     text,
     update,
@@ -124,7 +125,9 @@ class CadRepository(Protocol):
 
     def set_area_basis(self, organization_id: str, site_code: str, area_basis: str, actor: str) -> None: ...
 
-    def find_source_by_sha(self, organization_id: str, site_code: str, sha256: str) -> CadSourceRecord | None: ...
+    def find_source_by_sha(
+        self, organization_id: str, site_code: str, sha256: str, *, purpose: str = "block"
+    ) -> CadSourceRecord | None: ...
 
     def list_site_sources(
         self, organization_id: str, site_code: str, *, limit: int, summary_keys: tuple[str, ...] = ()
@@ -155,6 +158,47 @@ class CadRepository(Protocol):
     def upsert_layer_kinds(
         self, organization_id: str, site_code: str, kinds: dict[str, str | None], actor: str
     ) -> None: ...
+
+    def get_situation_template(self, organization_id: str, site_code: str) -> dict[str, dict[str, Any]]: ...
+
+    def upsert_situation_template(
+        self, organization_id: str, site_code: str, entries: dict[str, dict[str, Any]], actor: str
+    ) -> None: ...
+
+
+def _merge_situation_template(
+    stored: dict[str, dict[str, Any]] | None, entries: dict[str, dict[str, Any]]
+) -> dict[str, dict[str, Any]]:
+    """Шаблон ситуации объекта после правки: имя слоя → `shown` и/или `kind`.
+
+    Правка — разница: ключ, которого нет в записи, не трогается; `kind: None`
+    — «по имени слоя».
+    """
+
+    merged = copy.deepcopy(dict(stored or {}))
+    for name, entry in entries.items():
+        key = layer_key(name)
+        if not key:
+            continue
+        current = dict(merged.get(key) or {})
+        current["name"] = name
+        if "shown" in entry:
+            current["shown"] = bool(entry["shown"])
+        if "kind" in entry:
+            if entry["kind"]:
+                current["kind"] = str(entry["kind"])
+            else:
+                current.pop("kind", None)
+        merged[key] = current
+    return merged
+
+
+# Назначение файла в сводке: "situation" — план карьера, иначе (и без ключа) — чертёж блока.
+PURPOSE_SITUATION = "situation"
+
+
+def _purpose_of(summary: dict[str, Any] | None) -> str:
+    return PURPOSE_SITUATION if (summary or {}).get("purpose") == PURPOSE_SITUATION else "block"
 
 
 def _now() -> datetime:
@@ -260,6 +304,9 @@ class CadSiteSettingsRow(Base):
     crs_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     height_system: Mapped[str | None] = mapped_column(String(120), nullable=True)
     epsg: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Отбор слоёв плана карьера (ситуация объекта): ключ слоя → показывать, вид.
+    # Отдельно от шаблона ролей: «Горизонт +410» у блока — бровки, у плана — ситуация.
+    situation_layers: Mapped[dict[str, Any]] = mapped_column(JsonType, nullable=False, default=dict)
     updated_by: Mapped[str] = mapped_column(String(320), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -405,7 +452,9 @@ class PostgresCadRepository:
                     session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
             for record, entities in items:
                 if reuse_same_file and record.site_code:
-                    found = self._find_by_sha(session, organization_id, record.site_code, record.file_sha256)
+                    found = self._find_by_sha(
+                        session, organization_id, record.site_code, record.file_sha256, _purpose_of(record.summary)
+                    )
                     if found is not None:
                         existing[record.file_sha256] = _record(found)
                         continue
@@ -549,19 +598,30 @@ class PostgresCadRepository:
         with self.session_factory() as session, session.begin():
             session.execute(statement)
 
-    def find_source_by_sha(self, organization_id: str, site_code: str, sha256: str) -> CadSourceRecord | None:
+    def find_source_by_sha(
+        self, organization_id: str, site_code: str, sha256: str, *, purpose: str = "block"
+    ) -> CadSourceRecord | None:
         with self.session_factory() as session:
-            row = self._find_by_sha(session, organization_id, site_code, sha256)
+            row = self._find_by_sha(session, organization_id, site_code, sha256, purpose)
             return None if row is None else _record(row)
 
     @staticmethod
-    def _find_by_sha(session: Any, organization_id: str, site_code: str, sha256: str) -> CadSourceRow | None:
+    def _find_by_sha(
+        session: Any, organization_id: str, site_code: str, sha256: str, purpose: str = "block"
+    ) -> CadSourceRow | None:
+        """Тот же файл того же назначения: план карьера и чертёж блока из одного файла — разные источники."""
+
+        stored = CadSourceRow.summary["purpose"].as_string()
+        same_purpose = stored == PURPOSE_SITUATION if purpose == PURPOSE_SITUATION else or_(
+            stored.is_(None), stored != PURPOSE_SITUATION
+        )
         return session.execute(
             select(CadSourceRow)
             .where(
                 CadSourceRow.organization_id == organization_id,
                 CadSourceRow.site_code == site_code,
                 CadSourceRow.file_sha256 == sha256,
+                same_purpose,
             )
             .order_by(CadSourceRow.uploaded_at.desc())
             .limit(1)
@@ -645,6 +705,44 @@ class PostgresCadRepository:
         )
         with self.session_factory() as session, session.begin():
             session.execute(statement)
+
+    def get_situation_template(self, organization_id: str, site_code: str) -> dict[str, dict[str, Any]]:
+        with self.session_factory() as session:
+            value = session.execute(
+                select(CadSiteSettingsRow.situation_layers).where(
+                    CadSiteSettingsRow.organization_id == organization_id, CadSiteSettingsRow.site_code == site_code
+                )
+            ).scalar_one_or_none()
+            return copy.deepcopy(dict(value or {}))
+
+    def upsert_situation_template(
+        self, organization_id: str, site_code: str, entries: dict[str, dict[str, Any]], actor: str
+    ) -> None:
+        if not entries:
+            return
+        with self.session_factory() as session, session.begin():
+            # Строка объекта — сначала (без перезаписи), затем правка под блокировкой:
+            # две правки из разных окон не затирают друг друга.
+            session.execute(
+                pg_insert(CadSiteSettingsRow)
+                .values(
+                    organization_id=organization_id,
+                    site_code=site_code,
+                    area_basis=DEFAULT_AREA_BASIS,
+                    situation_layers={},
+                    updated_by=actor,
+                    updated_at=_now(),
+                )
+                .on_conflict_do_nothing(index_elements=[CadSiteSettingsRow.organization_id, CadSiteSettingsRow.site_code])
+            )
+            row = session.execute(
+                select(CadSiteSettingsRow)
+                .where(CadSiteSettingsRow.organization_id == organization_id, CadSiteSettingsRow.site_code == site_code)
+                .with_for_update()
+            ).scalar_one()
+            row.situation_layers = _merge_situation_template(row.situation_layers, entries)
+            row.updated_by = actor
+            row.updated_at = _now()
 
     def count_entities_by_role(self, organization_id: str, source_ids: set[str], role: str) -> dict[str, int]:
         if not source_ids:
@@ -806,6 +904,7 @@ class InMemoryCadRepository:
         self._templates: dict[tuple[str, str], dict[str, tuple[str, TemplateEntry]]] = {}
         self._area_bases: dict[tuple[str, str], str] = {}
         self._crs: dict[tuple[str, str], dict[str, Any]] = {}
+        self._situation_templates: dict[tuple[str, str], dict[str, dict[str, Any]]] = {}
 
     def create_sources(
         self,
@@ -817,7 +916,7 @@ class InMemoryCadRepository:
         existing: dict[str, CadSourceRecord] = {}
         for record, entities in items:
             if reuse_same_file and record.site_code:
-                found = self._latest_by_sha(organization_id, record.site_code, record.file_sha256)
+                found = self._latest_by_sha(organization_id, record.site_code, record.file_sha256, _purpose_of(record.summary))
                 if found is not None:
                     existing[record.file_sha256] = found
                     continue
@@ -897,14 +996,21 @@ class InMemoryCadRepository:
     def set_area_basis(self, organization_id: str, site_code: str, area_basis: str, actor: str) -> None:
         self._area_bases[(organization_id, site_code)] = area_basis
 
-    def find_source_by_sha(self, organization_id: str, site_code: str, sha256: str) -> CadSourceRecord | None:
-        return self._latest_by_sha(organization_id, site_code, sha256)
+    def find_source_by_sha(
+        self, organization_id: str, site_code: str, sha256: str, *, purpose: str = "block"
+    ) -> CadSourceRecord | None:
+        return self._latest_by_sha(organization_id, site_code, sha256, purpose)
 
-    def _latest_by_sha(self, organization_id: str, site_code: str, sha256: str) -> CadSourceRecord | None:
+    def _latest_by_sha(
+        self, organization_id: str, site_code: str, sha256: str, purpose: str = "block"
+    ) -> CadSourceRecord | None:
         found = [
             record
             for (org, _), record in self._sources.items()
-            if org == organization_id and record.site_code == site_code and record.file_sha256 == sha256
+            if org == organization_id
+            and record.site_code == site_code
+            and record.file_sha256 == sha256
+            and _purpose_of(record.summary) == purpose
         ]
         if not found:
             return None
@@ -959,6 +1065,15 @@ class InMemoryCadRepository:
             "height_system": crs.get("height_system") or "",
             "epsg": crs.get("epsg"),
         }
+
+    def get_situation_template(self, organization_id: str, site_code: str) -> dict[str, dict[str, Any]]:
+        return copy.deepcopy(self._situation_templates.get((organization_id, site_code), {}))
+
+    def upsert_situation_template(
+        self, organization_id: str, site_code: str, entries: dict[str, dict[str, Any]], actor: str
+    ) -> None:
+        key = (organization_id, site_code)
+        self._situation_templates[key] = _merge_situation_template(self._situation_templates.get(key), entries)
 
     def count_entities_by_role(self, organization_id: str, source_ids: set[str], role: str) -> dict[str, int]:
         counts: dict[str, int] = {}

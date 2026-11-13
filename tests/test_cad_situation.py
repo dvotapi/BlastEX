@@ -36,7 +36,8 @@ class SituationKindTests(unittest.TestCase):
 
     def test_kind_codes_cover_every_rule(self) -> None:
         self.assertEqual(
-            SITUATION_KIND_CODES, {"pit", "road", "power_line", "stockpile", "building", "other"}
+            SITUATION_KIND_CODES,
+            {"pit", "bench", "road", "power_line", "stockpile", "building", "boundary", "other"},
         )
 
     def test_abbreviation_inside_word_is_not_power_line(self) -> None:

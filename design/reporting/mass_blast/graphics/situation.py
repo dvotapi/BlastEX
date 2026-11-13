@@ -43,7 +43,11 @@ LAYER_STYLE = {
     "building": dict(strokeColor=GRAPHITE, strokeWidth=0.6),
     "road": dict(strokeColor=ROAD, strokeWidth=0.8),
     "power_line": dict(strokeColor=POWER, strokeWidth=0.6, strokeDashArray=[1.5 * mm, 0.8 * mm]),
+    # Ситуация объекта (план карьера): уступы борта и границы отвода, лицензии.
+    "bench": dict(strokeColor=HexColor("#6B6F73"), strokeWidth=0.35),
+    "boundary": dict(strokeColor=HexColor("#7A3E9D"), strokeWidth=0.5, strokeDashArray=[2.5 * mm, 0.8 * mm, 0.5 * mm, 0.8 * mm]),
 }
+LABEL_KINDS = frozenset({"building", "road", "power_line", "stockpile"})
 POINT_CODES = {"guard_post": "П", "blast_station": "ВС", "shelter": "У", "gather": "МС"}
 POINT_TITLES = {"blast_station": "Взрывная станция", "shelter": "Укрытие", "gather": "Место сбора"}
 SCHEDULE_KEYS = {"blast_station": "station", "shelter": "shelter", "gather": "gather"}
@@ -104,6 +108,18 @@ def map_drawing(context: Mapping[str, Any], view: PlanView) -> Drawing:
         for item in layer.get("lines") or ():
             for part in _clip(view.line(plan_sheet.line(item))):
                 d.add(PolyLine(pts(part), **style))
+    for layer in graphics.get("situation") or ():
+        # Подписи объектов на поверхности («ДСК», «КПП») — поверх линий ситуации.
+        if str(layer.get("kind")) not in LABEL_KINDS:
+            continue
+        for label in layer.get("labels") or ():
+            point = plan_sheet.point(label.get("point"))
+            if point is None:
+                continue
+            x, y = view.xy(point)
+            if 0 <= x <= MAP_W_MM and 0 <= y <= MAP_H_MM:
+                d.add(String(x * mm, y * mm, str(label.get("text") or "")[:40], fontName=FONT, fontSize=5,
+                             fillColor=GRAPHITE))
     for zone in graphics.get("zones") or ():
         kind = str(zone.get("kind"))
         style = ZONE_STYLE.get(kind, ZONE_STYLE["buildings"])

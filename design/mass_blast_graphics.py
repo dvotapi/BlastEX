@@ -654,7 +654,17 @@ def _clipped_situation(layers: Sequence[Mapping[str, Any]], box) -> tuple[list[d
     остаются самые длинные линии в пределах бюджета (`truncated`)."""
 
     shapes: list[tuple[str, str, list[Any]]] = []
+    labels: dict[str, list[dict[str, Any]]] = {}
+    x0, y0, x1, y1 = box
     for layer in layers:
+        # Подписи плана карьера («ДСК», «КПП») — те, что попали в рамку.
+        inside = [
+            {"text": str(label.get("text") or ""), "point": _xy(label["point"])}
+            for label in layer.get("labels") or ()
+            if label.get("point") and x0 <= float(label["point"][0]) <= x1 and y0 <= float(label["point"][1]) <= y1
+        ]
+        if inside:
+            labels.setdefault(str(layer.get("name") or ""), []).extend(inside)
         parts = []
         for line in layer.get("lines") or ():
             points = [(float(p[0]), float(p[1])) for p in line.get("points") or ()]
@@ -663,7 +673,7 @@ def _clipped_situation(layers: Sequence[Mapping[str, Any]], box) -> tuple[list[d
             geometry = LineString(points + ([points[0]] if line.get("closed") and len(points) >= 3 else []))
             clipped = shapely.clip_by_rect(geometry, *box)
             parts += [part for part in getattr(clipped, "geoms", [clipped]) if not part.is_empty and part.geom_type == "LineString"]
-        if parts:
+        if parts or inside:
             shapes.append((str(layer.get("name") or ""), str(layer.get("kind") or ""), parts))
     tolerance = SITUATION_SIMPLIFY_M
     previous = None
@@ -677,7 +687,7 @@ def _clipped_situation(layers: Sequence[Mapping[str, Any]], box) -> tuple[list[d
                     lines.append((index, float(simple.length), coords))
         total = sum(len(coords) for _index, _length, coords in lines)
         if total <= SITUATION_MAX_POINTS:
-            return _situation_layers(shapes, lines), tolerance, False
+            return _situation_layers(shapes, lines, labels), tolerance, False
         if previous is not None and total >= previous:
             break
         previous = total
@@ -688,18 +698,24 @@ def _clipped_situation(layers: Sequence[Mapping[str, Any]], box) -> tuple[list[d
         if len(item[2]) <= budget:
             kept.append(item)
             budget -= len(item[2])
-    return _situation_layers(shapes, kept), tolerance, True
+    return _situation_layers(shapes, kept, labels), tolerance, True
 
 
-def _situation_layers(shapes, lines) -> list[dict[str, Any]]:
+def _situation_layers(shapes, lines, labels: Mapping[str, list[dict[str, Any]]] | None = None) -> list[dict[str, Any]]:
     by_layer: dict[int, list[list[list[float]]]] = {}
     for index, _length, coords in lines:
         by_layer.setdefault(index, []).append(coords)
-    return [
-        {"name": name, "kind": kind, "lines": by_layer[index]}
-        for index, (name, kind, _parts) in enumerate(shapes)
-        if index in by_layer
-    ]
+    labels = labels or {}
+    result = []
+    for index, (name, kind, _parts) in enumerate(shapes):
+        if index not in by_layer and not labels.get(name):
+            continue
+        layer: dict[str, Any] = {"name": name, "kind": kind, "lines": by_layer.get(index, [])}
+        # Ключ — только когда подписи есть: Г.5 ревизий до ситуации объекта не меняется.
+        if labels.get(name):
+            layer["labels"] = labels[name]
+        result.append(layer)
+    return result
 
 
 def project_graphics(

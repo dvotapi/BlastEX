@@ -166,6 +166,38 @@ def test_validate_v2_returns_context_and_issues(monkeypatch, design, block):
     assert data["valid"] is True, [issue for issue in data["issues"] if issue["level"] == "error"]
 
 
+def test_validate_v2_takes_pit_plan_of_site_for_block_without_refs(monkeypatch, design, block):
+    """Блок без ссылок ситуации — план карьера объекта (план 2026-11-13, §3.3): Г.5 с ситуацией и подписями."""
+
+    from datetime import date, datetime, timezone
+
+    collar = design.holes[0].collar
+    plan = SimpleNamespace(
+        id="plan-1", title="Ситуационный план", file_name="", survey_date=date(2026, 9, 24),
+        uploaded_at=datetime(2026, 9, 25, tzinfo=timezone.utc), summary={"purpose": "situation"}, revision=1,
+    )
+    cad = SimpleNamespace(
+        list_site_sources=lambda organization_id, site_code, *, limit, summary_keys=(): [plan] if site_code == "ZHK" else [],
+        get_source=lambda organization_id, source_id, *, with_file=False: plan if source_id == "plan-1" else None,
+    )
+    line = SimpleNamespace(points=[[collar.x - 30, collar.y + 20, 0.0], [collar.x + 30, collar.y + 20, 0.0]], closed=False)
+    label = SimpleNamespace(text="ДСК", point=[collar.x, collar.y + 25])
+    layer = SimpleNamespace(name="Сооружения", kind="building", lines=[line], labels=[label], omitted=False)
+    monkeypatch.setattr(mass_blast_v2, "get_cad_repository", lambda: cad)
+    monkeypatch.setattr(mass_blast_v2, "source_situation", lambda repository, organization_id, source_id: SimpleNamespace(layers=[layer]))
+    from api.services.situation_layers import SITUATION_CACHE
+
+    SITUATION_CACHE.clear()
+    repository = _Repository(_stored_v2(block))
+    data = _client(monkeypatch, repository, design).post(f"{BASE}/p1/validate").json()
+    SITUATION_CACHE.clear()
+    graphics = data["context"]["graphics"]
+    assert graphics["has_situation"] is True
+    assert "situation_missing" not in {issue["code"] for issue in data["issues"]}
+    (situation,) = graphics["situation"]
+    assert situation["kind"] == "building" and [item["text"] for item in situation["labels"]] == ["ДСК"]
+
+
 def test_validate_v2_reports_a_changed_source(monkeypatch, design, block):
     stored = _stored_v2(block)
     stored["blocks"][0]["design_sha256"] = "0" * 64

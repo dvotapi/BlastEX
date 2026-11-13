@@ -107,3 +107,33 @@ def test_situation_migration_is_reversible_and_titles_old_sources(public_db) -> 
     with public_db.connect() as connection:
         title = connection.execute(text("SELECT title FROM blastex.cad_sources WHERE id = 'old'")).scalar_one()
     assert title == "28.09 граница блока 66.v2"
+
+
+@requires_pg
+def test_site_situation_layers_migration_and_template(public_db) -> None:
+    """Ситуация объекта (план 2026-11-13): столбец отбора слоёв плана карьера и его запись."""
+
+    from design.spatial.cad.repository import PostgresCadRepository
+
+    assert "situation_layers" in _columns(public_db, "cad_site_settings")
+    _alembic("downgrade", "20261113_0015")
+    assert "situation_layers" not in _columns(public_db, "cad_site_settings")
+    _alembic("upgrade", "20261113_0016")
+    assert "situation_layers" in _columns(public_db, "cad_site_settings")
+
+    repository = PostgresCadRepository(TEST_DATABASE_URL)
+    repository.set_area_basis("org-a", "SITE_ZK", "top", "a@example.ru")
+    assert repository.get_situation_template("org-a", "SITE_ZK") == {}
+    repository.upsert_situation_template("org-a", "SITE_ZK", {"Дороги": {"shown": False}}, "a@example.ru")
+    repository.upsert_situation_template("org-a", "SITE_ZK", {"Дороги ": {"kind": "road"}}, "a@example.ru")
+    repository.upsert_situation_template("org-a", "SITE_NEW", {"Сооружения": {"shown": True}}, "a@example.ru")
+    assert repository.get_situation_template("org-a", "SITE_ZK") == {
+        "дороги": {"name": "Дороги ", "shown": False, "kind": "road"}
+    }
+    assert repository.get_situation_template("org-a", "SITE_NEW") == {
+        "сооружения": {"name": "Сооружения", "shown": True}
+    }
+    # Отбор не трогает площадь блока объекта.
+    assert repository.get_area_basis("org-a", "SITE_ZK") == "top"
+    repository.upsert_situation_template("org-a", "SITE_ZK", {"Дороги": {"kind": None}}, "a@example.ru")
+    assert repository.get_situation_template("org-a", "SITE_ZK")["дороги"] == {"name": "Дороги", "shown": False}

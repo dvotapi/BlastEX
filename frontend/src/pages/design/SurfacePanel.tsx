@@ -66,6 +66,7 @@ export function SurfacePanel({
   onImportBlock,
   onClear,
   onOpenSources,
+  onOpenSiteSituation,
   busy,
 }: {
   surfaces: SurfaceSet;
@@ -90,6 +91,8 @@ export function SurfacePanel({
   onClear: (kind: SurfaceKind) => void;
   /** «Чертежи объекта» (TASK-013, PR 4): загруженные файлы — открыть без повторной загрузки или удалить. */
   onOpenSources: () => void;
+  /** «Ситуация объекта»: план карьера — один на все блоки объекта, с отбором слоёв. */
+  onOpenSiteSituation?: () => void;
   busy: boolean;
 }) {
   const [kind, setKind] = useState<SurfaceKind>("top");
@@ -130,6 +133,11 @@ export function SurfacePanel({
           <button type="button" className="secondary-button drawing-sources-button" disabled={busy} onClick={onOpenSources}>
             Чертежи объекта
           </button>
+          {onOpenSiteSituation && (
+            <button type="button" className="secondary-button drawing-sources-button" disabled={busy} onClick={onOpenSiteSituation}>
+              Ситуация объекта
+            </button>
+          )}
           {/* Предупреждение только когда есть что терять: на пустом паспорте
               оно лишний шум, а именно с него и начинается работа. */}
           {holeCount > 0 && (

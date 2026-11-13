@@ -191,6 +191,7 @@ import type {
   CadRoleCode,
   CadRolesPayload,
   CadRolesResponse,
+  CadSiteSituation,
   CadSiteSources,
   CadSituationCatalogue,
   CadSituationGeometry,
@@ -492,6 +493,7 @@ export const api = {
       // Пустая подошва не отправляется: сервер берёт её из имени слоя.
       if (params.floorZM !== undefined && params.floorZM !== null) form.append("floor_z_m", String(params.floorZM));
       if (params.surveyDate) form.append("survey_date", params.surveyDate);
+      if (params.purpose) form.append("purpose", params.purpose);
       return postForm<CadImportResponse>(`${V1}/design/cad/sources`, form);
     },
     source: (id: string) => get<CadSource>(`${V1}/design/cad/sources/${encodeURIComponent(id)}`),
@@ -513,6 +515,7 @@ export const api = {
       put<CadCrsResponse>(`${V1}/design/cad/sources/${encodeURIComponent(id)}/crs`, crs),
     /** «Чертежи объекта» — объект берёт сервер (активный объект организации). */
     siteSources: () => get<CadSiteSources>(`${V1}/design/cad/sources`),
+    siteSituation: () => get<CadSiteSituation>(`${V1}/design/cad/site-situation`),
     deleteSource: (id: string) => del<void>(`${V1}/design/cad/sources/${encodeURIComponent(id)}`),
     /**
      * Серии ситуации объекта паспорта: по ссылкам паспорта, без ссылки — активного

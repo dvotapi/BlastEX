@@ -25,7 +25,18 @@ export type CadRoleInfo = { code: CadLayerRoleCode; label: string; applies_to: s
 export type CadAreaBasis = "top" | "bottom" | "mean";
 
 /** Вид объекта ситуации (PR 4): хранится сразу, чтобы позже повесить охранные зоны. */
-export type CadSituationKind = "pit" | "road" | "power_line" | "stockpile" | "building" | "other";
+export type CadSituationKind =
+  | "pit"
+  | "bench"
+  | "road"
+  | "power_line"
+  | "stockpile"
+  | "building"
+  | "boundary"
+  | "other";
+
+/** Назначение файла: чертёж блока или план карьера — ситуация объекта на все блоки. */
+export type CadPurpose = "block" | "situation";
 
 /** Система координат объекта: местная без EPSG — полноценный вариант. */
 export type CadCrs = { name: string; height_system: string; epsg: number | null };
@@ -100,6 +111,8 @@ export type CadLayer = {
   /** Вид объектов ситуации слоя — только у слоёв, где они есть. */
   situation_kind?: CadSituationKind | null;
   situation_kind_origin?: CadOrigin | null;
+  /** Слой выключен или заморожен в самом чертеже. */
+  hidden?: boolean;
 };
 
 export type CadSource = {
@@ -108,6 +121,8 @@ export type CadSource = {
   /** Название: источники объекта с одинаковым названием — версии одной серии ситуации. */
   title: string;
   format: "dxf" | "dwg";
+  /** План карьера: слой только «Ситуация» или «Не использовать». */
+  purpose?: CadPurpose;
   site_code: string;
   work_object_name: string;
   uploaded_at: string;
@@ -138,6 +153,8 @@ export type CadUploadParams = {
   labelRadiusM?: number;
   floorZM?: number | null;
   surveyDate?: string;
+  /** "situation" — план карьера (ситуация объекта); по умолчанию — чертёж блока. */
+  purpose?: CadPurpose;
 };
 
 /** Ручные роли: слою — роль, сущности — роль или null (вернуть роль слоя). */
@@ -192,6 +209,9 @@ export type CadSituationCatalogue = {
 
 export type CadSituationLine = { points: CadPoint[]; closed: boolean };
 
+/** Подпись объекта плана карьера («ДСК», «КПП»). */
+export type CadSituationLabel = { text: string; point: number[] };
+
 export type CadSituationLayer = {
   name: string;
   kind: CadSituationKind;
@@ -199,6 +219,7 @@ export type CadSituationLayer = {
   color: string | null;
   lines: CadSituationLine[];
   points: CadPoint[];
+  labels?: CadSituationLabel[];
   vertex_count: number;
   /** Не уместился в предел ответа — геометрии нет. */
   omitted: boolean;
@@ -222,7 +243,11 @@ export type CadSiteSource = {
   uploaded_at: string;
   uploaded_by: string;
   situation_count: number;
+  purpose?: CadPurpose;
 };
+
+/** Текущий план карьера активного объекта — тот, что берут документы блоков без ссылок. */
+export type CadSiteSituation = { site_code: string; source_id: string | null };
 
 export type CadSiteSources = { site_code: string; sources: CadSiteSource[]; truncated: boolean };
 

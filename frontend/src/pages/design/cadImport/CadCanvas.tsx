@@ -147,6 +147,7 @@ export function CadCanvas({
   snapMinM = 0,
   onPick,
   overlay,
+  fitEntities,
 }: {
   entities: CadEntity[];
   /** Смена ключа (другой файл, другой масштаб) заново вписывает чертёж. */
@@ -163,6 +164,8 @@ export function CadCanvas({
   snapMinM?: number;
   onPick?: (pick: Pick) => void;
   overlay?: (toScreen: ScreenProjector) => ReactNode;
+  /** По чему вписывать вид (по умолчанию — по `entities`): постоянный набор не даёт виду прыгать. */
+  fitEntities?: CadEntity[];
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState<Viewport>({ width: 800, height: 600 });
@@ -187,7 +190,8 @@ export function CadCanvas({
   // Новый файл или масштаб — вписываем чертёж заново при следующей отрисовке.
   useEffect(() => setCamera(null), [fitKey]);
 
-  const fitted = useMemo(() => fittedCamera(entities, viewport), [entities, viewport]);
+  const fitBy = fitEntities ?? entities;
+  const fitted = useMemo(() => fittedCamera(fitBy, viewport), [fitBy, viewport]);
   const cam = camera ?? fitted;
 
   const lines = useMemo(

@@ -5,6 +5,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from design.mass_blast_defaults import MAX_BLOCK_AREA_M2
+
 
 class MassBlastBlockDetailsSchema(BaseModel):
     """Поля блока проекта МВ v2 (TASK-018, PR 2): геология, назначение, площадь, примечания к скважинам."""
@@ -14,7 +16,7 @@ class MassBlastBlockDetailsSchema(BaseModel):
     rock_text: str = Field("", max_length=300)
     hydro_text: str = Field("", max_length=200)
     purpose: Literal["", "MINING", "STRIPPING"] = ""
-    area_m2: float | None = Field(None, gt=0, le=1_000_000)
+    area_m2: float | None = Field(None, gt=0, le=MAX_BLOCK_AREA_M2)
     # Ручное примечание к скважине в таблице параметров — только действие.
     hole_notes: dict[str, str] = Field(default_factory=dict, max_length=2000)
 

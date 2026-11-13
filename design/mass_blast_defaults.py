@@ -43,6 +43,9 @@ __all__ = [
 REFERENCE = "REFERENCE"  # справочник объекта
 DESIGN = "DESIGN"  # проект блока
 SURVEY = "SURVEY"  # маркшейдерская съёмка блока (импорт чертежа)
+
+# Наибольшая площадь блока — предел поля `details.area_m2` в схеме API.
+MAX_BLOCK_AREA_M2 = 1_000_000
 DRILL_PASSPORT = "DRILL_PASSPORT"  # паспорт на бурение блока
 PREVIOUS = "PREVIOUS"  # прошлый проект МВ объекта (у слоёв — прошлый наряд)
 RULE = "RULE"  # правило: дата взрыва, шаблон №, Общество
@@ -418,7 +421,8 @@ def project_defaults(payload: Mapping[str, Any], inputs: DefaultsInputs) -> dict
         _put(result, f"blocks[{index}].details.rock_text", rock_text(design), DESIGN)
         _put(result, f"blocks[{index}].details.hydro_text", hydro_text(design), DESIGN)
         area = block_area(design)
-        if area and round(area[0]) > 0:
+        # Предел — как у ручного ввода (схема поля): больше — контур не в метрах, не подставляем.
+        if area and 0 < round(area[0]) <= MAX_BLOCK_AREA_M2:
             # До целого м², как площадь печатает техрасчёт.
             _put(result, f"blocks[{index}].details.area_m2", float(round(area[0])), area[1])
 

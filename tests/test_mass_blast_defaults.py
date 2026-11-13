@@ -81,6 +81,9 @@ def test_block_area_from_survey(design):
     # Вершины правили после построения — площадь съёмки к контуру уже не относится.
     surveyed.contour.cad = {**surveyed.contour.cad, "edited": True}
     assert block_area(surveyed) == (contour_area_m2(design), "DESIGN")
+    # Больше предела поля (контур не в метрах) — не подставляется: инженер видит пустое поле.
+    surveyed.contour.cad = {"source_id": "s1", "area_m2": 2_000_000.0}
+    assert "blocks[0].details.area_m2" not in project_defaults(_payload(), DefaultsInputs(designs=[surveyed]))
 
 
 def test_source_order_reference_then_passport_then_previous(design):

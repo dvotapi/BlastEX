@@ -184,3 +184,12 @@ def test_design_is_not_changed():
 
 def test_context_is_reproducible():
     assert content_sha256(context66()) == content_sha256(context66())
+
+
+def test_techcalc_area_from_survey_when_field_empty():
+    """Разд. 1 техрасчёта: поле площади пустое — площадь из съёмки (`contour.cad.area_m2`), не площадь контура."""
+
+    design = design66()
+    design.contour.cad = {"source_id": "s1", "area_basis": "mean", "area_m2": 3455.42}
+    general = _section(context66(design), "1")["items"][0]["text"]
+    assert "площадь 3\u00a0455 м²" in general or "площадь 3 455 м²" in general

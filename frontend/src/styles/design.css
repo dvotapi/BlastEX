@@ -143,6 +143,7 @@
 .hole-inspector-grid { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(220px,.9fr); gap:12px; padding:0 14px 14px; }
 .hole-inspector-fields { display:grid; gap:8px; }
 .hole-manual-mark { margin-left:4px; padding:0 5px; border-radius:6px; background:#fdf3e1; color:#7a4e0c; font-size:var(--fs-small); }
+.hole-moved-note { padding:3px 6px; border-radius:6px; background:#fdf3e1; color:#7a4e0c; font-size:var(--fs-small); }
 .hole-surface-flag { padding:3px 6px; border-radius:6px; background:#fce9e7; color:#9e3025; font-size:var(--fs-small); }
 .hole-charge-sketch { display:grid; gap:4px; justify-items:center; }
 .hole-charge-sketch b { font-size:12px; }
@@ -414,7 +415,37 @@
 .warnings-list { display:grid; gap:6px; max-height:180px; overflow:auto; }
 .warning-item { padding:8px 10px; border-radius:8px; background:#fdf3e0; color:#8a5a1a; font-size:11px; line-height:1.4; }
 
-.connector-line { stroke:#7a6ee0; stroke-width:1.2; opacity:0.65; marker-end:url(#arrow-connector); }
+.connector-line { stroke:#7a6ee0; stroke-width:1.2; opacity:0.65; }
+/* Связи на плане (TASK-017, PR 4): цвет — по ступени палитры (currentColor). */
+.tie-link { color:#7a6ee0; }
+.tie-link .connector-line { stroke:currentColor; stroke-width:1.6; opacity:.85; }
+.tie-link .connector-arrow { fill:currentColor; opacity:.9; }
+.tie-link .connector-label { fill:currentColor; font-size:8.5px; font-weight:var(--font-weight-strong); paint-order:stroke; stroke:#fff; stroke-width:2.5px; }
+.tie-link.hovered .connector-line { stroke-width:2.6; opacity:1; }
+.tie-link.selected .connector-line { stroke-width:2.8; opacity:1; }
+.tie-link-halo { stroke:#ffd54f; stroke-width:7; stroke-linecap:round; opacity:.7; }
+.tie-end-grip { fill:#fff; stroke:currentColor; stroke-width:1.5; }
+.tie-flash { stroke:#c0392b; stroke-width:3; stroke-dasharray:6 3; animation:tie-flash 0.25s steps(2, jump-none) 4; opacity:0; }
+@keyframes tie-flash { from { opacity:1; } to { opacity:0.1; } }
+.tie-chain-preview { stroke:#7a6ee0; stroke-width:2; stroke-dasharray:6 4; fill:none; pointer-events:none; }
+.hole-marker circle.unsignaled-ring { fill:none; stroke:#c0392b; stroke-width:2.2; }
+.starter-glyph { fill:#1f6f4a; stroke:#fff; stroke-width:0.8; }
+.tie-palette { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:6px 10px; border-bottom:1px solid #e2e9e5; background:#f8faf9; }
+.tie-palette kbd { font-size:10px; color:#6b7a73; }
+.tie-palette .tie-step { min-width:38px; font-weight:var(--font-weight-strong); border:2px solid; background:#fff; }
+.tie-palette .tie-step.active { box-shadow:inset 0 0 0 2px currentColor; background:#f1f6f3; }
+.tie-palette .tie-step-custom.active input { border-color:#2d7556; }
+.tie-palette input[type="number"] { width:64px; }
+.tie-context-title { padding:4px 10px; color:#5c6a63; }
+.tie-context-steps { display:flex; align-items:center; gap:2px; padding:2px 6px; flex-wrap:wrap; }
+.tie-context-steps span { font-size:12px; margin-right:4px; }
+.tie-context-steps button { padding:4px 7px !important; font-weight:var(--font-weight-strong); }
+.tie-context-steps button.active { background:#eef5f1; box-shadow:inset 0 0 0 1px currentColor; }
+.tie-legend { display:flex; flex-wrap:wrap; gap:6px; }
+.tie-legend button { display:inline-flex; gap:4px; align-items:center; border:2px solid; border-radius:8px; background:#fff; padding:3px 8px; font-size:12px; cursor:pointer; }
+.tie-legend button.active { background:#f1f6f3; box-shadow:inset 0 0 0 1px currentColor; }
+.tie-legend small { color:#5c6a63; }
+.tie-counters { color:#3b4b43; }
 .connector-label { fill:#5c4fc4; font-size:8px; }
 .detcord-line { stroke:#c45c1a; stroke-width:2; stroke-dasharray:5 3; opacity:0.7; }
 .isoline-segment { stroke:#2d9cdb; stroke-width:1; opacity:0.35; }
@@ -430,7 +461,6 @@
 
 .tie-edit-block { display:grid; gap:8px; padding-top:6px; border-top:1px solid #e2eae6; }
 .tie-edit-block b { font-size:12px; }
-.tie-list { display:grid; gap:6px; max-height:180px; overflow:auto; }
 .tie-row { display:grid; grid-template-columns:1fr 70px 28px; gap:6px; align-items:center; font-size:11px; }
 .tie-row input { padding:6px 8px; }
 .ghost-button { border:0; background:#f3f6f4; border-radius:7px; cursor:pointer; font-size:14px; }
@@ -653,3 +683,28 @@
 .relief-notes { display:flex; flex-direction:column; gap:2px; }
 .relief-note-warning { color:#745014; }
 .relief-legend-item { display:inline-flex; align-items:center; gap:4px; white-space:nowrap; }
+/* Сдвиг скважин (TASK-017): подсказка у курсора и нарушения живой проверки. */
+/* Сдвинута от узла сетки (TASK-017, PR 2): пунктирное кольцо, точка узла и линия к устью. */
+.hole-marker .hole-moved-mark { pointer-events:none; }
+.hole-marker .hole-moved-mark circle.hole-moved-ring { fill:none; stroke:#b7791f; stroke-width:1.6; stroke-dasharray:3 2; }
+.hole-marker .hole-moved-mark circle.hole-moved-node { fill:#b7791f; stroke:none; }
+.hole-marker .hole-moved-mark line.hole-moved-link { stroke:#b7791f; stroke-width:1.2; stroke-dasharray:2 2; }
+.hole-marker.live-violation circle.live-violation-ring { fill:none; stroke:#c0392b; stroke-width:2.5; stroke-dasharray:4 2; opacity:1; }
+.plan-drag-tip { position:absolute; z-index:5; max-width:320px; padding:6px 9px; border-radius:8px; background:rgba(16,41,31,.9); color:#eaf3ef; font-size:11px; line-height:1.45; pointer-events:none; white-space:nowrap; box-shadow:0 4px 14px rgba(16,41,31,.25); }
+.plan-drag-tip.warn { box-shadow:0 0 0 2px #c0392b, 0 4px 14px rgba(16,41,31,.25); }
+.plan-drag-tip .bad { color:#ffb4a8; font-weight:var(--font-weight-strong); white-space:normal; }
+
+/* «Построить сетку» при сдвинутых скважинах (TASK-017, PR 2). */
+.moved-holes-backdrop { position:fixed; inset:0; z-index:30; display:grid; place-items:center; padding:16px; background:rgba(16,41,31,.35); }
+.moved-holes-dialog { max-width:440px; padding:18px 20px; border-radius:12px; background:#fff; box-shadow:0 12px 40px rgba(16,41,31,.25); }
+.moved-holes-dialog h2 { margin:0 0 8px; font-size:var(--fs-large, 16px); }
+.moved-holes-dialog p { margin:0 0 14px; color:#4a5c54; font-size:var(--fs-small); line-height:1.45; }
+.moved-holes-actions { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; }
+
+/* Пересчёт коммутации после сдвига (TASK-017, PR 3): бейдж над планом и баннер вкладки «Коммутация». */
+.map-retie-badge { display:flex; align-items:center; flex-wrap:wrap; gap:6px 10px; padding:5px 10px; border-radius:8px; background:#fde8d4; color:#5a3d12; font-size:12px; font-weight:var(--font-weight-strong); }
+.map-retie-badge .secondary-button { padding:3px 10px; font-size:12px; }
+.map-retie-badge > button:not(.secondary-button) { margin-left:auto; border:0; background:none; color:inherit; cursor:pointer; font-size:14px; }
+.retie-banner { display:flex; flex-direction:column; gap:6px; margin-bottom:10px; padding:8px 10px; border-radius:8px; background:#fde8d4; color:#5a3d12; }
+.retie-banner small { color:inherit; }
+.retie-summary { display:block; margin-bottom:8px; color:var(--text-muted, #5f6b7a); }

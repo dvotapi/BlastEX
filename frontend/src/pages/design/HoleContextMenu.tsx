@@ -14,6 +14,8 @@ export function HoleContextMenu({
   onToggleStarter,
   onCopyParams,
   onZoomToHole,
+  onReturnToNode,
+  returnToNodeIds = [],
   isStarter,
   enabled,
 }: {
@@ -24,6 +26,10 @@ export function HoleContextMenu({
   onToggleStarter: (id: string) => void;
   onCopyParams: (id: string) => void;
   onZoomToHole: (id: string) => void;
+  /** «Вернуть в узел сетки» (TASK-017, PR 2): сдвинутые скважины пункта меню. */
+  onReturnToNode?: (ids: string[]) => void;
+  /** Сдвинутые скважины, которые вернёт пункт: эта или сдвинутые из выделения; пусто — пункта нет. */
+  returnToNodeIds?: string[];
   isStarter: boolean;
   enabled: boolean;
 }) {
@@ -71,6 +77,11 @@ export function HoleContextMenu({
       <button type="button" role="menuitem" onClick={() => { onCopyParams(menu.holeId); onClose(); }}>
         Копировать параметры
       </button>
+      {onReturnToNode && returnToNodeIds.length > 0 && (
+        <button type="button" role="menuitem" onClick={() => { onReturnToNode(returnToNodeIds); onClose(); }}>
+          {returnToNodeIds.length > 1 ? `Вернуть в узел сетки (${returnToNodeIds.length})` : "Вернуть в узел сетки"}
+        </button>
+      )}
     </div>
   );
 }

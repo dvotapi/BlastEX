@@ -12,15 +12,16 @@ from __future__ import annotations
 
 import math
 from collections import Counter
+from dataclasses import replace
 from typing import Any, Mapping
 
 import numpy as np
 from scipy.spatial import cKDTree
 
 from design.geometry import crest_azimuth_deg, local_basis, pattern_origin
-from design.models import FACE_TOE_KIND, BlockContour, Hole, in_main_grid, is_lattice_hole, is_main_grid_row
+from design.models import FACE_TOE_KIND, BlockContour, Hole, Point3, in_main_grid, is_lattice_hole, is_main_grid_row
 from design.numbering import number_by_position
-from design.pattern import face_row_numbering_xy, layout_row_kind, taper_numbering_xy, uses_back_layout
+from design.pattern import face_row_numbering_xy, is_moved_hole, layout_row_kind, taper_numbering_xy, uses_back_layout
 
 # Вставки, которые генератор добавляет после ряда у бровки (`pattern._finish_pattern`).
 _ADDED_AFTER_LAYOUT = ("buffer", "stab", "satellite", "infill")
@@ -125,6 +126,19 @@ def _lattice_azimuth(holes: list[Hole], contour: BlockContour) -> float:
     return min(candidates, key=lambda direction: _axial_gap(direction, crest))
 
 
+def _at_node(hole: Hole) -> Hole:
+    """Сдвинутая от узла скважина (TASK-017, PR 2) — в своём узле: номер даёт узел."""
+    if not is_moved_hole(hole):
+        return hole
+    offset = hole.manual_offset
+    dx, dy = offset.node_x - hole.collar.x, offset.node_y - hole.collar.y
+    return replace(
+        hole,
+        collar=Point3(offset.node_x, offset.node_y, hole.collar.z),
+        toe=Point3(hole.toe.x + dx, hole.toe.y + dy, hole.toe.z),
+    )
+
+
 def renumber_map(holes: list[Hole], contour: BlockContour, pattern_params: Mapping[str, Any]) -> dict[str, str]:
     """Старый номер → новый — только у скважин, номер которых меняется.
 
@@ -132,10 +146,11 @@ def renumber_map(holes: list[Hole], contour: BlockContour, pattern_params: Mappi
     пара у откоса — номер своей вертикальной с «T» (вертикальная — по
     прежнему номеру пары без «T»). Нет `row_azimuth_deg` в параметрах —
     азимут рядов по самим скважинам (`_lattice_azimuth`). Номер достался бы
-    двум скважинам — `RenumberConflict`.
+    двум скважинам — `RenumberConflict`. Сдвинутая от узла — по узлу.
     """
 
     params = pattern_params or {}
+    holes = [_at_node(hole) for hole in holes]
     layout = [hole for hole in holes if _in_generated_layout(hole, params)]
     if "row_azimuth_deg" in params:
         row_azimuth = float(params["row_azimuth_deg"])

@@ -17,6 +17,7 @@ import {
   DEFAULT_PATTERN_PARAMS,
   DEFAULT_TIE_PARAMS,
   normalizeNetwork,
+  SCHEME_TYPES,
   type Hole,
   type InitiationNetwork,
   type LayoutSearchVariant,
@@ -30,6 +31,7 @@ import {
   fingerprintOfJson,
   layoutFingerprint,
   layoutSearchInputs,
+  movedHoleKeys,
   stableJson,
   useLayoutSearch,
   wiredContourHoles,
@@ -43,7 +45,6 @@ function definedParams(params: PatternParams): Record<string, unknown> {
 
 export type { ChargeGrid };
 
-const SCHEMES: ReadonlySet<string> = new Set<SchemeType>(["row", "echelon", "diagonal_v", "trapezoid", "trunk_chains"]);
 
 function finite(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -60,7 +61,7 @@ export function tieFormFromNetwork(
   prev: TieParams,
 ): { scheme: SchemeType; params: TieParams } | null {
   const timing = network.timing_params ?? {};
-  if (typeof timing.scheme !== "string" || !SCHEMES.has(timing.scheme)) return null;
+  if (typeof timing.scheme !== "string" || !SCHEME_TYPES.has(timing.scheme)) return null;
   const scheme = timing.scheme as SchemeType;
   const flank = timing.cut_flank === "left" || timing.cut_flank === "right" ? timing.cut_flank : DEFAULT_TIE_PARAMS.cut_flank;
   return {
@@ -147,12 +148,16 @@ export function useLayoutSearchApply({
     () => wiredContourHoles(document.holes, document.network).join("\n"),
     [document.holes, document.network],
   );
+  // Сдвиги от узлов (TASK-017, PR 2) — так же: по значению (ключ — строка).
+  const movedNow = movedHoleKeys(document.holes);
+  const movedKey = stableJson(movedNow);
+  const moved = useMemo(() => movedNow, [movedKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const networkSystem = document.network?.system ?? null;
   const inputsJson = useMemo(
-    () => stableJson(layoutSearchInputs(document, formParams, wiredKey ? wiredKey.split("\n") : [])),
-    // Сеть и скважины входят только системой и списком связанных контурных.
+    () => stableJson(layoutSearchInputs(document, formParams, wiredKey ? wiredKey.split("\n") : [], moved)),
+    // Сеть и скважины входят только системой, списком связанных контурных и сдвигами.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [document.contour, document.surfaces, document.domains, formParams, document.rock_name, networkSystem, wiredKey],
+    [document.contour, document.surfaces, document.domains, formParams, document.rock_name, networkSystem, wiredKey, moved],
   );
   const [inputsFingerprint, setInputsFingerprint] = useState<string | null>(null);
   useEffect(() => {

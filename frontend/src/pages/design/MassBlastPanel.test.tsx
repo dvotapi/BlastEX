@@ -95,4 +95,25 @@ describe("панель «Проект МВ»", () => {
     expect(await screen.findByRole("button", { name: "Весь комплект" })).toBeTruthy();
     expect(screen.getByText(/утверждён · ревизия выпущена/)).toBeTruthy();
   });
+
+  it("проект блока изменён после добавления в проект МВ — «устарел»", async () => {
+    vi.mocked(api.massBlast.list).mockResolvedValue([summary]);
+    const project = projectV2({ lifecycle_status: "draft" });
+    project.blocks = [{ ...project.blocks[0], design_id: "d66", design_sha256: "old" }];
+    vi.mocked(api.massBlast.getV2).mockResolvedValue(project);
+    render(<MassBlastPanel designId="d66" designName="Блок 66" designSha256="new" />);
+    expect(await screen.findByText(/Устарел: проект блока изменён после добавления в проект МВ/)).toBeTruthy();
+  });
+
+  it("тот же хэш — не устарел, несохранённый сдвиг — устарел", async () => {
+    vi.mocked(api.massBlast.list).mockResolvedValue([summary]);
+    const project = projectV2({ lifecycle_status: "draft" });
+    project.blocks = [{ ...project.blocks[0], design_id: "d66", design_sha256: "same" }];
+    vi.mocked(api.massBlast.getV2).mockResolvedValue(project);
+    const view = render(<MassBlastPanel designId="d66" designName="Блок 66" designSha256="same" />);
+    expect(await screen.findByRole("button", { name: "Открыть проект" })).toBeTruthy();
+    expect(screen.queryByText(/Устарел/)).toBeNull();
+    view.rerender(<MassBlastPanel designId="d66" designName="Блок 66" designSha256="same" designedDirty />);
+    expect(screen.getByText(/Устарел: проект блока изменён после добавления в проект МВ/)).toBeTruthy();
+  });
 });

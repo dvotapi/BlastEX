@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { emptyDesign, emptyHoleGeology, emptyNetwork, HOLE_KIND_LABELS, SELECTABLE_HOLE_KINDS } from "../../types/design";
-import { computeAllHoleHealth, computeHoleHealth, HEALTH_LABELS, healthColor, summarizeHealth } from "./holeHealth";
+import { computeAllHoleHealth, computeHoleHealth, HEALTH_LABELS, healthColor, summarizeHealth, pointInPolygon } from "./holeHealth";
 
 function sampleHole(id: string, x: number, y: number) {
   return {
@@ -175,5 +175,25 @@ describe("holeHealth: флаги кровли (TASK-013, PR 3)", () => {
     expect(SELECTABLE_HOLE_KINDS.map(([k]) => k)).not.toContain("face_toe");
     expect(HEALTH_LABELS.floor_row_gap_excess).toBe("Между рядами у подошвы больше допустимого");
     expect(HEALTH_LABELS.collar_too_close_to_crest).toBe("Устье ближе допустимого к кромке");
+  });
+});
+
+describe("pointInPolygon — как point_in_polygon сервера", () => {
+  const square = [
+    { x: 0, y: 0, z: 0 },
+    { x: 10, y: 0, z: 0 },
+    { x: 10, y: 10, z: 0 },
+    { x: 0, y: 10, z: 0 },
+  ];
+
+  it("точка на ребре и в вершине — внутри", () => {
+    expect(pointInPolygon({ x: 10, y: 5 }, square)).toBe(true);
+    expect(pointInPolygon({ x: 5, y: 0 }, square)).toBe(true);
+    expect(pointInPolygon({ x: 10, y: 10 }, square)).toBe(true);
+  });
+
+  it("рядом снаружи — вне", () => {
+    expect(pointInPolygon({ x: 10.01, y: 5 }, square)).toBe(false);
+    expect(pointInPolygon({ x: 5, y: 5 }, square)).toBe(true);
   });
 });

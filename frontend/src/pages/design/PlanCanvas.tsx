@@ -21,7 +21,7 @@ import {
   zoomAt,
   angleAzimuth,
 } from "../../lib/geometry2d";
-import type { AsChargedHole, AsDrilledHole, AsFiredHole, BlastDomain, BlockContour, BurdenRelief, Hole, HoleKind, HoleLoad, InitiationNetwork, Isoline, Point3, PredictedHoleMovement, Receptor, ToeLine, VibrationPrediction } from "../../types/design";
+import type { AsChargedHole, AsDrilledHole, AsFiredHole, BlastDomain, BlockContour, BurdenRelief, Hole, HoleKind, HoleLoad, InitiationNetwork, Isoline, PatternParams, Point3, PredictedHoleMovement, Receptor, SurfaceConnector, TieSystemCatalog, ToeLine, VibrationPrediction } from "../../types/design";
 import { HOLE_KIND_LABELS, SELECTABLE_HOLE_KINDS, RECEPTOR_KIND_LABELS, networkTies } from "../../types/design";
 import { insertContourVertex, removeContourVertices } from "./contourEdits";
 import { RELIEF_BANDS, reliefBand } from "./relief";
@@ -30,6 +30,24 @@ import { DEFAULT_MAP_LAYERS, type MapLayerVisibility } from "./MapLegend";
 import { SituationCanvas } from "./SituationCanvas";
 import { situationStrokes, type SituationShown } from "./situationLayer";
 import { lspToeTitle, SURVEY_TOE_TITLE } from "./toeLineText";
+import {
+  AXIS_SNAP_OPTIONS,
+  FINE_STEP_M,
+  arrowDelta,
+  dragDelta,
+  gridSteps,
+  isMovedHole,
+  layoutAxes,
+  snapStepM,
+  toAxes,
+  withFacePairs,
+  type ArrowKey,
+  type AxisSnap,
+} from "./holeMove";
+import { designBurdenM, floorBase, liveCheck } from "./liveChecks";
+import { TiePalette } from "./TiePalette";
+import { hitTie, tieEndAt, tiesInRect, type TieSegment } from "./tieHits";
+import { nominalForKey, stepColor, tieToolForKey, type TieTool } from "./tieSteps";
 import {
   holeMarkerRadiusPx,
   labelsVisibleAtScale,
@@ -56,7 +74,37 @@ const GESTURE_ECHO_MS = 500;
 const DEFAULT_CAMERA: Camera = { x: 0, y: 0, scale: 6 };
 
 type Mode = "contour" | "holes" | "tie" | "timing";
-type PlanTool = "select" | "add" | "face" | "pan" | "measure";
+type PlanTool = "select" | "add" | "face" | "pan" | "measure" | TieTool;
+
+/**
+ * Правка коммутации на плане (TASK-017, PR 4): что сделать с сетью. Страница
+ * применяет действие к сети (`tieEdits.ts`) активной ступенью или замедлением
+ * в скважине — одной записью отмены.
+ */
+export type TieEditAction =
+  | { type: "add"; path: string[] }
+  | { type: "delay"; ids: string[] }
+  | { type: "remove"; ids: string[] }
+  | { type: "reconnect"; id: string; end: "from" | "to"; holeId: string }
+  | { type: "starter"; holeId: string }
+  | { type: "downhole"; holeIds: string[] };
+
+/** Подсказка после правки и заменённые связи, которые мигают секунду. */
+export type TieNotice = { text: string; flash: SurfaceConnector[]; tick: number };
+
+export type TieEditProps = {
+  catalog: TieSystemCatalog | null;
+  activeMs: number;
+  onActiveMsChange: (ms: number) => void;
+  downholeMs: number;
+  onDownholeMsChange: (ms: number) => void;
+  onEdit: (action: TieEditAction) => void;
+  onTieContextMenu?: (tie: SurfaceConnector, clientX: number, clientY: number) => void;
+  notice?: TieNotice | null;
+};
+
+/** Сколько видна подсказка после правки связей, мс. */
+const TIE_NOTICE_MS = 4000;
 
 export type MeasureResult = {
   distanceM: number;
@@ -73,19 +121,27 @@ export type PlanMeasureState = {
 };
 
 const SNAP_OPTIONS = [0, 0.25, 0.5, 1, 2.5, 5];
+const ARROW_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
 
 type DragState =
   | { kind: "none" }
   | { kind: "pan"; pointerId: number; startScreen: Vec2; startCamera: Camera; moved: boolean; button: number }
   | { kind: "vertex"; pointerId: number; index: number; startScreen: Vec2; grabOffset: Vec2; moved: boolean }
-  | { kind: "holes"; pointerId: number; ids: string[]; anchorId: string; startScreen: Vec2; startWorld: Vec2; deltaWorld: Vec2; moved: boolean }
-  | { kind: "rubber"; pointerId: number; startScreen: Vec2; currentScreen: Vec2; additive: boolean; moved: boolean };
+  // Сдвиг скважин (TASK-017): `deltaWorld` — уже в осях раскладки и с привязкой,
+  // отсчёт от положения в начале жеста; `cursor` — для подсказки у курсора.
+  | { kind: "holes"; pointerId: number; ids: string[]; anchorId: string; startScreen: Vec2; startWorld: Vec2; deltaWorld: Vec2; cursor: Vec2; moved: boolean }
+  | { kind: "rubber"; pointerId: number; startScreen: Vec2; currentScreen: Vec2; additive: boolean; moved: boolean; purpose?: "step" | "downhole" }
+  // Протяжка связи через скважины (TASK-017, PR 4): путь — по порядку прохода.
+  | { kind: "chain"; pointerId: number; path: string[]; startScreen: Vec2; cursor: Vec2; moved: boolean }
+  // Перецепка конца выделенной связи: `end` — какой конец тянут.
+  | { kind: "tieEnd"; pointerId: number; tieId: string; end: "from" | "to"; holeId: string; startScreen: Vec2; cursor: Vec2; moved: boolean };
 
 type Hover =
   | { kind: "none" }
   | { kind: "vertex"; index: number }
   | { kind: "edge"; index: number; point: Vec2 }
-  | { kind: "hole"; id: string };
+  | { kind: "hole"; id: string }
+  | { kind: "tie"; id: string };
 
 export function PlanCanvas({
   contour,
@@ -96,6 +152,7 @@ export function PlanCanvas({
   onContourChange,
   onToggleFreeFace,
   onMoveHoles,
+  patternParams = null,
   onAddHole,
   onDeleteHoles,
   onSetHolesEnabled,
@@ -110,9 +167,9 @@ export function PlanCanvas({
   relief,
   timesMs,
   animationMs,
-  pendingTieFromId,
-  onTieHoles,
-  onClearPendingTie,
+  tieEdit = null,
+  tieNominals = [],
+  unsignaledIds,
   domains,
   drawingDomainId,
   onDomainVertexAdd,
@@ -164,7 +221,10 @@ export function PlanCanvas({
   onSelectedChange: (ids: Set<string>) => void;
   onContourChange: (vertices: Point3[], freeFaces?: number[][], coalesce?: boolean) => void;
   onToggleFreeFace: (edgeIndex: number) => void;
-  onMoveHoles: (ids: string[], dx: number, dy: number) => void;
+  /** Сдвиг скважин; `series` — время нажатия стрелки (серия — одна запись отмены). */
+  onMoveHoles: (ids: string[], dx: number, dy: number, series?: number) => void;
+  /** Параметры раскладки: оси сдвига (азимут рядов), шаги привязки, W и отступ от кромки. */
+  patternParams?: Partial<PatternParams> | null;
   onAddHole: (world: Vec2) => void;
   onDeleteHoles: (ids: string[]) => void;
   onSetHolesEnabled: (ids: string[], enabled: boolean) => void;
@@ -182,9 +242,12 @@ export function PlanCanvas({
   relief?: BurdenRelief | null;
   timesMs?: Record<string, number> | null;
   animationMs?: number | null;
-  pendingTieFromId?: string | null;
-  onTieHoles?: (fromId: string, toId: string) => void;
-  onClearPendingTie?: () => void;
+  /** Правка коммутации в режиме `tie` (TASK-017, PR 4). */
+  tieEdit?: TieEditProps | null;
+  /** Номиналы ступеней системы сети: цвет связей на плане. */
+  tieNominals?: number[];
+  /** Включённые скважины без сигнала (клиентский расчёт времён): красное кольцо. */
+  unsignaledIds?: ReadonlySet<string>;
   domains?: BlastDomain[];
   drawingDomainId?: string | null;
   onDomainVertexAdd?: (domainId: string, point: Point3) => void;
@@ -249,7 +312,14 @@ export function PlanCanvas({
   const [selectedVertices, setSelectedVertices] = useState<Set<number>>(new Set());
   const [showGrid, setShowGrid] = useState(true);
   const [snapStep, setSnapStep] = useState(0.5);
+  // Привязка сдвига скважин по осям раскладки (TASK-017): a/4 вдоль ряда, b/4 поперёк.
+  const [snapAlong, setSnapAlong] = useState<AxisSnap>("a4");
+  const [snapAcross, setSnapAcross] = useState<AxisSnap>("b4");
   const [showHelp, setShowHelp] = useState(false);
+  // Коммутация (TASK-017, PR 4): выделенные связи и начало связи кликом.
+  const [selectedTies, setSelectedTies] = useState<Set<string>>(new Set());
+  const [pendingTieFrom, setPendingTieFrom] = useState<string | null>(null);
+  const [shownNotice, setShownNotice] = useState<TieNotice | null>(null);
 
   // Актуальные значения для нативных слушателей (wheel/keydown) — без них
   // обработчики залипают на камере первого рендера.
@@ -295,8 +365,48 @@ export function PlanCanvas({
   // скважине неожиданно добавлял бы новую), выделение вершин сбрасывается.
   useEffect(() => {
     setSelectedVertices(new Set());
-    setTool("select");
+    setTool(mode === "tie" ? "tie" : "select");
+    setSelectedTies(new Set());
+    setPendingTieFrom(null);
   }, [mode]);
+
+  // Сеть сменилась не правкой с плана (построение схемы, отмена, другой
+  // паспорт) — выделение связей и начатая связь к ней не относятся.
+  // `editedFrom` — сеть, от которой сделана правка: следующая сеть после неё —
+  // результат правки (выделение остаётся). Правка ничего не поменяла —
+  // отметка снимается после той же отрисовки.
+  const editedFromRef = useRef<InitiationNetwork | null | undefined>(undefined);
+  const previousNetworkRef = useRef(network);
+  useEffect(() => {
+    const previous = previousNetworkRef.current;
+    previousNetworkRef.current = network;
+    if (previous === network) return;
+    if (editedFromRef.current !== undefined && previous === editedFromRef.current) {
+      editedFromRef.current = undefined;
+      return;
+    }
+    editedFromRef.current = undefined;
+    setSelectedTies(new Set());
+    setPendingTieFrom(null);
+  }, [network]);
+  useEffect(() => {
+    if (editedFromRef.current !== undefined && editedFromRef.current === network) editedFromRef.current = undefined;
+  });
+  const editTies = (action: TieEditAction) => {
+    if (!tieEdit) return;
+    editedFromRef.current = network ?? null;
+    tieEdit.onEdit(action);
+  };
+
+  // Подсказка после правки связей видна несколько секунд; заменённая линия
+  // мигает (анимация CSS) — новая подсказка начинает заново.
+  const notice = tieEdit?.notice ?? null;
+  useEffect(() => {
+    if (!notice) return undefined;
+    setShownNotice(notice);
+    const timer = setTimeout(() => setShownNotice((current) => (current === notice ? null : current)), TIE_NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [notice]);
 
   const contentPoints = useMemo<Vec2[]>(
     () => [
@@ -538,6 +648,13 @@ export function PlanCanvas({
     [situation, camera, viewport],
   );
 
+  const gridStepsM = useMemo(() => gridSteps(patternParams), [patternParams]);
+  const moveAxes = useMemo(
+    () => layoutAxes(Number(patternParams?.row_azimuth_deg ?? 0), contour),
+    [patternParams?.row_azimuth_deg, contour],
+  );
+  const moveSteps = { along: snapStepM(snapAlong, gridStepsM), across: snapStepM(snapAcross, gridStepsM) };
+
   function toScreenPoint(e: { clientX: number; clientY: number }): Vec2 {
     const rect = wrapRef.current!.getBoundingClientRect();
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
@@ -575,12 +692,125 @@ export function PlanCanvas({
   }
 
   function hitHole(screen: Vec2): Hole | null {
+    // Ближайшая скважина в радиусе попадания, а не верхняя: пара у откоса
+    // стоит в метре от своей вертикальной, и при обычном масштабе верхняя
+    // («…T») перехватывала бы нажатие на вертикальную. При равенстве — верхняя.
+    let best: Hole | null = null;
+    let bestDistance = Infinity;
     for (let i = holes.length - 1; i >= 0; i -= 1) {
       const h = holes[i];
-      const p = toScreen({ x: h.collar.x, y: h.collar.y });
-      if (distance(p, screen) <= HOLE_HIT_RADIUS_PX) return h;
+      const d = distance(toScreen({ x: h.collar.x, y: h.collar.y }), screen);
+      if (d <= HOLE_HIT_RADIUS_PX && d < bestDistance) {
+        best = h;
+        bestDistance = d;
+      }
+    }
+    return best;
+  }
+
+  // Связи сети на экране (TASK-017, PR 4) — для попаданий по линиям.
+  const networkTieList = useMemo(() => (network ? networkTies(network) : []), [network]);
+  function tieSegments(): TieSegment[] {
+    const segments: TieSegment[] = [];
+    for (const tie of networkTieList) {
+      const from = holesById.get(tie.from_hole);
+      const to = holesById.get(tie.to_hole);
+      if (!from || !to) continue;
+      segments.push({ id: tie.id, a: toScreen({ x: from.collar.x, y: from.collar.y }), b: toScreen({ x: to.collar.x, y: to.collar.y }) });
+    }
+    return segments;
+  }
+
+  function hitTieAt(screen: Vec2): SurfaceConnector | null {
+    if (!showNetworkLayer) return null;
+    const id = hitTie(screen, tieSegments());
+    return id ? networkTieList.find((tie) => tie.id === id) ?? null : null;
+  }
+
+  /**
+   * Скважины, через которые прошёл курсор между двумя событиями указателя, —
+   * по порядку прохода: при быстром движении события редкие, и одна точка
+   * под курсором пропускала бы скважины посередине.
+   */
+  function holesAlong(from: Vec2, to: Vec2): Hole[] {
+    const passed: { hole: Hole; t: number }[] = [];
+    for (const h of holes) {
+      const projection = projectOnSegment(toScreen({ x: h.collar.x, y: h.collar.y }), from, to);
+      if (projection.distance <= HOLE_HIT_RADIUS_PX) passed.push({ hole: h, t: projection.t });
+    }
+    return passed.sort((a, b) => a.t - b.t).map((item) => item.hole);
+  }
+
+  /** Конец выделенной связи под курсором — её можно перецепить. */
+  function selectedTieEndAt(screen: Vec2): { tie: SurfaceConnector; end: "from" | "to" } | null {
+    if (!selectedTies.size) return null;
+    for (const segment of tieSegments()) {
+      if (!selectedTies.has(segment.id)) continue;
+      const end = tieEndAt(screen, segment, HOLE_HIT_RADIUS_PX);
+      const tie = networkTieList.find((item) => item.id === segment.id);
+      if (end && tie) return { tie, end };
     }
     return null;
+  }
+
+  function selectTie(id: string, additive: boolean) {
+    setSelectedTies((prev) => {
+      if (!additive) return new Set([id]);
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  /**
+   * Клик инструментом коммутации по скважине или линии (в любом инструменте
+   * клик по линии выделяет связь, «Ступень» ставит ей номинал). Не попал —
+   * false. На тачскрине зовётся только при отпускании пальца: начатый щипок
+   * сеть не правит.
+   */
+  function tieTap(screen: Vec2, additive: boolean): boolean {
+    const hole = hitHole(screen);
+    if (hole) {
+      tieHoleTap(hole, additive);
+      return true;
+    }
+    const tie = hitTieAt(screen);
+    if (!tie) return false;
+    selectTie(tie.id, additive);
+    if (tool === "step") editTies({ type: "delay", ids: [tie.id] });
+    return true;
+  }
+
+  /** Клик по скважине инструментом коммутации. */
+  function tieHoleTap(hole: Hole, additive: boolean) {
+    if (!tieEdit) return;
+    if (tool === "tie") {
+      if (pendingTieFrom && pendingTieFrom !== hole.id) {
+        editTies({ type: "add", path: [pendingTieFrom, hole.id] });
+        setPendingTieFrom(null);
+      } else {
+        setPendingTieFrom(pendingTieFrom === hole.id ? null : hole.id);
+      }
+      return;
+    }
+    if (tool === "starter") {
+      editTies({ type: "starter", holeId: hole.id });
+      return;
+    }
+    if (tool === "downhole") {
+      editTies({ type: "downhole", holeIds: [hole.id] });
+      return;
+    }
+    // «Выбор» и «Ступень» — выделение скважины.
+    if (additive) {
+      const next = new Set(selected);
+      if (next.has(hole.id)) next.delete(hole.id);
+      else next.add(hole.id);
+      onSelectedChange(next);
+    } else {
+      onSelectedChange(new Set([hole.id]));
+    }
   }
 
   function hitVertex(screen: Vec2): number | null {
@@ -618,7 +848,12 @@ export function PlanCanvas({
       return;
     }
     const hole = hitHole(screen);
-    setHover(hole ? { kind: "hole", id: hole.id } : { kind: "none" });
+    if (hole) {
+      setHover({ kind: "hole", id: hole.id });
+      return;
+    }
+    const tie = mode === "tie" ? hitTieAt(screen) : null;
+    setHover(tie ? { kind: "tie", id: tie.id } : { kind: "none" });
   }
 
   function appendVertex(world: Vec2) {
@@ -683,6 +918,14 @@ export function PlanCanvas({
       addMeasurePoint(screen);
       return;
     }
+    if (mode === "tie") {
+      if (tool === "pan" || !tieEdit) return;
+      if (!tieTap(screen, false)) {
+        setPendingTieFrom(null);
+        setSelectedTies(new Set());
+      }
+      return;
+    }
     if (mode === "contour") {
       const vertexIndex = hitVertex(screen);
       const edge = hitEdge(screen);
@@ -736,8 +979,12 @@ export function PlanCanvas({
       // Первый палец щипка не должен ставить точку или помечать откос: тянем
       // холст, а действие инструмента выполняем при отпускании — если второй
       // палец так и не появился и палец остался на месте.
+      // В коммутации сразу захватываются только жесты, которые правят сеть
+      // при отпускании (протяжка, перецепка); клики правят сразу — их ждём.
       const grabsObject =
-        tool === "select" && (mode === "contour" ? hitVertex(screen) !== null : hitHole(screen) !== null);
+        mode === "tie"
+          ? Boolean(tieEdit) && ((tool === "tie" && hitHole(screen) !== null) || selectedTieEndAt(screen) !== null)
+          : tool === "select" && (mode === "contour" ? hitVertex(screen) !== null : hitHole(screen) !== null);
       if (!grabsObject && tool !== "pan") {
         pendingTapRef.current = { pointerId: e.pointerId, screen };
         startPan(e, screen);
@@ -824,17 +1071,36 @@ export function PlanCanvas({
     }
 
     if (mode === "tie") {
-      const tieHole = hitHole(screen);
-      if (tieHole && onTieHoles) {
-        if (pendingTieFromId && pendingTieFromId !== tieHole.id) {
-          onTieHoles(pendingTieFromId, tieHole.id);
-        } else {
-          onSelectedChange(new Set([tieHole.id]));
-        }
+      if (!tieEdit) return;
+      const additive = e.shiftKey || e.ctrlKey || e.metaKey;
+      // Конец выделенной связи — перецепка (отпущено на месте — обычный клик).
+      const grabbedEnd = selectedTieEndAt(screen);
+      if (grabbedEnd) {
+        const holeId = grabbedEnd.end === "from" ? grabbedEnd.tie.from_hole : grabbedEnd.tie.to_hole;
+        setDrag({ kind: "tieEnd", pointerId: e.pointerId, tieId: grabbedEnd.tie.id, end: grabbedEnd.end, holeId, startScreen: screen, cursor: screen, moved: false });
         return;
       }
-      onClearPendingTie?.();
-      if (!e.shiftKey) onSelectedChange(new Set());
+      const tieHole = hitHole(screen);
+      if (tieHole && tool === "tie") {
+        setDrag({ kind: "chain", pointerId: e.pointerId, path: [tieHole.id], startScreen: screen, cursor: screen, moved: false });
+        return;
+      }
+      if (tieTap(screen, additive)) return;
+      setPendingTieFrom(null);
+      if (!additive) setSelectedTies(new Set());
+      if (tool === "tie" || tool === "starter") {
+        if (!additive) onSelectedChange(new Set());
+        return;
+      }
+      setDrag({
+        kind: "rubber",
+        pointerId: e.pointerId,
+        startScreen: screen,
+        currentScreen: screen,
+        additive,
+        moved: false,
+        purpose: tool === "step" ? "step" : tool === "downhole" ? "downhole" : undefined,
+      });
       return;
     }
 
@@ -867,11 +1133,13 @@ export function PlanCanvas({
       setDrag({
         kind: "holes",
         pointerId: e.pointerId,
-        ids,
+        // Пара у откоса едет со своей вертикальной; выбранная одна — одна.
+        ids: withFacePairs(ids, holes),
         anchorId: hole.id,
         startScreen: screen,
         startWorld: worldOf(screen),
         deltaWorld: { x: 0, y: 0 },
+        cursor: screen,
         moved: false,
       });
       return;
@@ -946,23 +1214,33 @@ export function PlanCanvas({
     }
     if (drag.kind === "holes") {
       if (!drag.moved && distance(screen, drag.startScreen) <= CLICK_SLOP_PX) return;
-      const anchor = holes.find((h) => h.id === drag.anchorId);
       const raw = worldOf(screen);
-      let delta = { x: raw.x - drag.startWorld.x, y: raw.y - drag.startWorld.y };
-      if (e.shiftKey) {
-        // Shift — ортогональное перемещение вдоль преобладающей оси.
-        if (Math.abs(delta.x) >= Math.abs(delta.y)) delta = { x: delta.x, y: 0 };
-        else delta = { x: 0, y: delta.y };
-      }
-      if (anchor && snapStep > 0) {
-        const snapped = applySnap({ x: anchor.collar.x + delta.x, y: anchor.collar.y + delta.y });
-        delta = { x: snapped.x - anchor.collar.x, y: snapped.y - anchor.collar.y };
-      }
-      setDrag({ ...drag, deltaWorld: delta, moved: true });
+      // Сдвиг в осях раскладки (вдоль ряда / к откосу), каждая ось — к своему
+      // шагу привязки от исходного положения; Shift — только преобладающая ось.
+      const delta = dragDelta({ x: raw.x - drag.startWorld.x, y: raw.y - drag.startWorld.y }, moveAxes, {
+        lockAxis: e.shiftKey,
+        stepAlong: moveSteps.along,
+        stepAcross: moveSteps.across,
+      });
+      setDrag({ ...drag, deltaWorld: delta, cursor: screen, moved: true });
       return;
     }
     if (drag.kind === "rubber") {
       setDrag({ ...drag, currentScreen: screen, moved: distance(screen, drag.startScreen) > CLICK_SLOP_PX });
+      return;
+    }
+    if (drag.kind === "chain") {
+      const moved = drag.moved || distance(screen, drag.startScreen) > CLICK_SLOP_PX;
+      if (!moved) return;
+      const path = [...drag.path];
+      for (const hole of holesAlong(drag.cursor, screen)) {
+        if (!path.includes(hole.id)) path.push(hole.id);
+      }
+      setDrag({ ...drag, path, cursor: screen, moved });
+      return;
+    }
+    if (drag.kind === "tieEnd") {
+      setDrag({ ...drag, cursor: screen, moved: drag.moved || distance(screen, drag.startScreen) > CLICK_SLOP_PX });
     }
   }
 
@@ -991,7 +1269,11 @@ export function PlanCanvas({
           if (vertexIndex !== null) deleteVertexAt(vertexIndex);
         } else {
           const hole = hitHole(screen);
-          if (hole && onHoleContextMenu) {
+          const tie = !hole && mode === "tie" ? hitTieAt(screen) : null;
+          if (tie && tieEdit?.onTieContextMenu) {
+            setSelectedTies(new Set([tie.id]));
+            tieEdit.onTieContextMenu(tie, e.clientX, e.clientY);
+          } else if (hole && onHoleContextMenu) {
             onHoleContextMenu(hole.id, e.clientX, e.clientY);
           } else if (hole) {
             onDeleteHoles([hole.id]);
@@ -1002,11 +1284,47 @@ export function PlanCanvas({
         }
       }
       if (drag.kind === "holes" && drag.moved) {
-        const dx = round2(drag.deltaWorld.x);
-        const dy = round2(drag.deltaWorld.y);
+        const { x: dx, y: dy } = drag.deltaWorld;
         if (dx !== 0 || dy !== 0) onMoveHoles(drag.ids, dx, dy);
       }
-      if (drag.kind === "rubber") {
+      if (drag.kind === "chain" && tieEdit) {
+        if (drag.path.length >= 2) {
+          editTies({ type: "add", path: drag.path });
+          setPendingTieFrom(null);
+        } else if (!drag.moved) {
+          const hole = holes.find((h) => h.id === drag.path[0]);
+          if (hole) tieHoleTap(hole, false);
+        }
+      }
+      if (drag.kind === "tieEnd" && tieEdit) {
+        const target = hitHole(screen);
+        if (drag.moved) {
+          if (target && target.id !== drag.holeId) editTies({ type: "reconnect", id: drag.tieId, end: drag.end, holeId: target.id });
+        } else {
+          const hole = holes.find((h) => h.id === drag.holeId);
+          if (hole) {
+            if (tool === "tie") tieHoleTap(hole, false);
+            else tieHoleTap(hole, e.shiftKey || e.ctrlKey || e.metaKey);
+          }
+        }
+      }
+      if (drag.kind === "rubber" && drag.purpose && tieEdit) {
+        const rect = rectFromCorners(drag.startScreen, drag.currentScreen);
+        if (drag.moved && drag.purpose === "step") {
+          const ids = tiesInRect(rect, tieSegments());
+          if (ids.length) {
+            setSelectedTies(drag.additive ? new Set([...selectedTies, ...ids]) : new Set(ids));
+            editTies({ type: "delay", ids });
+          }
+        } else if (drag.moved && drag.purpose === "downhole") {
+          const ids = holes
+            .filter((h) => rectContains(rect, toScreen({ x: h.collar.x, y: h.collar.y })))
+            .map((h) => h.id);
+          if (ids.length) editTies({ type: "downhole", holeIds: ids });
+        } else if (!drag.moved && !drag.additive && selected.size) {
+          onSelectedChange(new Set());
+        }
+      } else if (drag.kind === "rubber") {
         const rect = rectFromCorners(drag.startScreen, drag.currentScreen);
         if (drag.moved) {
           if (mode === "contour") {
@@ -1054,9 +1372,20 @@ export function PlanCanvas({
   function handleDoubleClick(e: React.MouseEvent) {
     // Двойной клик — сокращение инструмента «Выбор». У остальных инструментов
     // одиночный клик уже что-то делает, и дублировать его не нужно.
-    if (tool !== "select") return;
+    // В коммутации одиночный клик по скважине не открывает карточку ни одним
+    // инструментом, поэтому двойной — тоже карточка (начало связи сбрасываем).
+    const tieInspect = mode === "tie" && tool !== "pan" && tool !== "measure";
+    if (tool !== "select" && !tieInspect) return;
     if (drawingDomainId) return;
     const screen = toScreenPoint(e);
+    if (tieInspect) {
+      const hole = hitHole(screen);
+      if (hole) {
+        setPendingTieFrom(null);
+        onHoleInspect?.(hole.id);
+      }
+      return;
+    }
     if (mode === "contour") {
       const vertexIndex = hitVertex(screen);
       if (vertexIndex !== null) {
@@ -1081,6 +1410,15 @@ export function PlanCanvas({
     // принадлежат самому полю.
     if (target.tagName === "INPUT" || target.tagName === "SELECT" || target.tagName === "TEXTAREA") return;
     const key = e.key.toLowerCase();
+    if ((key === "delete" || key === "backspace") && mode === "tie") {
+      // В режиме коммутации Delete принадлежит выделенным связям (TASK-017, PR 4).
+      e.preventDefault();
+      e.stopPropagation();
+      const ids = networkTieList.filter((tie) => selectedTies.has(tie.id)).map((tie) => tie.id);
+      if (ids.length && tieEdit) editTies({ type: "remove", ids });
+      setSelectedTies(new Set());
+      return;
+    }
     if (key === "delete" || key === "backspace") {
       if (mode !== "contour") return;
       // В режиме контура Delete принадлежит вершинам: даже когда выделять
@@ -1091,14 +1429,56 @@ export function PlanCanvas({
       return;
     }
     if (key === "escape") {
+      setSelectedTies(new Set());
+      setPendingTieFrom(null);
       setSelectedVertices(new Set());
       onSelectedChange(new Set());
       setDrag({ kind: "none" });
       return;
     }
+    // Стрелки при выделенных скважинах — сдвиг по осям раскладки на шаг
+    // привязки (выкл — 0,1 м), Alt+стрелка — на 0,1 м. Нажатия подряд — одна
+    // запись отмены. Без выделения стрелки двигают план.
+    if (
+      ARROW_KEYS.has(e.key) &&
+      mode === "holes" &&
+      tool === "select" &&
+      selected.size > 0 &&
+      // При постановке рецептора и рисовании региона план не правит скважины
+      // (как и щелчок мыши) — стрелки там двигают план.
+      !placingReceptor &&
+      !drawingDomainId &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      dragRef.current.kind === "none"
+    ) {
+      e.preventDefault();
+      const steps = e.altKey
+        ? { along: FINE_STEP_M, across: FINE_STEP_M }
+        : { along: moveSteps.along || FINE_STEP_M, across: moveSteps.across || FINE_STEP_M };
+      const delta = arrowDelta(e.key as ArrowKey, moveAxes, steps);
+      const ids = withFacePairs(holes.filter((h) => selected.has(h.id)).map((h) => h.id), holes);
+      if (ids.length && (delta.x !== 0 || delta.y !== 0)) onMoveHoles(ids, delta.x, delta.y, performance.now());
+      return;
+    }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (mode === "tie" && tieEdit) {
+      // Инструменты коммутации (T, D, S, H) и номинал цифрой 1–5.
+      const tieTool = tieToolForKey(key);
+      if (tieTool) {
+        setTool(tieTool);
+        setPendingTieFrom(null);
+        return;
+      }
+      const nominal = nominalForKey(e.key, tieEdit.catalog?.surface_ms ?? []);
+      if (nominal !== null) {
+        tieEdit.onActiveMsChange(nominal);
+        return;
+      }
+      if (/^[0-9]$/.test(e.key) && e.key !== "0") return;
+    }
     if (key === "v" || key === "1" || key === "м") setTool("select");
-    else if (key === "a" || key === "2" || key === "ф") setTool("add");
+    else if (mode !== "tie" && (key === "a" || key === "2" || key === "ф")) setTool("add");
     else if (mode === "contour" && (key === "f" || key === "3" || key === "а")) setTool("face");
     else if (key === "h" || key === "4" || key === "р") setTool("pan");
     else if (key === "m" || key === "ь") setTool("measure");
@@ -1111,6 +1491,21 @@ export function PlanCanvas({
     else if (key === "arrowdown") { e.preventDefault(); onCameraChange(panCameraByScreen(cameraRef.current, 0, ARROW_PAN_PX)); }
   }
 
+  /** Подсказка внизу плана в режиме коммутации: после правки — её итог. */
+  function tieHint(): string {
+    if (shownNotice?.text) return shownNotice.text;
+    const ms = tieEdit ? `${ruNumber(tieEdit.activeMs, 0)} мс` : "";
+    if (tool === "tie") {
+      return pendingTieFrom
+        ? `Связь от ${pendingTieFrom} (${ms}): кликните вторую скважину · пустое место — сброс`
+        : `Связь ${ms}: протяните мышь через скважины — цепочка · клик по двум — одна связь · «？» — все жесты`;
+    }
+    if (tool === "step") return `Ступень ${ms}: клик или рамка по линиям · «？» — все жесты`;
+    if (tool === "starter") return "Стартер: клик по скважине ставит или снимает · «？» — все жесты";
+    if (tool === "downhole") return `В скважине ${tieEdit ? ruNumber(tieEdit.downholeMs, 0) : ""} мс: клик или рамка по скважинам · «？» — все жесты`;
+    return "Клик по линии — выделить связь · Delete — удалить · правой кнопкой — меню · тянуть конец выделенной — перецепить · «？» — все жесты";
+  }
+
   const panning = drag.kind === "pan";
   const cursorClass = panning
     ? "grabbing"
@@ -1120,9 +1515,9 @@ export function PlanCanvas({
         ? "crosshair"
         : tool === "face"
           ? "face"
-          : tool === "measure"
+          : tool === "measure" || tool === "tie" || tool === "step" || tool === "starter" || tool === "downhole"
             ? "crosshair"
-            : hover.kind === "vertex" || hover.kind === "hole"
+            : hover.kind === "vertex" || hover.kind === "hole" || hover.kind === "tie"
             ? "move"
             : "default";
 
@@ -1141,11 +1536,42 @@ export function PlanCanvas({
   const scaleBarMeters = niceStep(120 / camera.scale);
   const scaleBarPx = scaleBarMeters * camera.scale;
 
+  // Размерные линии — когда тянут одну скважину (вертикальную — вместе с её
+  // парой у откоса); до сдвигаемых вместе с ней линий нет.
   const draggedSingleHole =
-    drag.kind === "holes" && drag.ids.length === 1 ? holes.find((h) => h.id === drag.ids[0]) : null;
-  const dimensionLines = draggedSingleHole
-    ? buildDimensionLines(draggedSingleHole, drag.kind === "holes" ? drag.deltaWorld : { x: 0, y: 0 }, holes, spacingHint)
+    drag.kind === "holes" && drag.ids.filter((id) => id !== `${drag.anchorId}T`).length === 1
+      ? holes.find((h) => h.id === drag.anchorId)
+      : null;
+  const dimensionLines = draggedSingleHole && drag.kind === "holes"
+    ? buildDimensionLines(draggedSingleHole, drag.deltaWorld, holes, spacingHint, new Set(drag.ids))
     : [];
+
+  // Живая проверка сдвига (TASK-017): на клиенте, без запроса к серверу.
+  // ЛСП до жеста считается один раз — скважины во время жеста не меняются.
+  const holeDragActive = drag.kind === "holes";
+  const baseFloor = useMemo(
+    () => (holeDragActive ? floorBase(holes, floorToeLine, patternParams) : null),
+    [holeDragActive, holes, floorToeLine, patternParams],
+  );
+  const liveMove = useMemo(() => {
+    if (drag.kind !== "holes" || !drag.moved) return null;
+    const moved = new Set(drag.ids);
+    const result = liveCheck({
+      base: holes,
+      moved,
+      delta: drag.deltaWorld,
+      contour,
+      toeLine: floorToeLine,
+      params: patternParams,
+      floor: baseFloor,
+    });
+    const parts = toAxes(drag.deltaWorld, moveAxes);
+    // ЛСП ведущей скважины, а у вертикальной, закрытой своей парой, — пары.
+    const pairId = `${drag.anchorId}T`;
+    const anchorBurden = result.burdens[drag.anchorId] ?? (moved.has(pairId) ? result.burdens[pairId] : undefined);
+    return { ...result, along: parts.along, across: parts.across, anchorBurden, ids: drag.ids };
+  }, [drag, baseFloor, holes, contour, floorToeLine, patternParams, moveAxes]);
+  const designW = designBurdenM(patternParams);
 
   const origin = toScreen({ x: 0, y: 0 });
   const freeFaceSet = new Set(contour.free_faces.map((f) => f.join("-")));
@@ -1198,17 +1624,19 @@ export function PlanCanvas({
   const allSelectedEnabled = holes.every((h) => !selected.has(h.id) || h.enabled);
 
   const tools: { id: PlanTool; label: string; icon: string; title: string }[] = [
-    { id: "select", label: "Выбор", icon: "⬈", title: "Выбор и перетаскивание (V)" },
-    {
-      id: "add",
-      label: mode === "contour" ? "Точка" : "Скважина",
-      icon: "＋",
-      title: mode === "contour" ? "Добавить точку контура (A)" : "Добавить скважину (A)",
-    },
+    { id: "select", label: "Выбор", icon: "⬈", title: mode === "tie" ? "Выбор скважин и связей (V)" : "Выбор и перетаскивание (V)" },
+    ...(mode === "tie"
+      ? []
+      : [{
+          id: "add" as PlanTool,
+          label: mode === "contour" ? "Точка" : "Скважина",
+          icon: "＋",
+          title: mode === "contour" ? "Добавить точку контура (A)" : "Добавить скважину (A)",
+        }]),
     ...(mode === "contour"
       ? [{ id: "face" as PlanTool, label: "Откос", icon: "▤", title: "Отметить открытый откос (F)" }]
       : []),
-    { id: "pan", label: "Панорама", icon: "✥", title: "Панорама — тянуть холст (H)" },
+    { id: "pan", label: "Панорама", icon: "✥", title: mode === "tie" ? "Панорама — тянуть холст (пробел)" : "Панорама — тянуть холст (H)" },
     { id: "measure", label: "Линейка", icon: "📏", title: "Измерить расстояние и азимут (M)" },
   ];
 
@@ -1238,8 +1666,11 @@ export function PlanCanvas({
         <label className="plan-toggle" title="Показывать координатную сетку">
           <input type="checkbox" checked={showGrid} onChange={(e) => setShowGrid(e.target.checked)} /> Сетка
         </label>
-        <label className="plan-toggle" title="Привязка координат к шагу">
-          Привязка
+        <label
+          className="plan-toggle"
+          title={mode === "holes" ? "Привязка новой скважины к мировой сетке; сдвиг скважин — привязкой по осям сетки справа" : "Привязка координат к шагу"}
+        >
+          {mode === "holes" ? "Привязка новой" : "Привязка"}
           <select value={snapStep} onChange={(e) => setSnapStep(Number(e.target.value))}>
             {SNAP_OPTIONS.map((step) => (
               <option key={step} value={step}>{step === 0 ? "выкл" : `${formatMeters(step)} м`}</option>
@@ -1247,6 +1678,22 @@ export function PlanCanvas({
           </select>
         </label>
       </div>
+      {mode === "holes" && (
+        <div className="plan-tool-group" title="Привязка сдвига скважин по осям сетки — от их исходного положения">
+          <label className="plan-toggle">
+            Сдвиг вдоль ряда
+            <select aria-label="Привязка сдвига вдоль ряда" value={snapAlong} onChange={(e) => setSnapAlong(e.target.value as AxisSnap)}>
+              {AXIS_SNAP_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+            </select>
+          </label>
+          <label className="plan-toggle">
+            {moveAxes.towardFace ? "к откосу" : "поперёк"}
+            <select aria-label="Привязка сдвига поперёк ряда" value={snapAcross} onChange={(e) => setSnapAcross(e.target.value as AxisSnap)}>
+              {AXIS_SNAP_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+            </select>
+          </label>
+        </div>
+      )}
       {mode === "contour" ? (
         <div className="plan-tool-group">
           <button
@@ -1315,6 +1762,17 @@ export function PlanCanvas({
     // и когда фокус остался на кнопке инструмента.
     <div className="plan-canvas-panel" onKeyDown={handleKeyDown}>
       {toolbar}
+      {mode === "tie" && tieEdit && (
+        <TiePalette
+          catalog={tieEdit.catalog}
+          tool={tool === "tie" || tool === "step" || tool === "starter" || tool === "downhole" ? tool : null}
+          onToolChange={(next) => { setTool(next); setPendingTieFrom(null); }}
+          activeMs={tieEdit.activeMs}
+          onActiveMsChange={tieEdit.onActiveMsChange}
+          downholeMs={tieEdit.downholeMs}
+          onDownholeMsChange={tieEdit.onDownholeMsChange}
+        />
+      )}
       <div
         ref={wrapRef}
         className={`plan-canvas-wrap cursor-${cursorClass}`}
@@ -1335,9 +1793,6 @@ export function PlanCanvas({
       )}
       <svg className="plan-canvas">
         <defs>
-          <marker id="arrow-connector" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-            <path d="M0,0 L10,5 L0,10 z" fill="#7a6ee0" />
-          </marker>
           <marker id="arrow-throw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" fill="#c45a2c" />
           </marker>
@@ -1570,20 +2025,70 @@ export function PlanCanvas({
             />
           );
         })}
-        {showNetworkLayer && (network ? networkTies(network) : []).map((c, i) => {
+        {showNetworkLayer && networkTieList.map((c, i) => {
           const from = holesById.get(c.from_hole);
           const to = holesById.get(c.to_hole);
           if (!from || !to) return null;
           const a = toScreen({ x: from.collar.x, y: from.collar.y });
           const b = toScreen({ x: to.collar.x, y: to.collar.y });
+          // Цвет — по ступени (как в палитре), стрелка — к цели, у её маркера.
+          const color = tieNominals.length ? stepColor(c.delay_ms, tieNominals) : undefined;
+          const tip = arrowTip(a, b, holeMarkerRadiusPx(to.diameter_mm, camera.scale, false) + 1.5);
+          const isSelectedTie = mode === "tie" && selectedTies.has(c.id);
+          const isHoveredTie = hover.kind === "tie" && hover.id === c.id;
           const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
           return (
-            <g key={c.id || `conn-${i}`}>
-              <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="connector-line" markerEnd="url(#arrow-connector)" />
-              {c.delay_ms > 0 && <text x={mid.x} y={mid.y - 2} className="connector-label">{ruNumber(c.delay_ms, 0)}</text>}
+            <g
+              key={c.id || `conn-${i}`}
+              className={`tie-link${isSelectedTie ? " selected" : ""}${isHoveredTie ? " hovered" : ""}`}
+              style={color ? { color } : undefined}
+            >
+              {isSelectedTie && <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="tie-link-halo" />}
+              <line x1={a.x} y1={a.y} x2={tip.x} y2={tip.y} className="connector-line" />
+              {tip.head && <polygon points={tip.head} className="connector-arrow" />}
+              {c.delay_ms > 0 && labelsAllowed && <text x={mid.x} y={mid.y - 2} className="connector-label">{ruNumber(c.delay_ms, 0)}</text>}
+              {isSelectedTie && (
+                <>
+                  <circle cx={a.x} cy={a.y} r={3.5} className="tie-end-grip" />
+                  <circle cx={b.x} cy={b.y} r={3.5} className="tie-end-grip" />
+                </>
+              )}
             </g>
           );
         })}
+        {showNetworkLayer && shownNotice && shownNotice.flash.map((c) => {
+          const from = holesById.get(c.from_hole);
+          const to = holesById.get(c.to_hole);
+          if (!from || !to) return null;
+          const a = toScreen({ x: from.collar.x, y: from.collar.y });
+          const b = toScreen({ x: to.collar.x, y: to.collar.y });
+          return <line key={`flash-${shownNotice.tick}-${c.id}`} x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="tie-flash" />;
+        })}
+        {drag.kind === "chain" && (() => {
+          const points = drag.path
+            .map((id) => holesById.get(id))
+            .filter((h): h is Hole => Boolean(h))
+            .map((h) => toScreen({ x: h.collar.x, y: h.collar.y }));
+          if (drag.moved) points.push(drag.cursor);
+          if (points.length < 2) return null;
+          const color = tieEdit && tieNominals.length ? stepColor(tieEdit.activeMs, tieNominals) : undefined;
+          return (
+            <polyline
+              className="tie-chain-preview"
+              points={points.map((pt) => `${pt.x},${pt.y}`).join(" ")}
+              style={color ? { stroke: color } : undefined}
+              fill="none"
+            />
+          );
+        })()}
+        {drag.kind === "tieEnd" && drag.moved && (() => {
+          const tie = networkTieList.find((item) => item.id === drag.tieId);
+          if (!tie) return null;
+          const fixed = holesById.get(drag.end === "from" ? tie.to_hole : tie.from_hole);
+          if (!fixed) return null;
+          const f = toScreen({ x: fixed.collar.x, y: fixed.collar.y });
+          return <line x1={f.x} y1={f.y} x2={drag.cursor.x} y2={drag.cursor.y} className="tie-chain-preview" />;
+        })()}
 
         {(receptors ?? []).map((receptor) => {
           const p = worldToScreen(camera, viewport, { x: receptor.location.x, y: receptor.location.y });
@@ -1662,22 +2167,52 @@ export function PlanCanvas({
           const isStarter = Boolean(
             network?.starter_items?.some((item) => item.hole_id === h.id) || network?.starters?.includes(h.id),
           );
-          const pending = pendingTieFromId === h.id;
+          const pending = mode === "tie" && pendingTieFrom === h.id;
+          const unsignaled = showNetworkLayer && Boolean(unsignaledIds?.has(h.id));
           const t = timesMs?.[h.id];
           const charged = (asCharged ?? []).some((item) => item.design_hole_id === h.id);
           const fired = (asFired ?? []).some((item) => item.design_hole_id === h.id);
           const extraLabel = labelField !== "none" && labelField !== "id"
             ? secondaryLabelText(h, load, labelField, t)
             : null;
+          const violations = liveMove?.byHole[h.id];
+          // Сдвинута от узла сетки (TASK-017, PR 2): пунктирное кольцо и линия от узла.
+          const movedNode = isMovedHole(h) && h.manual_offset ? toScreen({ x: h.manual_offset.node_x, y: h.manual_offset.node_y }) : null;
           return (
             <g
               key={h.id}
-              className={`hole-marker kind-${h.kind}${isSelected ? " selected" : ""}${isHovered ? " hovered" : ""}${!h.enabled ? " disabled" : ""}${isStarter ? " starter" : ""}${pending ? " pending-tie" : ""}${animClass}${showHealthLayer && healthCode !== "ok" ? " health-issue" : ""}`}
+              className={`hole-marker kind-${h.kind}${movedNode ? " hole-moved" : ""}${violations ? " live-violation" : ""}${isSelected ? " selected" : ""}${isHovered ? " hovered" : ""}${!h.enabled ? " disabled" : ""}${isStarter ? " starter" : ""}${pending ? " pending-tie" : ""}${animClass}${showHealthLayer && healthCode !== "ok" ? " health-issue" : ""}`}
             >
               {showHealthLayer && healthCode !== "ok" && (
                 <circle cx={p.x} cy={p.y} r={radius + 3} className={`health-ring code-${healthCode}`} fill="none" />
               )}
+              {movedNode && (
+                <g className="hole-moved-mark">
+                  <title>Сдвинута вручную от узла сетки</title>
+                  <line x1={movedNode.x} y1={movedNode.y} x2={p.x} y2={p.y} className="hole-moved-link" />
+                  <circle cx={movedNode.x} cy={movedNode.y} r={2} className="hole-moved-node" />
+                  <circle cx={p.x} cy={p.y} r={radius + 2.5} className="hole-moved-ring" fill="none" />
+                </g>
+              )}
+              {unsignaled && (
+                <circle cx={p.x} cy={p.y} r={radius + 3.5} className="unsignaled-ring" fill="none">
+                  <title>Без сигнала: скважина не подключена к схеме инициирования</title>
+                </circle>
+              )}
+              {violations && (
+                <circle cx={p.x} cy={p.y} r={radius + 5} className="live-violation-ring" fill="none">
+                  <title>{violations.map((v) => v.text).join("\n")}</title>
+                </circle>
+              )}
               <circle cx={p.x} cy={p.y} r={pending ? Math.max(radius, 7) : radius} style={fillColor ? { fill: fillColor } : undefined} />
+              {isStarter && showNetworkLayer && (
+                <path
+                  className="starter-glyph"
+                  d={`M${p.x - radius - 7},${p.y - radius - 7} l6,3 l-6,3 z`}
+                >
+                  <title>Стартер</title>
+                </path>
+              )}
               {charged && <circle cx={p.x + 7} cy={p.y - 6} r={2.2} className="as-charged-dot" />}
               {fired && <circle cx={p.x + 7} cy={p.y + 6} r={2.2} className="as-fired-dot" />}
               {labelsAllowed && visibleHoleLabels.has(`${h.id}:id`) && (
@@ -1759,6 +2294,27 @@ export function PlanCanvas({
         </g>
       </svg>
 
+      {liveMove && drag.kind === "holes" && (
+        <div
+          className={`plan-drag-tip${Object.keys(liveMove.byHole).length ? " warn" : ""}`}
+          style={{ left: drag.cursor.x + 16, top: drag.cursor.y + 16 }}
+          role="status"
+        >
+          <div>Δ вдоль {formatSigned(liveMove.along)} м · Δ {moveAxes.towardFace ? "к откосу" : "поперёк"} {formatSigned(liveMove.across)} м</div>
+          {liveMove.nearestM !== null && <div>До соседа {ruNumber(liveMove.nearestM, 2)} м</div>}
+          {liveMove.anchorBurden && (
+            <div className={liveMove.anchorBurden.excess ? "bad" : undefined}>
+              ЛСП {ruNumber(liveMove.anchorBurden.valueM, 2)} м{designW !== null ? ` / W ${ruNumber(designW, 2)} м` : ""}
+            </div>
+          )}
+          {Object.entries(liveMove.byHole).flatMap(([id, items]) =>
+            items.map((v) => (
+              <div key={`${id}:${v.code}`} className="bad">{liveMove.ids.length > 1 || id !== drag.anchorId ? `${id}: ` : ""}{v.text}</div>
+            )),
+          )}
+        </div>
+      )}
+
       {hoveredVertexScreen && tool === "select" && !drawingDomainId && (
         <button
           type="button"
@@ -1786,16 +2342,34 @@ export function PlanCanvas({
         <div className="plan-help">
           <b>Управление планом</b>
           <ul>
-            <li><i>Перемещение:</i> тянуть правой или средней кнопкой мыши, либо пробел + перетаскивание, либо инструмент «Панорама», либо стрелки на клавиатуре.</li>
+            <li><i>Перемещение:</i> тянуть правой или средней кнопкой мыши, либо пробел + перетаскивание, либо инструмент «Панорама», либо стрелки на клавиатуре (когда скважины не выделены).</li>
             <li><i>Масштаб:</i> колесо мыши над планом, щипок на тачпаде, Ctrl/⌘ с прокруткой, кнопки ＋/−, клавиши + и −. «По размеру» или 0 — вписать всё в окно.</li>
             <li><i>Тачпад:</i> двумя пальцами — панорама, щипок — масштаб. Страница под планом при этом не прокручивается и не масштабируется.</li>
             <li><i>Контур:</i> «Точка» — клик добавляет вершину, клик по ребру вставляет её в середину ребра. «Выбор» — перетаскивание вершины, рамка выделяет несколько.</li>
             <li><i>Удаление точки:</i> двойной клик по ней, правый клик, крестик рядом с ней или Delete для выделенных.</li>
             <li><i>Откосы:</i> инструмент «Откос» — клик по ребру помечает его открытым.</li>
-            <li><i>Скважины:</i> «Скважина» — клик добавляет. Двойной клик по маркеру открывает карточку. «Выбор» — перетаскивание (Shift — строго по оси), рамка выделяет, Delete удаляет.</li>
-            <li><i>Клавиши:</i> V — выбор, A — добавление, F — откос, H — панорама, Esc — снять выделение.</li>
+            <li><i>Скважины:</i> «Скважина» — клик добавляет. Двойной клик по маркеру открывает карточку. «Выбор» — рамка выделяет, Delete удаляет.</li>
+            <li><i>Сдвиг скважин:</i> тянуть мышью выделенные. Сдвиг идёт по осям сетки — вдоль ряда и к откосу (поперёк ряда), а не по X/Y карты. Shift — только по одной оси, той, по которой сдвиг больше.</li>
+            <li><i>Привязка сдвига:</i> «Сдвиг вдоль ряда» и «к откосу» в панели — выкл, 0,1 м, a/4 или b/4 (по умолчанию a/4 вдоль и b/4 поперёк); отсчёт — от положения скважины до сдвига.</li>
+            <li><i>Стрелки:</i> при выделенных скважинах двигают их на шаг привязки по оси сетки, ближней к стрелке на экране (привязка выключена — на 0,1 м); Alt+стрелка — на 0,1 м. Нажатия подряд без паузы больше секунды отменяются одним Ctrl+Z. Без выделения стрелки двигают план.</li>
+            <li><i>Проверка при сдвиге:</i> у курсора — сдвиг вдоль и поперёк, расстояние до ближайшей скважины и ЛСП/W первого ряда. Красным кольцом — ЛСП больше W + 3 %, сосед ближе половины меньшего шага, устье ближе допустимого отступа к кромке или вне контура. Отпустить можно — после сдвига действует обычная проверка проекта.</li>
+            <li><i>Пара у откоса:</i> «…T» едет вместе со своей вертикальной; выделенную одну пару можно сдвинуть отдельно.</li>
+            <li><i>Отметка «сдвинута»:</i> скважина сетки после сдвига — с пунктирным кольцом и тонкой линией от точки её узла сетки; в карточке — «Сдвинута вручную: Δ вдоль … м, Δ поперёк … м». Скважина остаётся в своём ряду и под своим номером.</li>
+            <li><i>Вернуть в узел сетки:</i> правой кнопкой по сдвинутой скважине; если она в выделении — вернутся все сдвинутые из выделения. Ctrl+Z отменяет.</li>
+            <li><i>«Сгенерировать сетку» при сдвигах:</i> спросит — сохранить сдвиги (скважины встанут в те же узлы новой сетки с тем же смещением; если узла больше нет, скважина останется на месте ручной, с предупреждением) или сбросить (все — в узлы).</li>
+            <li><i>«Применить» вариант подбора:</i> это другая сетка, поэтому сдвиги сбрасываются — после подтверждения; вернуть их можно отменой (Ctrl+Z). После сдвига карточки подбора помечаются «Устарел».</li>
+            <li><i>Коммутация после сдвига:</i> сеть, построенная шаблоном («Построить схему» или «Применить» вариант подбора) и не правленая руками, пересчитывается сама тем же шаблоном с теми же параметрами — сразу после отпускания мыши, а после стрелок — через секунду после последнего нажатия. Так же — после добавления, удаления, исключения или включения скважины и смены её вида: новая скважина сразу получает связь, у удалённой не рвётся цепочка. Над планом — что изменилось: сколько связей, сменился ли вруб; Ctrl+Z возвращает и скважины, и прежнюю сеть.</li>
+            <li><i>Правленая сеть:</i> если связи или стартовые правили вручную, сеть сама не пересчитывается — над планом и во вкладке «Коммутация» пометка «Скважины изменены после построения коммутации» и кнопка «Пересчитать коммутацию» (спросит: ручные правки будут потеряны). Сеть, построенная до сохранения параметров схемы, пересчитать нельзя — постройте её заново во вкладке «Коммутация».</li>
+            <li><i>Что ещё устаревает:</i> расчёт тайминга — после сдвига, добавления или удаления скважин и после пересчёта сети; паспорт на бурение и проект МВ, выпущенные по прежнему проекту блока, помечаются «Устарел».</li>
+            <li><i>Клавиши:</i> V — выбор, A — добавление, F — откос, H — панорама, Esc — снять выделение. В коммутации: T — связь, D — ступень, S — стартер, H — в скважине, 1–5 — номинал, пробел — панорама.</li>
             <li><i>Геология:</i> в режиме рисования региона клик ставит вершину полигона; остальные инструменты плана при этом не срабатывают.</li>
-            <li><i>Связи:</i> в режиме «Связь» клик по скважине начинает коннектор, вторая скважина его замыкает, клик по пустому месту сбрасывает.</li>
+            <li><i>Коммутация (этап «Тайминг»):</i> над планом — палитра: инструменты и номиналы ступеней системы (СИНВ — 17/25/42/67/109 мс, ДШ — реле 10/20/25/35/42 мс, электронная — те же и «своё, мс»), у каждого номинала свой цвет — так же окрашены линии связей. Активная ступень — кликом или цифрами 1–5; при открытии этапа — ступень магистрали сети (по умолчанию 25 мс). Справа — замедление в скважине.</li>
+            <li><i>«Связь» (T):</i> нажать на скважину и протянуть мышь через следующие — каждая пройденная связывается с предыдущей активной ступенью (вся цепочка отменяется одним Ctrl+Z). Клик по двум скважинам — одна связь, клик по пустому месту — сброс.</li>
+            <li><i>«Ступень» (D):</i> клик по линии ставит ей активный номинал, рамка — всем захваченным линиям. <i>«Стартер» (S):</i> клик по скважине ставит или снимает стартер (зелёный флажок). <i>«В скважине» (H):</i> клик или рамка по скважинам — активное замедление в скважине.</li>
+            <li><i>Связь в любом инструменте:</i> клик по линии выделяет (Shift — добавить), Delete или Backspace удаляет выделенные, правая кнопка — меню: ступень, «Развернуть направление», «Удалить». Конец выделенной связи можно перетащить на другую скважину — связь перецепится (чтобы тянуть от этой скважины цепочку, сначала снимите выделение — Esc или клик по пустому месту). Двойной клик по скважине — её карточка.</li>
+            <li><i>Правила:</i> у скважины одна входящая связь — новая заменяет прежнюю (прежняя мигает, внизу — «Связь … заменена»); связь, замыкающая цикл, не ставится («Цикл: скважина … уже срабатывает раньше») — и при развороте, и при перецепке. Любая правка — одна запись отмены, и сеть становится правленой: после сдвига скважин она сама не пересчитывается.</li>
+            <li><i>Шнур ДШ:</i> у порядной, эшелонной, диагональной и трапециевидной схем ДШ время задаёт общий шнур — он передаёт сигнал быстрее реле в обе стороны. Первая правка связей или стартовых снимает шнур (внизу — «Общий шнур ДШ снят — время по реле связей»): дальше время — по реле связей, как у «Магистраль + цепочки». Ctrl+Z возвращает шнур, «Пересчитать коммутацию» строит схему заново со шнуром. «В скважине» шнур не снимает.</li>
+            <li><i>Времена и «без сигнала»:</i> пересчитываются сразу после правки по связям (как на сервере; у ДШ со шнуром — длина отрезка шнура / скорость и реле). Скважина без сигнала — красное кольцо; время у скважины — при подписи «время». Расчёт тайминга (изолинии, темп отбойки, проверки) правка сбрасывает — повторите «Рассчитать тайминг».</li>
             <li><i>Рецепторы:</i> при постановке рецептора клик ставит его на план, клик по существующему — выделяет.</li>
           </ul>
         </div>
@@ -1808,9 +2382,7 @@ export function PlanCanvas({
               : mode === "contour"
                 ? "Колесо и щипок — масштаб · двумя пальцами или правой кнопкой — перемещение · двойной клик по точке — удалить · «？» — все жесты"
                 : mode === "tie"
-                  ? pendingTieFromId
-                    ? `Связь от ${pendingTieFromId}: кликните вторую скважину · пустое место — сброс`
-                    : "Клик по скважине — начало связи · две скважины создают коннектор · «？» — все жесты"
+                  ? tieHint()
                   : mode === "timing"
                     ? "Анимация последовательности взрыва и изолинии времени · «？» — все жесты"
                     : showAsDrilled
@@ -1830,6 +2402,25 @@ function mapMetricColor(value: number, min: number, max: number): string {
   return `hsl(${hue}, 70%, 46%)`;
 }
 
+/**
+ * Конец линии связи у края маркера цели и треугольник стрелки: стрелка видна
+ * у скважины, куда идёт сигнал, а не под её маркером.
+ */
+function arrowTip(a: Vec2, b: Vec2, inset: number): { x: number; y: number; head: string | null } {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const length = Math.hypot(dx, dy);
+  if (length <= inset + 6) return { x: b.x, y: b.y, head: null };
+  const ux = dx / length;
+  const uy = dy / length;
+  const tip = { x: b.x - ux * inset, y: b.y - uy * inset };
+  const size = 7;
+  const base = { x: tip.x - ux * size, y: tip.y - uy * size };
+  const left = { x: base.x - uy * size * 0.45, y: base.y + ux * size * 0.45 };
+  const right = { x: base.x + uy * size * 0.45, y: base.y - ux * size * 0.45 };
+  return { x: base.x, y: base.y, head: `${tip.x},${tip.y} ${left.x},${left.y} ${right.x},${right.y}` };
+}
+
 function isMajor(value: number, step: number): boolean {
   return Math.abs(Math.round(value / step) % 5) === 0;
 }
@@ -1845,6 +2436,11 @@ function chargeMassColor(massKg: number, maxMassKg: number): string {
   return `hsl(${hue}, 72%, 46%)`;
 }
 
+function formatSigned(value: number): string {
+  const text = ruNumber(Math.abs(value) < 0.005 ? 0 : value, 2);
+  return value >= 0.005 ? `+${text}` : text;
+}
+
 function round2(v: number): number {
   return Math.round(v * 100) / 100;
 }
@@ -1854,9 +2450,10 @@ function buildDimensionLines(
   delta: Vec2,
   holes: Hole[],
   spacingHint: { a: number; b: number },
+  moving: Set<string>,
 ): { from: Vec2; to: Vec2; distance: number; warn: boolean }[] {
   const current = { x: dragged.collar.x + delta.x, y: dragged.collar.y + delta.y };
-  const others = holes.filter((h) => h.id !== dragged.id && h.enabled);
+  const others = holes.filter((h) => !moving.has(h.id) && h.enabled);
   const withDistance = others
     .map((h) => ({ hole: h, d: distance(current, { x: h.collar.x, y: h.collar.y }) }))
     .sort((a, b) => a.d - b.d)

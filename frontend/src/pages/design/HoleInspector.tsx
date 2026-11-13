@@ -10,6 +10,7 @@ import { angleAzimuth, holeLength } from "../../lib/geometry2d";
 import type { FloorBurdenSource, Hole, HoleKind, HoleLoad, HoleManualFlag, HoleRecomputeFlag } from "../../types/design";
 import { FLOOR_BURDEN_SOURCE_LABELS, HOLE_KIND_LABELS, holeKindOptions } from "../../types/design";
 import { axisPatch, collarZPatch, toePatch } from "./holeEdits";
+import { isMovedHole, MOVED_FLAG } from "./holeMove";
 
 /** Флаги пересчёта по кровле — для пользователя. */
 export const RECOMPUTE_FLAG_LABELS: Record<HoleRecomputeFlag, string> = {
@@ -20,6 +21,14 @@ export const RECOMPUTE_FLAG_LABELS: Record<HoleRecomputeFlag, string> = {
 function round3(value: number): number {
   return Math.round(value * 1000) / 1000;
 }
+
+/** Число со знаком «−» для отрицательных: «−0,50». */
+function signed(value: number): string {
+  return `${value < 0 ? "−" : ""}${ruNumber(Math.abs(value), 2)}`;
+}
+
+/** Пометки, которые снимает «Вернуть расчётное»: длина и отметка устья, не сдвиг. */
+const RECOMPUTE_MANUAL: HoleManualFlag[] = ["collar_z", "length"];
 
 function ManualMark({ hole, flag }: { hole: Hole; flag: HoleManualFlag }) {
   return hole.manual?.includes(flag) ? <small className="hole-manual-mark">вручную</small> : null;
@@ -113,6 +122,11 @@ export function HoleInspector({
               <label>X устья, м<input value={ruNumber(hole.collar.x, 2)} readOnly /></label>
               <label>Y устья, м<input value={ruNumber(hole.collar.y, 2)} readOnly /></label>
             </div>
+            {isMovedHole(hole) && hole.manual_offset && (
+              <small className="hole-moved-note">
+                Сдвинута вручную: Δ вдоль {signed(hole.manual_offset.along)} м, Δ поперёк {signed(hole.manual_offset.across)} м
+              </small>
+            )}
             <label>
               <span>Z устья, м <ManualMark hole={hole} flag="collar_z" /></span>
               <input type="number" step="0.01" value={round3(hole.collar.z)} onChange={(e) => patchCollarZ(Number(e.target.value))} />
@@ -134,8 +148,12 @@ export function HoleInspector({
               <label>Ø, мм<input type="number" value={hole.diameter_mm} onChange={(e) => onUpdateHole(hole.id, { diameter_mm: Number(e.target.value) })} /></label>
             </div>
             <label>Перебур, м<input type="number" step="0.1" value={hole.subdrill_m} onChange={(e) => onUpdateHole(hole.id, { subdrill_m: Number(e.target.value) })} /></label>
-            {(hole.manual?.length ?? 0) > 0 && (
-              <button type="button" className="secondary-button" onClick={() => onUpdateHole(hole.id, { manual: [] })}>
+            {(hole.manual ?? []).some((flag) => RECOMPUTE_MANUAL.includes(flag)) && (
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => onUpdateHole(hole.id, { manual: (hole.manual ?? []).filter((flag) => flag === MOVED_FLAG) })}
+              >
                 Вернуть расчётное
               </button>
             )}

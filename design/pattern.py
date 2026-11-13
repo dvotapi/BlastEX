@@ -13,6 +13,7 @@ from design.geometry import (
     distance_to_free_faces,
     drape_collar,
     ensure_ccw,
+    layout_axes,
     local_basis,
     offset_polygon,
     pattern_origin,
@@ -28,6 +29,7 @@ from design.models import (
     BlastDomain,
     BlockContour,
     Hole,
+    ManualOffset,
     Point3,
     logical_row,
     row_family,
@@ -105,6 +107,7 @@ def generate_pattern(
     existing_holes: list[Hole] | None = None,
     surfaces: object | None = None,
     domains: list[BlastDomain] | None = None,
+    warnings: list[str] | None = None,
 ) -> list[Hole]:
     """Build a production blast pattern inside the block contour.
 
@@ -139,6 +142,20 @@ def generate_pattern(
       contour_row / presplit_row / trim_row / buffer_row / stab_row
       satellite_holes / infill_holes
     """
+    carry = _Carry(existing_holes, contour, params, surfaces)
+    holes = _generate_pattern(contour, params, carry, surfaces, domains)
+    if warnings is not None:
+        warnings.extend(carry.warnings)
+    return holes
+
+
+def _generate_pattern(
+    contour: BlockContour,
+    params: dict[str, Any],
+    carry: _Carry,
+    surfaces: object | None,
+    domains: list[BlastDomain] | None,
+) -> list[Hole]:
     pattern = str(params.get("pattern", "square"))
     if pattern not in PATTERN_TYPES:
         pattern = "square"
@@ -172,7 +189,7 @@ def generate_pattern(
 
     verts = ensure_ccw(contour.points_xy)
     if len(verts) < 3 or spacing_a <= 0 or burden_b <= 0:
-        return _keep_manual(existing_holes)
+        return carry.keep([])
 
     boundary = offset_polygon(verts, edge_margin) if edge_margin > 0 else verts
     row_dir, advance_dir = local_basis(row_azimuth_deg)
@@ -184,10 +201,10 @@ def generate_pattern(
         # «Отступ от контура» у «от тыла» — только боковые стороны.
         boundary = back_boundary(contour, edge_margin)
         if len(boundary) < 3:
-            return _keep_manual(existing_holes)
+            return carry.keep([])
         return _finish_pattern(
             back_grid(contour, params, boundary, surfaces),
-            contour, params, existing_holes, surfaces, boundary, origin, row_dir, advance_dir,
+            contour, params, carry, surfaces, boundary, origin, row_dir, advance_dir,
             spacing_a, burden_b, diameter_mm, subdrill_m, angle_deg, azimuth_deg, depth_override,
         )
 
@@ -491,7 +508,7 @@ def generate_pattern(
         lattice_xy.update(face_row_numbering_xy(holes, row_dir, lattice_xy))
 
     return _finish_pattern(
-        holes, contour, params, existing_holes, surfaces, boundary, origin, row_dir, advance_dir,
+        holes, contour, params, carry, surfaces, boundary, origin, row_dir, advance_dir,
         spacing_a, burden_b, diameter_mm, subdrill_m, angle_deg, azimuth_deg, depth_override,
         lattice_xy=lattice_xy, pair_of=pair_of,
     )
@@ -610,7 +627,7 @@ def _finish_pattern(
     holes: list[Hole],
     contour: BlockContour,
     params: dict[str, Any],
-    existing_holes: list[Hole] | None,
+    carry: _Carry,
     surfaces: object | None,
     boundary: list[tuple[float, float]],
     origin: tuple[float, float],
@@ -674,7 +691,8 @@ def _finish_pattern(
     # (`advance_dir` после `pattern_origin` смотрит вглубь блока).
     # Сдвинутые плавным переходом — по месту в сетке до сдвига.
     # Пара у откоса — номер своей вертикальной с «T».
-    numbered = _keep_manual(existing_holes) + holes
+    # Сдвинутые от узла (TASK-017, PR 2) — в новых узлах; место в нумерации — узел.
+    numbered = carry.keep(holes, lattice_xy) + holes
     index_of = {id(h): k for k, h in enumerate(numbered)}
     return number_by_position(
         numbered,
@@ -1920,10 +1938,135 @@ def _off_face_filter(contour: BlockContour, min_distance_m: float) -> Callable[[
     return accept
 
 
-def _keep_manual(existing_holes: list[Hole] | None) -> list[Hole]:
-    if not existing_holes:
-        return []
-    return [h for h in existing_holes if h.source == "manual"]
+# Узел сдвинутой скважины ищется среди новых скважин сетки не дальше этого (TASK-017, PR 2).
+NODE_TOLERANCE_M = 0.05
+MOVED_FLAG = "xy"
+MANUAL_ROW = -1000
+
+
+def is_moved_hole(hole: Hole) -> bool:
+    """Скважина сетки, сдвинутая на плане от своего узла (`manual: ["xy"]`)."""
+    return hole.source != "manual" and MOVED_FLAG in hole.manual and hole.manual_offset is not None
+
+
+def _manual_number(hole_id: str) -> int | None:
+    head, _, tail = hole_id.partition("-")
+    return int(tail) if head == "M" and tail.isdigit() else None
+
+
+def carry_moved_holes(
+    existing: list[Hole],
+    generated: list[Hole],
+    contour: BlockContour,
+    params: Mapping[str, Any],
+    surfaces: object | None = None,
+    lattice_xy: dict[int, tuple[float, float]] | None = None,
+) -> tuple[list[Hole], list[str]]:
+    """Ручные скважины прежней раскладки и сдвиги от узлов — в новую сетку.
+
+    Сдвинутая скважина (`is_moved_hole`) ищет новую скважину сетки не дальше
+    `NODE_TOLERANCE_M` от своего узла (`manual_offset.node_x/node_y`): ключ —
+    координаты, а не номер или `col`. Нашлась — новая скважина (она правится
+    на месте, в `generated`) сдвигается на то же смещение в осях новой
+    раскладки (`geometry.layout_axes`), устье — на кровлю, длина — по
+    формуле (`hole_recompute.recompute_hole`), и получает `"xy"` с узлом;
+    её место в нумерации — узел (`lattice_xy`). Узел один на одну скважину:
+    первыми — ближайшие. Не нашлась — прежняя скважина остаётся на месте
+    ручной (`M-<n>`, следующий свободный номер) с предупреждением.
+
+    Возвращает ручные скважины (прежние и оставшиеся без узла) и предупреждения.
+    """
+    from design.hole_recompute import recompute_hole
+
+    manual = [hole for hole in existing if hole.source == "manual"]
+    moved = [hole for hole in existing if is_moved_hole(hole)]
+    if not moved:
+        return manual, []
+    # Соседи узлов — по KD-дереву новых устьев: прежних скважин в запросе
+    # может быть сколько угодно, перебор «каждая с каждой» не нужен.
+    grid_index = [j for j, g in enumerate(generated) if g.source != "manual"]
+    candidates: list[tuple[float, int, int]] = []
+    if grid_index:
+        from scipy.spatial import cKDTree
+
+        tree = cKDTree([(generated[j].collar.x, generated[j].collar.y) for j in grid_index])
+        nodes = [(m.manual_offset.node_x, m.manual_offset.node_y) for m in moved]
+        for i, near in enumerate(tree.query_ball_point(nodes, NODE_TOLERANCE_M)):
+            for k in near:
+                g = generated[grid_index[k]]
+                distance = math.hypot(g.collar.x - nodes[i][0], g.collar.y - nodes[i][1])
+                candidates.append((distance, i, grid_index[k]))
+    candidates.sort()
+    match: dict[int, int] = {}
+    taken: set[int] = set()
+    for distance, i, j in candidates:
+        if distance <= NODE_TOLERANCE_M and i not in match and j not in taken:
+            match[i] = j
+            taken.add(j)
+
+    along_dir, across_dir = layout_axes(contour, float(params.get("row_azimuth_deg", 0.0) or 0.0))
+    plain_params = dict(params)
+    for i, j in match.items():
+        offset = moved[i].manual_offset
+        node = generated[j]
+        dx = offset.along * along_dir[0] + offset.across * across_dir[0]
+        dy = offset.along * along_dir[1] + offset.across * across_dir[1]
+        shifted = replace(
+            node,
+            collar=Point3(node.collar.x + dx, node.collar.y + dy, node.collar.z),
+            toe=Point3(node.toe.x + dx, node.toe.y + dy, node.toe.z),
+        )
+        placed = recompute_hole(shifted, contour, surfaces, plain_params).hole
+        if lattice_xy is not None:
+            lattice_xy.setdefault(id(node), (node.collar.x, node.collar.y))
+        node.manual_offset = ManualOffset(node.collar.x, node.collar.y, offset.along, offset.across)
+        node.collar, node.toe = placed.collar, placed.toe
+        node.manual = [*node.manual, MOVED_FLAG] if MOVED_FLAG not in node.manual else list(node.manual)
+
+    warnings: list[str] = []
+    next_number = max((n for hole in existing if (n := _manual_number(hole.id)) is not None), default=0)
+    for i, hole in enumerate(moved):
+        if i in match:
+            continue
+        next_number += 1
+        new_id = f"M-{next_number}"
+        manual.append(
+            replace(
+                hole,
+                id=new_id,
+                row=MANUAL_ROW,
+                col=next_number,
+                source="manual",
+                manual=[flag for flag in hole.manual if flag != MOVED_FLAG],
+                manual_offset=None,
+            )
+        )
+        warnings.append(f"Скважина {hole.id} сдвинута вручную, узла сетки больше нет — оставлена как ручная ({new_id})")
+    return manual, warnings
+
+
+class _Carry:
+    """Что прежняя раскладка передаёт новой: ручные скважины и сдвиги от узлов."""
+
+    def __init__(
+        self,
+        existing: list[Hole] | None,
+        contour: BlockContour,
+        params: Mapping[str, Any],
+        surfaces: object | None,
+    ) -> None:
+        self.existing = list(existing or [])
+        self.contour = contour
+        self.params = params
+        self.surfaces = surfaces
+        self.warnings: list[str] = []
+
+    def keep(self, generated: list[Hole], lattice_xy: dict[int, tuple[float, float]] | None = None) -> list[Hole]:
+        kept, warnings = carry_moved_holes(
+            self.existing, generated, self.contour, self.params, self.surfaces, lattice_xy
+        )
+        self.warnings.extend(warnings)
+        return kept
 
 
 def _inward_normal(a: tuple[float, float], b: tuple[float, float]) -> tuple[float, float]:

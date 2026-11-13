@@ -1018,6 +1018,8 @@ class PatternGenerateResponse(BaseModel):
     holes: list[HoleSchema]
     hole_count: int
     block_volume_m3: float
+    # Сдвинутые от узла скважины без узла в новой сетке (TASK-017, PR 2).
+    warnings: list[str] = Field(default_factory=list)
 
 
 class ChargeGenerateRequest(BaseModel):

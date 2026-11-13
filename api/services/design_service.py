@@ -164,12 +164,14 @@ def generate_pattern(request: PatternGenerateRequest) -> PatternGenerateResponse
     existing_holes = [Hole.from_dict(h.model_dump()) for h in request.existing_holes]
     surfaces = _surfaces_from_request(request.surfaces)
     domains = [BlastDomain.from_dict(d.model_dump()) for d in request.domains]
-    holes = run_generate_pattern(contour, request.params, existing_holes, surfaces, domains)
+    warnings: list[str] = []
+    holes = run_generate_pattern(contour, request.params, existing_holes, surfaces, domains, warnings=warnings)
 
     return PatternGenerateResponse(
         holes=[h.to_dict() for h in holes],
         hole_count=len(holes),
         block_volume_m3=round(block_volume(contour, surfaces), 2),
+        warnings=warnings,
     )
 
 

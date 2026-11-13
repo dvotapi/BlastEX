@@ -671,3 +671,11 @@
 .moved-holes-dialog h2 { margin:0 0 8px; font-size:var(--fs-large, 16px); }
 .moved-holes-dialog p { margin:0 0 14px; color:#4a5c54; font-size:var(--fs-small); line-height:1.45; }
 .moved-holes-actions { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; }
+
+/* Пересчёт коммутации после сдвига (TASK-017, PR 3): бейдж над планом и баннер вкладки «Коммутация». */
+.map-retie-badge { display:flex; align-items:center; flex-wrap:wrap; gap:6px 10px; padding:5px 10px; border-radius:8px; background:#fde8d4; color:#5a3d12; font-size:12px; font-weight:var(--font-weight-strong); }
+.map-retie-badge .secondary-button { padding:3px 10px; font-size:12px; }
+.map-retie-badge > button:not(.secondary-button) { margin-left:auto; border:0; background:none; color:inherit; cursor:pointer; font-size:14px; }
+.retie-banner { display:flex; flex-direction:column; gap:6px; margin-bottom:10px; padding:8px 10px; border-radius:8px; background:#fde8d4; color:#5a3d12; }
+.retie-banner small { color:inherit; }
+.retie-summary { display:block; margin-bottom:8px; color:var(--text-muted, #5f6b7a); }

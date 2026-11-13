@@ -195,3 +195,49 @@ describe("TiePanel trunk_chains", () => {
     expect(nsi).toEqual(["17", "25", "42", "67", "109"]);
   });
 });
+
+describe("TiePanel: пересчёт после сдвига (TASK-017, PR 3)", () => {
+  const retie = {
+    stale: true,
+    staleText: "Скважины сдвинуты после построения коммутации",
+    origin: "template",
+    canRecompute: true,
+    hint: "",
+    pending: false,
+    error: "",
+    summary: "",
+    recompute: noop,
+  };
+
+  it("пометка и кнопка «Пересчитать коммутацию»", () => {
+    const onRecompute = vi.fn();
+    renderPanel({ retie, onRecompute });
+    expect(screen.getByText("Скважины сдвинуты после построения коммутации")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Пересчитать коммутацию" }));
+    expect(onRecompute).toHaveBeenCalled();
+  });
+
+  it("без параметров схемы — кнопка закрыта, подсказка", () => {
+    const hint = "Сеть построена до сохранения параметров схемы — постройте её заново во вкладке „Коммутация“";
+    renderPanel({ retie: { ...retie, canRecompute: false, hint }, onRecompute: noop });
+    expect(screen.getByRole("button", { name: "Пересчитать коммутацию" })).toBeDisabled();
+    expect(screen.getByText(hint)).toBeInTheDocument();
+  });
+
+  it("правленая сеть — предупреждение о потере правок", () => {
+    renderPanel({ retie: { ...retie, origin: "edited" }, onRecompute: noop });
+    expect(screen.getByText(/ручные правки связей будут потеряны/)).toBeInTheDocument();
+  });
+
+  it("сводка последнего пересчёта и ошибка", () => {
+    renderPanel({
+      retie: { ...retie, stale: false, summary: "Коммутация пересчитана: изменилось связей — 3." },
+      onRecompute: noop,
+    });
+    expect(screen.getByText("Коммутация пересчитана: изменилось связей — 3.")).toBeInTheDocument();
+    expect(screen.queryByText("Скважины сдвинуты после построения коммутации")).not.toBeInTheDocument();
+    cleanup();
+    renderPanel({ retie: { ...retie, error: "Сервер недоступен" }, onRecompute: noop });
+    expect(screen.getByText("Сервер недоступен")).toBeInTheDocument();
+  });
+});

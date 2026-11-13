@@ -104,6 +104,8 @@ import { useFeatures } from "../../app/useFeatures";
 import { ChargePanel } from "./ChargePanel";
 import { changedAxes, designReducer, historyLocked, initDesignState } from "./designReducer";
 import { tieWarningsFor, withTieWarnings, type StoredTieWarnings } from "./tieWarnings";
+import { markNetworkEdited, RETIE_EDITED_CONFIRM } from "./retie";
+import { useNetworkRetie } from "./useNetworkRetie";
 import { benchPatchFromObjectAngle, chargeGridOf, designWithParams, hasUnsavedChanges, paramsFromDesign, rockNameFromTransfer, tieRequestParams, type DesignParams } from "./designParams";
 import { FragmentationPanel } from "./FragmentationPanel";
 import { exampleLayeredDomains, GeologyPanel } from "./GeologyPanel";
@@ -315,6 +317,15 @@ export function DesignPage({
   const [tieWarnings, setTieWarnings] = useState<StoredTieWarnings | null>(null);
   const visibleTieWarnings = useMemo(() => tieWarningsFor(tieWarnings, document.network), [tieWarnings, document.network]);
   const [tieBusy, setTieBusy] = useState(false);
+  // Пересчёт коммутации после сдвига скважин (TASK-017, PR 3).
+  const retie = useNetworkRetie({
+    state,
+    dispatch,
+    editable: !designedLocked,
+    onApplied: (network, warnings) => setTieWarnings(withTieWarnings(network, warnings)),
+  });
+  // Сводка пересчёта на плане скрыта крестиком — до следующей сети.
+  const [retieBadgeHiddenFor, setRetieBadgeHiddenFor] = useState<unknown>(null);
   const [pendingTieFromId, setPendingTieFromId] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
   const [analyzeBusy, setAnalyzeBusy] = useState(false);
@@ -1146,13 +1157,13 @@ export function DesignPage({
     }
     dispatch({
       type: "SET_NETWORK",
-      network: {
+      network: markNetworkEdited({
         ...network,
         surface_connectors: nextTies,
         connectors: nextTies.map((item) => ({ from_hole: item.from_hole, to_hole: item.to_hole, delay_ms: item.delay_ms, kind: item.kind })),
         starter_items: starterItems,
         starters: starterItems.map((item) => item.hole_id),
-      },
+      }),
     });
     setPendingTieFromId(null);
   }
@@ -1163,11 +1174,11 @@ export function DesignPage({
     const nextTies = networkTies(network).map((item) => (item.id === tie.id ? { ...item, delay_ms: delayMs } : item));
     dispatch({
       type: "SET_NETWORK",
-      network: {
+      network: markNetworkEdited({
         ...network,
         surface_connectors: nextTies,
         connectors: nextTies.map((item) => ({ from_hole: item.from_hole, to_hole: item.to_hole, delay_ms: item.delay_ms, kind: item.kind })),
-      },
+      }),
     });
   }
 
@@ -1177,11 +1188,11 @@ export function DesignPage({
     const nextTies = networkTies(network).filter((item) => item.id !== connectorId);
     dispatch({
       type: "SET_NETWORK",
-      network: {
+      network: markNetworkEdited({
         ...network,
         surface_connectors: nextTies,
         connectors: nextTies.map((item) => ({ from_hole: item.from_hole, to_hole: item.to_hole, delay_ms: item.delay_ms, kind: item.kind })),
-      },
+      }),
     });
   }
 
@@ -1201,8 +1212,15 @@ export function DesignPage({
     const starterItems = Array.from(current).map((holeId) => ({ id: `st-${holeId}`, hole_id: holeId, delay_ms: 0, kind: "starter" }));
     dispatch({
       type: "SET_NETWORK",
-      network: { ...network, starter_items: starterItems, starters: starterItems.map((item) => item.hole_id) },
+      network: markNetworkEdited({ ...network, starter_items: starterItems, starters: starterItems.map((item) => item.hole_id) }),
     });
+  }
+
+  /** «Пересчитать коммутацию»: по параметрам из сети; правленую — после подтверждения. */
+  function recomputeTie() {
+    if (rejectLocked("designed")) return;
+    if (retie.origin === "edited" && !window.confirm(RETIE_EDITED_CONFIRM)) return;
+    retie.recompute();
   }
 
   async function generateTie() {
@@ -2831,6 +2849,30 @@ export function DesignPage({
             />
           </div>
         </div>
+        {viewMode === "plan" && (retie.stale || (retie.summary && retieBadgeHiddenFor !== document.network)) && (
+          <div className="map-retie-badge" role="status">
+            {retie.stale ? (
+              <>
+                <span>{retie.staleText}</span>
+                {retie.error && <small className="form-error">{retie.error}</small>}
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={recomputeTie}
+                  disabled={!retie.canRecompute}
+                  title={retie.hint || undefined}
+                >
+                  {retie.pending ? "Пересчитываем…" : "Пересчитать коммутацию"}
+                </button>
+              </>
+            ) : (
+              <>
+                <span>{retie.summary}</span>
+                <button type="button" onClick={() => setRetieBadgeHiddenFor(document.network)} aria-label="Скрыть сводку пересчёта">×</button>
+              </>
+            )}
+          </div>
+        )}
         <div className="design-map-body">
           {inspectorOpen && (
             <StageInspector title={stageTitle} onClose={() => setInspectorOpen(false)}>
@@ -2943,6 +2985,8 @@ export function DesignPage({
                 onRemoveTie={removeManualTie}
                 onToggleStarters={toggleStartersFromSelection}
                 busy={tieBusy}
+                retie={retie}
+                onRecompute={recomputeTie}
               />
               <TimingPanel
                 analysis={analysis}

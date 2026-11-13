@@ -10,6 +10,7 @@ import {
   type TieParams,
 } from "../../types/design";
 import { RoleBadge } from "./RoleBadge";
+import type { NetworkRetieView } from "./useNetworkRetie";
 
 const SCHEME_OPTIONS: { value: SchemeType; label: string; hint: string }[] = [
   { value: "row", label: "Порядная", hint: "фронт по рядам" },
@@ -52,6 +53,8 @@ export function TiePanel({
   onRemoveTie,
   onToggleStarters,
   busy,
+  retie,
+  onRecompute,
 }: {
   scheme: SchemeType;
   params: TieParams;
@@ -66,6 +69,9 @@ export function TiePanel({
   onRemoveTie: (connectorId: string) => void;
   onToggleStarters: () => void;
   busy: boolean;
+  /** Пересчёт после сдвига скважин (TASK-017, PR 3); подтверждение — у страницы. */
+  retie?: Omit<NetworkRetieView, "recompute">;
+  onRecompute?: () => void;
 }) {
   const ties = networkTies(network);
   const electronic = params.system === "electronic";
@@ -91,6 +97,26 @@ export function TiePanel({
     <section className="panel">
       <header><b>Коммутация</b><RoleBadge role="designed" /></header>
       <div className="panel-body">
+        {retie?.stale && (
+          <div className="retie-banner" role="status">
+            <b>{retie.staleText}</b>
+            {retie.origin === "edited" && retie.canRecompute && (
+              <small>Сеть правлена вручную — сама не пересчитывается; при пересчёте ручные правки связей будут потеряны.</small>
+            )}
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={onRecompute}
+              disabled={!retie.canRecompute || !onRecompute}
+              title={retie.hint || undefined}
+            >
+              {retie.pending ? "Пересчитываем…" : "Пересчитать коммутацию"}
+            </button>
+            {retie.hint && <small>{retie.hint}</small>}
+            {retie.error && <small className="form-error">{retie.error}</small>}
+          </div>
+        )}
+        {retie?.summary && !retie.stale && <small className="retie-summary">{retie.summary}</small>}
         <label>Система инициирования
           <select
             value={params.system}

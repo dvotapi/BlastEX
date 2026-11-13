@@ -556,6 +556,13 @@ class CadSiteSourceSchema(BaseModel):
     purpose: str = "block"
 
 
+class CadSiteSituationResponse(BaseModel):
+    """Текущий план карьера активного объекта — тот, что берут документы блоков без ссылок."""
+
+    site_code: str = ""
+    source_id: str | None = None
+
+
 class CadSiteSourcesResponse(BaseModel):
     site_code: str = ""
     sources: list[CadSiteSourceSchema] = Field(default_factory=list)

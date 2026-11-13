@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import logging
 from collections import Counter
 
 import numpy as np
@@ -36,6 +37,8 @@ from design.spatial.cad.model import ROLE_SITUATION, SITUATION_KIND_OTHER, SITUA
 from design.spatial.cad.repository import CadRepository, CadSourceNotFound, CadSourceRecord
 from design.spatial.cad.roles import layer_key
 from design.spatial.cad.situation import order_versions, series_key
+
+logger = logging.getLogger(__name__)
 
 # Упрощение линий к показу — как допуск спрямления кривых при чтении.
 SITUATION_SIMPLIFY_M = 0.05
@@ -119,10 +122,16 @@ def catalogue(
     counts.update(repository.count_entities_by_role(organization_id, set(extra), ROLE_SITUATION))
     candidates.update(extra)
 
+    # Планы карьера объекта — одна серия, как бы ни назывались файлы съёмок
+    # («Блок 66 ВЗ…», «Блок 67 ВЗ…»): документы берут из неё самый свежий план.
+    plans = _site_plan_ids(repository, organization_id, site_code) | {
+        source_id for source_id, record in referenced.items() if (record.summary or {}).get("purpose") == "situation"
+    }
     grouped: dict[str, list[CadSourceRecord]] = {}
     for record in candidates.values():
         if counts.get(record.id):
-            grouped.setdefault(series_key(source_title(record)), []).append(record)
+            key = SITE_PLAN_SERIES if record.id in plans else series_key(source_title(record))
+            grouped.setdefault(key, []).append(record)
 
     truncated = over_limit or len(grouped) > MAX_SITUATION_SERIES
     grouped = _within_series_limit(grouped, referenced)
@@ -282,6 +291,20 @@ def source_situation(repository: CadRepository, organization_id: str, source_id:
 
 # Сколько источников объекта просматривает поиск ситуации объекта.
 SITE_SITUATION_SCAN = 2000
+# Ключ серии планов карьера объекта в каталоге (не совпадает с ключом названия:
+# в нём нет управляющих символов).
+SITE_PLAN_SERIES = "\x1fsite-plan"
+
+
+def _site_plan_ids(repository: CadRepository, organization_id: str, site_code: str) -> set[str]:
+    """Источники объекта с назначением «ситуация» (планы карьера)."""
+
+    if not site_code:
+        return set()
+    records = repository.list_site_sources(
+        organization_id, site_code, limit=SITE_SITUATION_SCAN, summary_keys=("purpose",)
+    )
+    return {item.id for item in records if (item.summary or {}).get("purpose") == "situation"}
 
 
 def site_situation_ref(repository: CadRepository, organization_id: str, site_code: str) -> dict | None:
@@ -304,13 +327,15 @@ def site_situation_ref(repository: CadRepository, organization_id: str, site_cod
 
 
 def block_situation_refs(
-    repository_factory, organization_id: str, cad: dict | None, site_code: str = ""
+    repository_factory, organization_id: str, cad: dict | None, site_code: str = "", *, site_refs: dict | None = None
 ) -> tuple[list[dict], bool]:
     """Ссылки ситуации документа блока и признак «взята ситуация объекта».
 
     Ссылки блока (`contour.cad.situation`) главнее; без них — текущая ситуация
     объекта: объект — по источнику контура блока, иначе `site_code` документа.
-    База чертежей недоступна — ссылок нет (документ выпускается без ситуации).
+    База чертежей недоступна — ссылок нет (документ выпускается без ситуации),
+    сбой — в журнал. `site_refs` — найденное раньше по объекту (несколько блоков
+    одного проекта ищут план объекта один раз).
     """
 
     refs = [dict(ref) for ref in situation_refs(cad)]
@@ -323,8 +348,15 @@ def block_situation_refs(
         if source_id:
             record = repository.get_source(organization_id, source_id)
             site = record.site_code if record is not None else ""
-        ref = site_situation_ref(repository, organization_id, site or site_code)
+        site = site or site_code
+        if site_refs is not None and site in site_refs:
+            ref = site_refs[site]
+        else:
+            ref = site_situation_ref(repository, organization_id, site)
+            if site_refs is not None:
+                site_refs[site] = ref
     except Exception:  # noqa: BLE001 — без базы чертежей документ выпускается без ситуации
+        logger.exception("Ситуация объекта не прочитана для документа блока")
         return [], False
     return ([ref], True) if ref else ([], False)
 

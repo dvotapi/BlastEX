@@ -284,7 +284,7 @@ def import_files(
     for name, content, sha in hashed:
         if sha in reused or any(sha == item[2] for item in to_read):
             continue
-        found = repository.find_source_by_sha(organization_id, site_code, sha) if site_code else None
+        found = repository.find_source_by_sha(organization_id, site_code, sha, purpose=purpose) if site_code else None
         if found is not None:
             reused[sha] = found
         else:
@@ -358,11 +358,6 @@ def import_files(
             sources.append(_source_schema(record, entities, context))
             continue
         record = reused[sha]
-        if _purpose(record.summary) != purpose:
-            # Тот же файл загружают с другим назначением (план карьера раньше
-            # грузили как чертёж блока): разбор пересчитывается под назначение.
-            sources.append(reparse(repository, organization_id, record.id, CadParamsSchema.model_validate(record.params), purpose))
-            continue
         note = CadWarning(
             code="already_loaded",
             message=(
@@ -386,17 +381,11 @@ def get_source(repository: CadRepository, organization_id: str, source_id: str) 
 
 
 def reparse(
-    repository: CadRepository,
-    organization_id: str,
-    source_id: str,
-    params: CadParamsSchema,
-    purpose: str | None = None,
+    repository: CadRepository, organization_id: str, source_id: str, params: CadParamsSchema
 ) -> CadSourceSchema:
-    """Повторный разбор файла; `purpose` — сменить назначение (ручной выбор слоёв прежнего назначения сбрасывается)."""
+    """Повторный разбор файла с прежним назначением (чертёж блока или план карьера)."""
 
     record = _require(repository, organization_id, source_id, with_file=True)
-    if purpose is not None and purpose not in PURPOSES:
-        raise CadImportError(f"Назначение файла «{purpose}» неизвестно.")
     try:
         drawing = read_cad(record.file_data or b"", record.file_name, _read_options(params))
     except CadReadError as exc:
@@ -406,31 +395,19 @@ def reparse(
         if attempt:
             # Источник изменили между чтением и записью — ручные роли берём свежие.
             record = _require(repository, organization_id, source_id)
-        current = _purpose(record.summary)
-        target = purpose or current
-        changed_purpose = target != current
-        manual_entities = {} if changed_purpose else dict(record.summary.get("manual_entities") or {})
-        manual_layers = {} if changed_purpose else dict(record.summary.get("manual_layers") or {})
-        manual_kinds = {} if changed_purpose else dict(record.summary.get("manual_kinds") or {})
-        if target == PURPOSE_SITUATION:
-            # Смена назначения — шаблон ситуации объекта сейчас, иначе — каким был при импорте.
-            stored = (
-                repository.get_situation_template(organization_id, record.site_code)
-                if changed_purpose and record.site_code
-                else _source_situation_template(record.summary)
-            )
+        purpose = _purpose(record.summary)
+        manual_entities = dict(record.summary.get("manual_entities") or {})
+        manual_layers = dict(record.summary.get("manual_layers") or {})
+        manual_kinds = dict(record.summary.get("manual_kinds") or {})
+        if purpose == PURPOSE_SITUATION:
+            # Шаблон ситуации объекта — каким был при импорте (как роли).
             assignment, kinds = _situation_assignment(
-                drawing.entities, stored, drawing.hidden_layers, manual_layers, manual_kinds
+                drawing.entities, _source_situation_template(record.summary), drawing.hidden_layers, manual_layers, manual_kinds
             )
         else:
-            template = {} if changed_purpose else _source_template(record.summary)
-            if changed_purpose and record.site_code:
-                template = repository.get_layer_template(organization_id, record.site_code)
+            template = _source_template(record.summary)
             assignment = assign_roles(drawing.entities, template, _role_params(params), manual_layers, manual_entities)
-            kind_template = (
-                _site_kind_template(template) if changed_purpose else _source_kind_template(record.summary)
-            )
-            kinds = assign_kinds(drawing.entities, kind_template, manual_kinds)
+            kinds = assign_kinds(drawing.entities, _source_kind_template(record.summary), manual_kinds)
         summary = _summary(
             drawing,
             assignment,
@@ -441,7 +418,7 @@ def reparse(
             site_code=record.site_code,
             work_object_name=record.work_object_name,
         )
-        summary["purpose"] = target
+        summary["purpose"] = purpose
         try:
             repository.replace_entities(
                 organization_id,

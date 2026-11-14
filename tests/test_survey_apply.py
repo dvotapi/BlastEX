@@ -622,3 +622,36 @@ def test_fact_keeps_measured_diameter_of_previous_record():
     facts = {item.design_hole_id: item for item in result.as_drilled_holes}
     assert facts["2-02"].actual_diameter == 228.0  # замер прежней записи
     assert facts["2-03"].actual_diameter == fresh.diameter_mm  # новой — проектный
+
+
+def test_survey_without_depth_keeps_measured_depth_of_previous_record():
+    """Съёмка без глубины не затирает замер глубины прежней записи факта (MWD, ручной ввод, съёмка с глубиной)."""
+
+    from design.as_drilled import SURVEY_NO_DEPTH_METHOD, record_as_drilled
+    from design.geometry import hole_from_collar
+    from design.models import AsDrilledHole, DataProvenance
+
+    design = _design()
+    mwd, planned = _hole(design, "2-02"), _hole(design, "2-03")
+    record_as_drilled(design, AsDrilledHole(
+        design_hole_id="2-02", actual_collar=mwd.collar, actual_toe=mwd.toe, actual_depth=10.5,
+        provenance=DataProvenance(source="mwd.csv", method="mwd"),
+    ))
+    record_as_drilled(design, AsDrilledHole(
+        design_hole_id="2-03", actual_collar=planned.collar, actual_toe=planned.toe, actual_depth=planned.length_m,
+        provenance=DataProvenance(source="old.csv", method=SURVEY_NO_DEPTH_METHOD),
+    ))
+    points = {
+        "2-02": _point(mwd, dx=0.3, depth_m=None, angle_deg=5.0, azimuth_deg=90.0),
+        "2-03": _point(planned, dx=0.3, depth_m=None),
+    }
+    result = _apply(design, _matches(design, points, only=set(points)))
+    facts = {item.design_hole_id: item for item in result.as_drilled_holes}
+    kept = facts["2-02"]
+    assert kept.actual_depth == pytest.approx(10.5)
+    assert kept.provenance.method == "mwd"
+    assert kept.actual_collar.x == pytest.approx(mwd.collar.x + 0.3)
+    toe = hole_from_collar(kept.actual_collar, 10.5, 5.0, 90.0)
+    assert (kept.actual_toe.x, kept.actual_toe.y, kept.actual_toe.z) == pytest.approx((toe.x, toe.y, toe.z))
+    # Прежняя запись без замера — по-прежнему без замера.
+    assert facts["2-03"].provenance.method == SURVEY_NO_DEPTH_METHOD

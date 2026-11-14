@@ -32,10 +32,10 @@ from copy import deepcopy
 from dataclasses import dataclass, field, replace
 
 from Blast import ExplosiveProperties
-from design.as_drilled import SURVEY_NO_DEPTH_METHOD, record_as_drilled
+from design.as_drilled import SURVEY_NO_DEPTH_METHOD, normalize_as_drilled, record_as_drilled
 from design.charging import apply_charge_rules
 from design.geology import designed_water_intervals
-from design.geometry import Point2, layout_axes
+from design.geometry import Point2, hole_from_collar, layout_axes
 from design.hole_recompute import MANUAL_COLLAR_Z, MANUAL_LENGTH, recompute_hole
 from design.models import (
     ROLE_DESIGNED,
@@ -147,18 +147,28 @@ def _fact(
     """Запись факта по скважине `drilled` (геометрия, которая ляжет в проект).
 
     Диаметра съёмка не несёт: у прежней записи скважины — её замер, у новой — проектный.
+    Глубины в точке нет, а у прежней записи она замерена (MWD, ручной ввод, съёмка с
+    глубиной — не `METHOD_NO_DEPTH`) — замер и его пометка остаются, забой — по нему
+    вдоль оси съёмки; из съёмки берутся устье (и угол с азимутом, если сняты).
     """
 
+    toe = drilled.toe
+    depth = drilled.length_m
+    method = METHOD if point.depth_m is not None else METHOD_NO_DEPTH
+    if point.depth_m is None and previous is not None and previous.provenance.method != METHOD_NO_DEPTH:
+        depth = normalize_as_drilled(deepcopy(previous)).actual_depth
+        toe = hole_from_collar(drilled.collar, depth, drilled.angle_deg, drilled.azimuth_deg)
+        method = previous.provenance.method
     return AsDrilledHole(
         design_hole_id=hole.id,
         actual_collar=Point3(drilled.collar.x, drilled.collar.y, drilled.collar.z),
-        actual_toe=Point3(drilled.toe.x, drilled.toe.y, drilled.toe.z),
+        actual_toe=Point3(toe.x, toe.y, toe.z),
         # Глубина не замерена — длина по плану (до подошвы): `AsDrilledHole.actual_depth` пустой не бывает
         # (0 нормализуется в расстояние устье — забой); что она не замер — `METHOD_NO_DEPTH`.
-        actual_depth=drilled.length_m,
+        actual_depth=depth,
         actual_diameter=previous.actual_diameter if previous is not None else hole.diameter_mm,
         role=ROLE_EXECUTED,
-        provenance=replace(deepcopy(provenance), method=METHOD if point.depth_m is not None else METHOD_NO_DEPTH),
+        provenance=replace(deepcopy(provenance), method=method),
     )
 
 

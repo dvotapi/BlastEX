@@ -694,3 +694,44 @@ def test_fact_with_unset_previous_diameter_takes_design():
     result = _apply(design, _matches(design, {"2-02": _point(hole, dx=0.2)}, only={"2-02"}))
     fact = next(item for item in result.as_drilled_holes if item.design_hole_id == "2-02")
     assert fact.actual_diameter == hole.diameter_mm
+
+
+def test_evaluation_and_apply_share_final_geometry_over_sloping_floor():
+    """Наклонная скважина над наклонной подошвой (TIN), без глубины, сдвиг 2 м: длина и ЛСП оценки = применённым."""
+
+    from design.hole_recompute import recompute_holes
+    from design.spatial.surfaces import SurfaceSet, floor_surface, top_surface
+    from design.survey.evaluate import surveyed_geometry
+    from design.toe_line import floor_burdens
+
+    design = _design(tilt_deg=25.0)
+    grid = [(x, y) for x in (-10.0, 25.0, 60.0) for y in (-10.0, 15.0, 40.0)]
+    design.surfaces = SurfaceSet(
+        top=top_surface([Point3(x, y, 0.0) for x, y in grid]),
+        floor=floor_surface([Point3(x, y, -10.0 - 0.3 * y) for x, y in grid]),
+    )
+    design.holes = [item.hole for item in recompute_holes(design.holes, design.contour, design.surfaces, design.pattern_params)]
+    hole = _hole(design, "1-03")
+    assert hole.angle_deg == pytest.approx(25.0)
+    point = _point(hole, dy=2.0, z=None, depth_m=None)
+    matches = _matches(design, {"1-03": point}, only={"1-03"})
+    evaluated = _by_id(surveyed_geometry(design, matches).holes)["1-03"]
+    result = _apply(design, matches)
+    applied = _applied(design, result)
+    moved = _hole(applied, "1-03")
+    assert evaluated.length_m == pytest.approx(moved.length_m, abs=1e-9)
+    assert (evaluated.toe.x, evaluated.toe.y, evaluated.toe.z) == pytest.approx((moved.toe.x, moved.toe.y, moved.toe.z))
+    shown = floor_burdens(surveyed_geometry(design, matches))
+    written = floor_burdens(applied)
+    assert {k: v.value_m for k, v in shown.items()} == pytest.approx({k: v.value_m for k, v in written.items()})
+
+
+def test_collar_below_floor_is_refused():
+    from design.survey.evaluate import SurveyGeometryError
+
+    design = _design()
+    hole = _hole(design, "2-02")
+    matches = _matches(design, {"2-02": _point(hole, z=-15.0, depth_m=None)}, only={"2-02"})
+    with pytest.raises(SurveyGeometryError) as err:
+        evaluate_survey(design, matches, SurveyTolerances())
+    assert str(err.value) == "Устье скважины 2-02 по съёмке ниже подошвы — проверьте систему высот."

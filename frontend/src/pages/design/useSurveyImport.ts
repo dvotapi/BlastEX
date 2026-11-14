@@ -27,10 +27,12 @@ import type {
   SurveyMatchBy,
   SurveyMatchIssue,
   SurveyTolerances,
+  SurfaceModel,
   SurveyedPoint,
 } from "../../types/design";
 import type { DesignAction, DesignState } from "./designReducer";
 import { headersOf } from "./SurveyColumnsPicker";
+import { tinFingerprint } from "./useHoleRecompute";
 import { stableJson } from "./useLayoutSearch";
 
 export const SURVEY_CHANGED = "Проект изменился, повторите оценку";
@@ -116,12 +118,28 @@ export interface SurveyImportView {
   copyBySurvey: () => Promise<void>;
 }
 
-/** Всё, от чего зависят оценка и применение: по нему сверяется документ. */
+/** Поверхность в подписи: сеть — отпечатком по содержимому, точки и линии — числом (TIN строится из них). */
+function surfaceKey(surface: SurfaceModel | null | undefined): unknown {
+  if (!surface) return null;
+  const { tin, points, polylines, ...rest } = surface;
+  return { ...rest, tin: tin ? tinFingerprint(tin) : null, points: points?.length ?? 0, polylines: polylines?.length ?? 0 };
+}
+
+/**
+ * Всё, от чего зависят оценка и применение: по нему сверяется документ. Сервер
+ * ставит скважины по кровле и подошве и по параметрам сетки (своя глубина вида) —
+ * поверхности и `pattern_params` входят в подпись.
+ */
 export function surveySignature(design: BlastDesign): string {
+  const surfaces = design.surfaces ?? {};
   return stableJson({
     design_id: design.design_id,
     lifecycle_status: design.lifecycle_status,
     contour: design.contour,
+    surfaces: Object.fromEntries(
+      Object.entries(surfaces).map(([kind, surface]) => [kind, surfaceKey(surface as SurfaceModel | null)]),
+    ),
+    pattern_params: design.pattern_params ?? {},
     holes: design.holes,
     loads: design.loads,
     as_drilled_holes: design.as_drilled_holes,

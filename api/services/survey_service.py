@@ -36,7 +36,6 @@ from api.schemas.survey import (
     SurveyReadResponse,
     SurveyTolerancesSchema,
 )
-from api.schemas.design import MIN_SUBDRILL_M
 from api.services.design_service import charge_explosives
 from api.services.drilling_passport_service import block_label
 from cost.v2.models import ReferenceSnapshot
@@ -53,6 +52,7 @@ from design.survey.site_repository import (
 from design.survey.apply import ChargeInputs, apply_survey
 from design.survey.evaluate import (
     HoleVerdict,
+    SurveyGeometryError,
     SurveyTolerances,
     applied_points,
     evaluate_survey,
@@ -199,7 +199,11 @@ def _evaluate(request: SurveyEvaluateRequest, organization_id: str, repository: 
         manual=dict(request.manual),
         skip=set(request.skip),
     )
-    verdicts = evaluate_survey(design, matches, lookup.tolerances)
+    try:
+        verdicts = evaluate_survey(design, matches, lookup.tolerances)
+    except SurveyGeometryError as exc:
+        # Устье ниже подошвы или недобур глубже −100 м — другая система высот.
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
     return _Evaluation(design, points, lookup, block, matches, verdicts)
 
 
@@ -264,28 +268,6 @@ def _charge(request: SurveyApplyRequest) -> ChargeInputs | None:
     return ChargeInputs(rules=dict(request.charge.rules), explosive=explosive, explosives=explosives)
 
 
-def _check_elevations(design: BlastDesign, matches: list[SurveyMatch], holes: list[Any], changed_ids: list[str]) -> None:
-    """Недобур глубже `MIN_SUBDRILL_M` — не съёмка, а другая система высот:
-    отказ с понятным текстом, а не ошибка проверки ответа."""
-
-    changed = set(changed_ids)
-    if not any(hole.id in changed and hole.subdrill_m < MIN_SUBDRILL_M for hole in holes):
-        return
-    collars = {hole.id: hole.collar.z for hole in design.holes}
-    gap = max(
-        (
-            abs(match.point.z - collars[match.hole_id])
-            for match in matches
-            if match.hole_id in changed and match.point is not None and match.point.z is not None
-        ),
-        default=0.0,
-    )
-    raise HTTPException(
-        status.HTTP_422_UNPROCESSABLE_CONTENT,
-        f"Отметки съёмки расходятся с проектом на {gap:.0f} м — проверьте систему высот.",
-    )
-
-
 def apply(request: SurveyApplyRequest, organization_id: str, actor: str, repository: Any) -> SurveyApplyResponse:
     _check_editable(request, organization_id)
     result = _evaluate(request, organization_id, repository)
@@ -300,7 +282,6 @@ def apply(request: SurveyApplyRequest, organization_id: str, actor: str, reposit
         charge=_charge(request),
         now=utc_now_iso(),
     )
-    _check_elevations(result.design, result.matches, applied.holes, applied.changed_ids)
     return SurveyApplyResponse(
         holes=[hole.to_dict() for hole in applied.holes],
         loads=[load.to_dict() for load in applied.loads] if applied.loads is not None else None,

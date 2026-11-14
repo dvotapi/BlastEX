@@ -36,7 +36,6 @@ from design.as_drilled import SURVEY_NO_DEPTH_METHOD, normalize_as_drilled, reco
 from design.charging import apply_charge_rules
 from design.geology import designed_water_intervals
 from design.geometry import Point2, hole_from_collar, layout_axes
-from design.hole_recompute import MANUAL_COLLAR_Z, MANUAL_LENGTH, recompute_hole
 from design.models import (
     ROLE_DESIGNED,
     ROLE_EXECUTED,
@@ -52,7 +51,7 @@ from design.models import (
     WaterInterval,
 )
 from design.pattern import MOVED_FLAG, is_moved_hole
-from design.survey.evaluate import VERDICT_CODES, HoleVerdict, applied_points, collar_point, surveyed_hole
+from design.survey.evaluate import VERDICT_CODES, HoleVerdict, applied_points, final_hole
 from design.survey.match import SurveyMatch
 from design.survey.read import SurveyedPoint
 
@@ -175,30 +174,21 @@ def _fact(
 def _shaped(
     design: BlastDesign, hole: Hole, point: SurveyedPoint, axes: tuple[Point2, Point2]
 ) -> Hole:
-    """Геометрия скважины по съёмке с пометками ручной правки, поставленная по
-    кровле и подошве так же, как пересчёт фронта (`hole_recompute.recompute_hole`).
-
-    Снятая отметка устья → `"collar_z"`, замеренная глубина → `"length"`: их
-    пересчёт не трогает. Точка без отметки — устье на кровле (`collar_point`),
-    без глубины — длина до подошвы с перебуром. Пересчёт на фронте после
-    «Применить» поэтому ничего не меняет (и не стирает воду съёмки).
+    """Скважина по съёмке для проекта: итоговая геометрия — та же, что видела оценка
+    (`evaluate.final_hole`: устье на кровле без отметки, ручные `"collar_z"`/`"length"`,
+    пересчёт по кровле и подошве), плюс пометка сдвига TASK-017 (`"xy"`, `manual_offset`).
     """
 
-    updated = surveyed_hole(hole, collar_point(design, hole, point), design.pattern_params)
-    manual = list(hole.manual)
+    updated = final_hole(design, hole, point)
+    manual = list(updated.manual)
     offset = hole.manual_offset
-    if point.z is not None and MANUAL_COLLAR_Z not in manual:
-        manual.append(MANUAL_COLLAR_Z)
-    if point.depth_m is not None and MANUAL_LENGTH not in manual:
-        manual.append(MANUAL_LENGTH)
     if hole.source != "manual":
         offset = moved_offset(hole, point.x, point.y, *axes)
         if offset is None:
             manual = [flag for flag in manual if flag != MOVED_FLAG]
         elif MOVED_FLAG not in manual:
             manual.append(MOVED_FLAG)
-    marked = replace(updated, manual=manual, manual_offset=offset)
-    return recompute_hole(marked, design.contour, design.surfaces, design.pattern_params).hole
+    return replace(updated, manual=manual, manual_offset=offset)
 
 
 def _finish(hole: Hole, shaped: Hole, *, geometry: bool, water: list[WaterInterval] | None) -> Hole:
@@ -326,7 +316,7 @@ def apply_survey(
         shaped = (
             _shaped(work, hole, point, axes)
             if geometry
-            else surveyed_hole(hole, collar_point(work, hole, point), work.pattern_params)
+            else final_hole(work, hole, point)
         )
         # Факт — до правки скважины: запись сверяет, что проектная скважина не меняется.
         previous = next((item for item in work.as_drilled_holes if item.design_hole_id == hole.id), None)

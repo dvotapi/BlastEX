@@ -29,7 +29,7 @@ from typing import Any, Mapping
 
 from design.editing import local_spacing
 from design.geometry import collar_elevation, hole_from_collar
-from design.hole_recompute import MANUAL_COLLAR_Z, MANUAL_LENGTH, explicit_depth_m
+from design.hole_recompute import MANUAL_COLLAR_Z, MANUAL_LENGTH, explicit_depth_m, recompute_hole
 from design.models import BlastDesign, Hole, Point3
 from design.survey.match import SurveyMatch
 from design.survey.read import SurveyedPoint
@@ -44,7 +44,10 @@ __all__ = [
     "HoleVerdict",
     "SurveyTolerances",
     "applied_points",
+    "MIN_SUBDRILL_M",
+    "SurveyGeometryError",
     "collar_point",
+    "final_hole",
     "design_subdrill",
     "evaluate_survey",
     "required_length_m",
@@ -230,8 +233,60 @@ def surveyed_hole(hole: Hole, point: SurveyedPoint, params: Mapping[str, Any] | 
     )
 
 
+# Недобур глубже — не съёмка, а другая система высот (нижняя граница схемы скважины).
+MIN_SUBDRILL_M = -100.0
+
+
+class SurveyGeometryError(ValueError):
+    """Съёмка не ложится на проект (система высот); текст — для пользователя."""
+
+
+def final_hole(design: BlastDesign, hole: Hole, point: SurveyedPoint) -> Hole:
+    """Итоговая геометрия скважины по съёмке — одна для оценки и «Применить».
+
+    Точка без отметки — устье на кровле (`collar_point`); геометрия — `surveyed_hole`;
+    снятая отметка и замеренная глубина — ручные (`"collar_z"`, `"length"`), и
+    скважина ставится пересчётом по кровле и подошве (`hole_recompute.recompute_hole`):
+    пересчёт фронта после «Применить» ничего не меняет.
+    """
+
+    updated = surveyed_hole(hole, collar_point(design, hole, point), design.pattern_params)
+    manual = list(hole.manual)
+    if point.z is not None and MANUAL_COLLAR_Z not in manual:
+        manual.append(MANUAL_COLLAR_Z)
+    if point.depth_m is not None and MANUAL_LENGTH not in manual:
+        manual.append(MANUAL_LENGTH)
+    marked = replace(updated, manual=manual)
+    return recompute_hole(marked, design.contour, design.surfaces, design.pattern_params).hole
+
+
+def check_survey_geometry(design: BlastDesign, points: Mapping[str, SurveyedPoint], finals: Mapping[str, Hole]) -> None:
+    """Устье ниже подошвы или недобур глубже `MIN_SUBDRILL_M` — `SurveyGeometryError`."""
+
+    by_id = {hole.id: hole for hole in design.holes}
+
+    def below_floor(hole: Hole, final: Hole) -> bool:
+        # Забой не ниже устья (ось развернулась) или устье не выше проектной подошвы.
+        # Скважина без высоты уступа в проекте (длина не больше перебура) подошвой не проверяется.
+        floor_z = hole.collar.z - hole.bench_height_m
+        under = hole.bench_height_m > _EPS and final.collar.z <= floor_z + _EPS
+        return final.toe.z >= final.collar.z - _EPS or under
+
+    below = [hole_id for hole_id, final in finals.items() if below_floor(by_id[hole_id], final)]
+    if below:
+        listed = ", ".join(below[:5]) + (f" и ещё {len(below) - 5}" if len(below) > 5 else "")
+        word = "скважины" if len(below) == 1 else "скважин"
+        raise SurveyGeometryError(f"Устье {word} {listed} по съёмке ниже подошвы — проверьте систему высот.")
+    if any(final.subdrill_m < MIN_SUBDRILL_M for final in finals.values()):
+        gap = max(
+            (abs(points[i].z - by_id[i].collar.z) for i in finals if points[i].z is not None),
+            default=0.0,
+        )
+        raise SurveyGeometryError(f"Отметки съёмки расходятся с проектом на {gap:.0f} м — проверьте систему высот.")
+
+
 def surveyed_geometry(design: BlastDesign, matches: list[SurveyMatch]) -> BlastDesign:
-    """Копия проекта: у скважин с точкой — геометрия по съёмке (`surveyed_hole`).
+    """Копия проекта: у скважин с точкой — итоговая геометрия по съёмке (`final_hole`).
 
     Скважины без точки — по проекту (смешанная сетка). Проект на входе не меняется.
     """
@@ -239,9 +294,7 @@ def surveyed_geometry(design: BlastDesign, matches: list[SurveyMatch]) -> BlastD
     points = applied_points(design, matches)
     copy = deepcopy(design)
     copy.holes = [
-        surveyed_hole(hole, collar_point(design, hole, points[hole.id]), design.pattern_params)
-        if hole.id in points
-        else hole
+        final_hole(design, hole, points[hole.id]) if hole.id in points else hole
         for hole in copy.holes
     ]
     return copy
@@ -295,6 +348,9 @@ def evaluate_survey(design: BlastDesign, matches: list[SurveyMatch], tol: Survey
     if not points:
         return []
     surveyed_design = surveyed_geometry(design, matches)
+    check_survey_geometry(
+        design, points, {hole.id: hole for hole in surveyed_design.holes if hole.id in points}
+    )
     burdens = floor_burdens(design)
     surveyed_burdens = floor_burdens(surveyed_design)
     surveyed_holes = {hole.id: hole for hole in surveyed_design.holes}

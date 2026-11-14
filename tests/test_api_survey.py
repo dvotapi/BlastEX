@@ -595,3 +595,26 @@ def test_apply_with_elevation_mismatch_is_readable_422(client):
     assert response.status_code == 422, response.text
     detail = response.json()["detail"]
     assert detail == "Отметки съёмки расходятся с проектом на 300 м — проверьте систему высот."
+
+
+def test_collar_below_floor_is_readable_422_in_evaluate_and_apply(client):
+    design = _design()
+    points = _points(design)
+    points[0]["z"] = points[0]["z"] - 30.0
+    del points[0]["depth_m"]
+    evaluated = client.post(f"{BASE}/evaluate", json={"design": _schema(design), "points": points})
+    assert evaluated.status_code == 422, evaluated.text
+    assert "ниже подошвы — проверьте систему высот" in evaluated.json()["detail"]
+    applied = client.post(f"{BASE}/apply", json=_apply_body(design, points))
+    assert applied.status_code == 422
+    assert "ниже подошвы" in applied.json()["detail"]
+
+
+def test_evaluate_with_elevation_mismatch_is_readable_422(client):
+    design = _design()
+    points = _points(design)
+    for point in points:
+        point["z"] = point["z"] + 300.0
+    response = client.post(f"{BASE}/evaluate", json={"design": _schema(design), "points": points})
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == "Отметки съёмки расходятся с проектом на 300 м — проверьте систему высот."

@@ -23,7 +23,7 @@ const api = vi.hoisted(() => ({
 vi.mock("../../api/endpoints", () => ({ api }));
 
 import { HttpError } from "../../api/client";
-import { COPY_FAILED, DATE_MISSING, DECISIONS_CHANGED, SURVEY_CHANGED, copyNotOpened, todayIso, useSurveyImport, type ForkResult } from "./useSurveyImport";
+import { COPY_FAILED, DATE_MISSING, DECISIONS_CHANGED, SURVEY_CHANGED, copyNotOpened, surveySignature, todayIso, useSurveyImport, type ForkResult } from "./useSurveyImport";
 
 function hole(id: string, x: number): Hole {
   return {
@@ -428,5 +428,21 @@ describe("useSurveyImport", () => {
     await act(() => view.result.current.survey.apply());
     expect(api.survey.apply).toHaveBeenCalledTimes(1);
     expect(api.survey.apply.mock.calls[0][0].manual).toEqual({ 3: "1-02" });
+  });
+
+  it("подпись проекта учитывает поверхности и параметры сетки — сервер считает по ним", () => {
+    const base = design();
+    const roof = { ...base, surfaces: { ...base.surfaces, top: { kind: "top" } } } as unknown as BlastDesign;
+    const params = { ...base, pattern_params: { ...base.pattern_params, depth_m: 11 } };
+    expect(surveySignature(roof)).not.toBe(surveySignature(base));
+    expect(surveySignature(params)).not.toBe(surveySignature(base));
+  });
+
+  it("параметры сетки сменились после оценки — «Применить» просит повторить оценку", async () => {
+    const { view } = await loaded(design());
+    act(() => view.result.current.dispatch({ type: "SET_PATTERN_PARAMS", params: { subdrill_m: 1.5 } }));
+    await act(() => view.result.current.survey.apply());
+    expect(view.result.current.survey.error).toBe(SURVEY_CHANGED);
+    expect(api.survey.apply).not.toHaveBeenCalled();
   });
 });

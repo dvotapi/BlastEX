@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from api.schemas.blast import ExplosivePropertiesSchema, KuzRamSettingsSchema, RockPropertiesSchema
 from api.schemas.cost import CalculationContextInputSchema, MaterialsSelectionSchema
 from design.spatial.tin import MAX_INDEX_ENTRIES, index_entries
+from design.survey.evaluate import MIN_SUBDRILL_M
 
 
 class Point3Schema(BaseModel):
@@ -149,8 +150,7 @@ class ManualOffsetSchema(BaseModel):
     across: float
 
 
-# Нижняя граница перебура: недобур не глубже высоты уступа, 100 м — с запасом.
-MIN_SUBDRILL_M = -100.0
+# Нижняя граница перебура: недобур не глубже высоты уступа, 100 м — с запасом (`design.survey.evaluate`).
 
 
 class HoleSchema(BaseModel):

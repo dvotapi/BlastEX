@@ -166,7 +166,7 @@ def _fact(
         # Глубина не замерена — длина по плану (до подошвы): `AsDrilledHole.actual_depth` пустой не бывает
         # (0 нормализуется в расстояние устье — забой); что она не замер — `METHOD_NO_DEPTH`.
         actual_depth=depth,
-        actual_diameter=previous.actual_diameter if previous is not None else hole.diameter_mm,
+        actual_diameter=(previous.actual_diameter if previous is not None else 0.0) or hole.diameter_mm,
         role=ROLE_EXECUTED,
         provenance=replace(deepcopy(provenance), method=method),
     )
@@ -184,7 +184,7 @@ def _shaped(
     «Применить» поэтому ничего не меняет (и не стирает воду съёмки).
     """
 
-    updated = surveyed_hole(hole, collar_point(design, hole, point))
+    updated = surveyed_hole(hole, collar_point(design, hole, point), design.pattern_params)
     manual = list(hole.manual)
     offset = hole.manual_offset
     if point.z is not None and MANUAL_COLLAR_Z not in manual:
@@ -323,7 +323,11 @@ def apply_survey(
             holes.append(hole)
             continue
         geometry = hole.id not in unchanged
-        shaped = _shaped(work, hole, point, axes) if geometry else surveyed_hole(hole, collar_point(work, hole, point))
+        shaped = (
+            _shaped(work, hole, point, axes)
+            if geometry
+            else surveyed_hole(hole, collar_point(work, hole, point), work.pattern_params)
+        )
         # Факт — до правки скважины: запись сверяет, что проектная скважина не меняется.
         previous = next((item for item in work.as_drilled_holes if item.design_hole_id == hole.id), None)
         record_as_drilled(work, _fact(hole, point, shaped, fact, previous))

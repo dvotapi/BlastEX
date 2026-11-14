@@ -655,3 +655,42 @@ def test_survey_without_depth_keeps_measured_depth_of_previous_record():
     assert (kept.actual_toe.x, kept.actual_toe.y, kept.actual_toe.z) == pytest.approx((toe.x, toe.y, toe.z))
     # Прежняя запись без замера — по-прежнему без замера.
     assert facts["2-03"].provenance.method == SURVEY_NO_DEPTH_METHOD
+
+
+def test_survey_without_depth_keeps_manual_length():
+    """Длина замерена прежней съёмкой (ручная) — новая съёмка без глубины её не меняет, как пересчёт по кровле."""
+
+    design = _sloped(_design())
+    hole = _hole(design, "2-02")
+    first = _applied(design, _apply(design, _matches(design, {"2-02": _point(hole, depth_m=10.5)}, only={"2-02"})))
+    measured = _hole(first, "2-02")
+    assert measured.length_m == pytest.approx(10.5) and "length" in measured.manual
+    second = _point(measured, dz=0.5, depth_m=None)
+    result = _apply(first, _matches(first, {"2-02": second}, only={"2-02"}))
+    again = _by_id(result.holes)["2-02"]
+    assert again.length_m == pytest.approx(10.5)
+    assert again.subdrill_m == pytest.approx(measured.subdrill_m - 0.5)
+    fact = next(item for item in result.as_drilled_holes if item.design_hole_id == "2-02")
+    assert fact.actual_depth == pytest.approx(10.5)
+
+
+def test_survey_without_depth_keeps_explicit_kind_depth():
+    """У вида со своей глубиной в параметрах сетки (`depth_m`) длина не пересчитывается до подошвы."""
+
+    design = _sloped(_design())
+    design.pattern_params = {**design.pattern_params, "depth_m": 11.0}
+    hole = _hole(design, "2-02")
+    result = _apply(design, _matches(design, {"2-02": _point(hole, dx=2.0, z=None, depth_m=None)}, only={"2-02"}))
+    assert _by_id(result.holes)["2-02"].length_m == pytest.approx(hole.length_m)
+
+
+def test_fact_with_unset_previous_diameter_takes_design():
+    from design.as_drilled import record_as_drilled
+    from design.models import AsDrilledHole
+
+    design = _design()
+    hole = _hole(design, "2-02")
+    record_as_drilled(design, AsDrilledHole(design_hole_id="2-02", actual_collar=hole.collar, actual_toe=hole.toe))
+    result = _apply(design, _matches(design, {"2-02": _point(hole, dx=0.2)}, only={"2-02"}))
+    fact = next(item for item in result.as_drilled_holes if item.design_hole_id == "2-02")
+    assert fact.actual_diameter == hole.diameter_mm

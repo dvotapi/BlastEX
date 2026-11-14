@@ -25,11 +25,11 @@ from __future__ import annotations
 import math
 from copy import deepcopy
 from dataclasses import dataclass, replace
-from typing import Mapping
+from typing import Any, Mapping
 
 from design.editing import local_spacing
 from design.geometry import collar_elevation, hole_from_collar
-from design.hole_recompute import MANUAL_COLLAR_Z
+from design.hole_recompute import MANUAL_COLLAR_Z, MANUAL_LENGTH, explicit_depth_m
 from design.models import BlastDesign, Hole, Point3
 from design.survey.match import SurveyMatch
 from design.survey.read import SurveyedPoint
@@ -192,7 +192,7 @@ def required_length_m(hole: Hole, collar_z: float, angle_deg: float) -> float | 
     return None if to_floor is None else to_floor + design_subdrill(hole)
 
 
-def surveyed_hole(hole: Hole, point: SurveyedPoint) -> Hole:
+def surveyed_hole(hole: Hole, point: SurveyedPoint, params: Mapping[str, Any] | None = None) -> Hole:
     """Скважина по съёмке: устье, угол, азимут и длина из точки, не снятое — из проекта.
 
     Перебур — длина за проектной подошвой по оси: точка оси на уровне подошвы
@@ -200,7 +200,10 @@ def surveyed_hole(hole: Hole, point: SurveyedPoint) -> Hole:
     (`mass_blast_fact._fact_geometry`). Перебур сменился — прежний проектный
     запоминается в `design_subdrill_m` (если его ещё нет): по нему пересъёмка
     после добуривания считает нужную длину. Глубины в точке нет — скважина по
-    плану: до подошвы с прежним перебуром. Отметку устья точки без неё
+    плану: до подошвы с прежним перебуром — по правилу пересчёта по кровле
+    (`hole_recompute.recompute_hole`): ручная длина (`"length"`) и своя глубина
+    вида в параметрах сетки `params` (`explicit_depth_m`) остаются, сдвигается
+    перебур. Отметку устья точки без неё
     подставляет вызывающий (`collar_point`). Остальные поля — те же объекты,
     что у `hole` (копия неглубокая); `hole` не меняется.
     """
@@ -208,7 +211,8 @@ def surveyed_hole(hole: Hole, point: SurveyedPoint) -> Hole:
     surveyed = _surveyed(hole, point)
     to_floor = _length_to_floor(hole, surveyed.collar.z, surveyed.angle_deg)
     length = surveyed.length_m
-    if point.depth_m is None:
+    keeps_length = MANUAL_LENGTH in hole.manual or explicit_depth_m(hole.kind, dict(params or {})) is not None
+    if point.depth_m is None and not keeps_length:
         # Глубина не замерена — скважина по плану: до подошвы с прежним перебуром,
         # как её поставит пересчёт по кровле (длина не ручная).
         subdrill = hole.subdrill_m
@@ -235,7 +239,9 @@ def surveyed_geometry(design: BlastDesign, matches: list[SurveyMatch]) -> BlastD
     points = applied_points(design, matches)
     copy = deepcopy(design)
     copy.holes = [
-        surveyed_hole(hole, collar_point(design, hole, points[hole.id])) if hole.id in points else hole
+        surveyed_hole(hole, collar_point(design, hole, points[hole.id]), design.pattern_params)
+        if hole.id in points
+        else hole
         for hole in copy.holes
     ]
     return copy

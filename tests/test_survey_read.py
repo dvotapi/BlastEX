@@ -268,3 +268,25 @@ def test_required_column_cannot_be_disabled(role):
         read_survey(CSV_TEXT.encode(), "s.csv", columns={role: ""})
     assert "нельзя отключить" in str(err.value)
     assert err.value.headers  # выбрать колонку можно и после ошибки
+
+
+def test_out_of_range_coordinates_are_skipped():
+    raw = "№;E;N;Z\n1;1e300;2;400\n2;3;4;1e9\n3;5;6;400\n".encode()
+    f = read_survey(raw, "s.csv")
+    assert [p.name for p in f.points] == ["3"]
+    assert any("пределов" in w and "2, 3" in w for w in f.warnings)
+
+
+def test_headerless_txt_with_comment_line_stays_pnez_txt():
+    raw = b"# survey 2026-11-14\r\n1 593800 1472900 420\r\n2 593804 1472900 420.5\r\n"
+    f = read_survey(raw, "s.txt")
+    assert f.format == "PNEZ_TXT"
+    assert [(p.name, p.x, p.y) for p in f.points] == [("1", 1472900.0, 593800.0), ("2", 1472900.0, 593804.0)]
+
+
+def test_txt_header_with_unknown_titles_but_numeric_rows_is_table():
+    # Заголовок не узнан, но под ним строки того же числа ячеек с числами — таблица (колонки — вручную).
+    raw = "Пикет Вост Сев\n1 1472880.04 593722.99\n".encode()
+    with pytest.raises(SurveyReadError) as err:
+        read_survey(raw, "s.txt")
+    assert err.value.headers == ["Пикет", "Вост", "Сев"]

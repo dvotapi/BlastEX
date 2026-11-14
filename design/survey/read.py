@@ -28,6 +28,9 @@ MAX_COLUMNS = 64
 MAX_LABELS_PER_CELL = 50  # подписей в квадрате со стороной LABEL_RADIUS_M
 LABEL_CANDIDATES = 4  # ближайших подписей на точку
 MAX_UNPACKED_BYTES = 200 * 1024 * 1024  # xlsx в распакованном виде
+# Пределы координат точки: СК объекта — миллионы метров, отметки — тысячи.
+MAX_PLANE_M = 1e8
+MAX_ELEVATION_M = 1e5
 
 COLUMN_KEYS = ("name", "east", "north", "z", "depth", "angle", "azimuth", "wet", "water")
 
@@ -132,6 +135,7 @@ def read_survey(
         points = _read_table(data, filename, columns, swap_xy, warnings, used, headers)
     else:
         points = _read_profile(_decode(data), fmt, warnings)
+    points = _in_range(points, warnings)
     if swap_xy and fmt != "TABLE" and points:
         # У таблицы перестановка — в колонках (`_map_columns`), у профилей и DXF — в точках.
         for point in points:
@@ -140,6 +144,18 @@ def read_survey(
     if not points:
         raise SurveyReadError("В файле нет ни одной точки съёмки: координаты не прочитаны как числа.")
     return SurveyFile(points, fmt, used, warnings, hashlib.sha256(data).hexdigest(), headers)
+
+
+def _in_range(points: list[SurveyedPoint], warnings: list[str]) -> list[SurveyedPoint]:
+    """Точки с координатами вне пределов — не съёмка блока: пропускаются."""
+
+    def ok(p: SurveyedPoint) -> bool:
+        return abs(p.x) <= MAX_PLANE_M and abs(p.y) <= MAX_PLANE_M and (p.z is None or abs(p.z) <= MAX_ELEVATION_M)
+
+    bad = [p.line for p in points if not ok(p)]
+    if bad:
+        warnings.append(f"Координаты вне допустимых пределов — строки пропущены: {_listed(bad)}.")
+    return [p for p in points if ok(p)]
 
 
 # --- определение формата и декодирование -----------------------------------
@@ -166,9 +182,12 @@ def _detect_format(data: bytes, filename: str) -> str:
     if named:
         return named
     text = _decode(data)
-    first = next((ln for ln in text.splitlines() if ln.strip()), "")
-    # Заголовок — таблица при любом расширении и разделителе (таб, пробелы).
-    if _has_header(first):
+    lines = [ln for ln in text.splitlines() if ln.strip()][:2]
+    first, second = (lines + ["", ""])[:2]
+    # Заголовок — таблица при любом разделителе (таб, пробелы). У .txt первая
+    # нечисловая строка бывает и комментарием («# survey») файла выноса —
+    # заголовком она считается, только если похожа на него (`_table_header`).
+    if _has_header(first) and (ext != "txt" or _table_header(first, second)):
         return "TABLE"
     if ext == "txt" and "," not in text and ";" not in text:
         return "PNEZ_TXT"
@@ -189,6 +208,20 @@ def _has_header(line: str) -> bool:
 
     cells = _split(line, _delimiter(line, spaces=True))
     return not (len(cells) >= 3 and _number(cells[1], False) is not None and _number(cells[2], False) is not None)
+
+
+_KNOWN_TITLES = {alias for aliases in _ALIASES.values() for alias in aliases} | set(_XY)
+
+
+def _table_header(first: str, second: str) -> bool:
+    """Строка — заголовок таблицы: две и больше узнанных колонки или под ней
+    числовая строка с тем же числом ячеек."""
+
+    cells = _split(first, _delimiter(first, spaces=True))
+    if sum(cell.strip().lower() in _KNOWN_TITLES for cell in cells) >= 2:
+        return True
+    below = _split(second, _delimiter(first, spaces=True)) if second else []
+    return len(below) == len(cells) and not _has_header(second)
 
 
 _SPACES = " "  # разделитель таблицы — пробелы (подряд), когда нет «;», таба и «,»

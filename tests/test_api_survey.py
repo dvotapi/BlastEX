@@ -571,3 +571,27 @@ def test_read_disabled_column_is_not_read(client):
     )
     assert refused.status_code == 422
     assert "нельзя отключить" in refused.json()["detail"]["message"]
+
+
+def test_point_schema_bounds_coordinates():
+    from pydantic import ValidationError
+
+    from api.schemas.survey import SurveyedPointSchema
+
+    SurveyedPointSchema.model_validate({"name": "1", "x": 1e7, "y": -1e7, "z": 5000.0})
+    for bad in ({"x": 1e308}, {"y": -2e8}, {"z": 2e5}):
+        with pytest.raises(ValidationError):
+            SurveyedPointSchema.model_validate({"name": "1", "x": 0.0, "y": 0.0, **bad})
+
+
+def test_apply_with_elevation_mismatch_is_readable_422(client):
+    """Отметки съёмки в другой системе высот (на сотни метров): не 500/непонятная 422, а подсказка."""
+
+    design = _design()
+    points = _points(design)
+    for point in points:
+        point["z"] = point["z"] + 300.0
+    response = client.post(f"{BASE}/apply", json=_apply_body(design, points))
+    assert response.status_code == 422, response.text
+    detail = response.json()["detail"]
+    assert detail == "Отметки съёмки расходятся с проектом на 300 м — проверьте систему высот."

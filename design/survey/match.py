@@ -52,15 +52,29 @@ def _pairs(
     """
 
     cell = limit if limit > 0 else 1.0
+
+    def cell_of(x: float, y: float) -> tuple[int, int] | None:
+        # Координаты, которые в сетку не ложатся (бесконечность после деления), —
+        # не на блоке: в пары не идут, а не роняют запрос.
+        try:
+            return math.floor(x / cell), math.floor(y / cell)
+        except (OverflowError, ValueError):
+            return None
+
     grid: dict[tuple[int, int], list[int]] = {}
     plane: list[tuple[float, float]] = []
     for pi, point in enumerate(points):
         px, py = (point.y, point.x) if swap else (point.x, point.y)
         plane.append((px, py))
-        grid.setdefault((math.floor(px / cell), math.floor(py / cell)), []).append(pi)
+        key = cell_of(px, py)
+        if key is not None:
+            grid.setdefault(key, []).append(pi)
     candidates = []
     for hi, hole in enumerate(holes):
-        cx, cy = math.floor(hole.collar.x / cell), math.floor(hole.collar.y / cell)
+        home = cell_of(hole.collar.x, hole.collar.y)
+        if home is None:
+            continue
+        cx, cy = home
         for dx in (-1, 0, 1):
             for dy in (-1, 0, 1):
                 for pi in grid.get((cx + dx, cy + dy), ()):

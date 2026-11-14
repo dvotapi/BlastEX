@@ -15,7 +15,7 @@ from api.schemas.design import (
     HoleSchema,
     SurveyApplicationSchema,
 )
-from design.survey.read import MAX_SURVEY_ROWS
+from design.survey.read import MAX_ELEVATION_M, MAX_PLANE_M, MAX_SURVEY_ROWS
 
 SurveyFormat = Literal["PNEZD_CSV", "PENZD_CSV", "PNEZ_TXT", "DXF_POINTS", "TABLE"]
 MatchBy = Literal["name", "nearest", "manual", ""]
@@ -34,9 +34,9 @@ class SurveyedPointSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True, allow_inf_nan=False)
 
     name: str = Field(max_length=NAME_MAX_LENGTH)
-    x: float
-    y: float
-    z: float | None = None
+    x: float = Field(ge=-MAX_PLANE_M, le=MAX_PLANE_M)
+    y: float = Field(ge=-MAX_PLANE_M, le=MAX_PLANE_M)
+    z: float | None = Field(default=None, ge=-MAX_ELEVATION_M, le=MAX_ELEVATION_M)
     # Глубина — замер длины скважины: больше нуля; уровень воды — от устья, не меньше нуля.
     depth_m: float | None = Field(default=None, gt=0)
     angle_deg: float | None = None

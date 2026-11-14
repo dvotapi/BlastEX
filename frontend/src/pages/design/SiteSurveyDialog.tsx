@@ -128,7 +128,10 @@ export function SiteSurveyDialog({ onClose }: { onClose: () => void }) {
       resetColumns();
       if (fileRef.current) fileRef.current.value = "";
     } catch (reason) {
-      setHeaders(headersOf(reason));
+      const fileHeaders = headersOf(reason);
+      setHeaders(fileHeaders);
+      // Выбор колонок скрыт — прежний выбор не должен молча уйти со следующей загрузкой.
+      if (!fileHeaders.length) setColumns({});
       setError(message(reason, "Не удалось загрузить съёмку."));
     } finally {
       setBusy(false);

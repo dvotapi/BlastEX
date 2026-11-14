@@ -495,3 +495,19 @@ def test_deviation_schema_accepts_unmeasured_depth():
         angle_deviation_deg=0.0, azimuth_deviation_deg=0.0, actual_depth_m=None, designed_depth_m=12.0,
     )
     assert row.depth_deviation_m is None and row.actual_depth_m is None
+
+
+def test_unmeasured_depth_is_not_drilled_depth_in_charge_compare():
+    from design.as_charged import compare_hole
+    from design.models import AsChargedHole
+
+    design = _design()
+    measured, unmeasured = _hole(design, "2-02"), _hole(design, "2-03")
+    points = {"2-02": _point(measured, dl=-0.3), "2-03": _point(unmeasured, dx=0.2, depth_m=None)}
+    applied = _applied(design, _apply(design, _matches(design, points, only=set(points))))
+    drilled = {item.design_hole_id: item for item in applied.as_drilled_holes}
+    holes = _by_id(applied.holes)
+    row = compare_hole(holes["2-03"], None, AsChargedHole(design_hole_id="2-03"), drilled["2-03"])
+    assert row["depth_basis"] == "designed"
+    row = compare_hole(holes["2-02"], None, AsChargedHole(design_hole_id="2-02"), drilled["2-02"])
+    assert row["depth_basis"] == "drilled"

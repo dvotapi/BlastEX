@@ -149,6 +149,10 @@ class ManualOffsetSchema(BaseModel):
     across: float
 
 
+# Нижняя граница перебура: недобур не глубже высоты уступа, 100 м — с запасом.
+MIN_SUBDRILL_M = -100.0
+
+
 class HoleSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -159,8 +163,7 @@ class HoleSchema(BaseModel):
     toe: Point3Schema
     diameter_mm: float = Field(..., ge=0)
     # Может быть отрицательным: недобур по съёмке при проектной подошве (TASK-014, М7).
-    # Недобур не глубже высоты уступа: 100 м — с запасом.
-    subdrill_m: float = Field(0.0, ge=-100)
+    subdrill_m: float = Field(0.0, ge=MIN_SUBDRILL_M)
     kind: str = "production"
     source: str = "generated"
     enabled: bool = True

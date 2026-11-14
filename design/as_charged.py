@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from design.as_drilled import SURVEY_NO_DEPTH_METHOD
 from design.models import (
     ROLE_EXECUTED,
     AsChargedHole,
@@ -187,6 +188,9 @@ def compare_hole(
     actual_primer = primer_position_m(actual.primer_items, actual.primers)
     designed_from, designed_to = charge_column_bounds_m(designed_decks)
     actual_from, actual_to = charge_column_bounds_m(actual.decks)
+    # Съёмка без замера глубины — в записи проектная длина, это не замер.
+    if drilled is not None and drilled.provenance.method == SURVEY_NO_DEPTH_METHOD:
+        drilled = None
     actual_depth = drilled.length_m if drilled is not None else designed_hole.length_m
     leftover = None
     overcharge = None

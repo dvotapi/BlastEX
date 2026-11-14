@@ -158,10 +158,6 @@ class MatchTests(unittest.TestCase):
         self.assertEqual(len(res), len(real))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 def _brute_pairs(holes, points, limit, swap=False):
     candidates = []
     for hi, hole in enumerate(holes):
@@ -198,3 +194,12 @@ class PairsGridTest(unittest.TestCase):
         swap_detect(holes, points, 0.3)
         match_survey(holes, points, block="", tol_collar_m=0.3)
         self.assertLess(time.perf_counter() - started, 3.0)
+
+    def test_huge_coordinates_do_not_break_the_grid(self):
+        holes = [_hole("h", 0.0, 0.0)]
+        points = [_pt("far", 1e308, -1e308, 1), _pt("near", 0.1, 0.0, 2)]
+        self.assertEqual([(h.id, p.name) for h, p in _pairs(holes, points, 0.3)], [("h", "near")])
+
+
+if __name__ == "__main__":
+    unittest.main()

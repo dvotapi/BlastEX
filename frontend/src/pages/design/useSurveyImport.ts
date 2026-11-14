@@ -217,6 +217,7 @@ export function useSurveyImport({
   chargeRequest,
   onFork,
   onApplied,
+  withParams,
 }: {
   state: DesignState;
   dispatch: Dispatch<DesignAction>;
@@ -228,6 +229,11 @@ export function useSurveyImport({
   onFork: () => Promise<ForkResult | null>;
   /** Съёмка легла в документ: страница сбрасывает свои результаты. */
   onApplied?: () => void;
+  /**
+   * Документ для сервера: с живыми (ещё не сохранёнными) параметрами страницы,
+   * как у пересчёта по кровле (`designWithParams`). По нему же — подпись проекта.
+   */
+  withParams?: (design: BlastDesign) => BlastDesign;
 }): SurveyImportView {
   const present = state.present;
   const latest = useRef(present);
@@ -238,6 +244,10 @@ export function useSurveyImport({
   onForkRef.current = onFork;
   const onAppliedRef = useRef(onApplied);
   onAppliedRef.current = onApplied;
+  const withParamsRef = useRef(withParams);
+  withParamsRef.current = withParams;
+  /** Документ так, как его увидит сервер. */
+  const forServer = (design: BlastDesign): BlastDesign => (withParamsRef.current ? withParamsRef.current(design) : design);
 
   const [source, setSource] = useState<Source | null>(null);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
@@ -301,7 +311,7 @@ export function useSurveyImport({
 
   async function runEvaluate(next: Decisions): Promise<void> {
     const own = ++sequence.current;
-    const base = latest.current;
+    const base = forServer(latest.current);
     setBusy(true);
     setError("");
     try {
@@ -464,10 +474,13 @@ export function useSurveyImport({
    * инженер: копия по съёмке называется иначе («… · по съёмке»), и сервер вывел
    * бы из имени другой префикс.
    */
-  async function runApply(base: BlastDesign, block: string): Promise<void> {
+  async function runApply(document: BlastDesign, block: string): Promise<void> {
     const current = loadedRef.current;
     if (!current) return;
+    const base = forServer(document);
     const signature = surveySignature(base);
+    // Решения, под которые ушёл запрос: сменились, пока он шёл, — ответ не тот.
+    const decided = decisionsSignature(decisionsRef.current);
     const { manual, skip: skipped } = decisionsRef.current;
     const charge = chargeRef.current();
     setBusy(true);
@@ -487,8 +500,12 @@ export function useSurveyImport({
         charge: charge ? { ...charge, holes: [] } : null,
       });
       const now = latest.current;
-      if (now.design_id !== base.design_id || surveySignature(now) !== signature) {
+      if (now.design_id !== base.design_id || surveySignature(forServer(now)) !== signature) {
         setError(SURVEY_CHANGED);
+        return;
+      }
+      if (decisionsSignature(decisionsRef.current) !== decided) {
+        setError(DECISIONS_CHANGED);
         return;
       }
       reevaluateAfter.current = now;
@@ -518,7 +535,7 @@ export function useSurveyImport({
       setError(DATE_MISSING);
       return false;
     }
-    if (surveySignature(latest.current) !== evaluation.signature) {
+    if (surveySignature(forServer(latest.current)) !== evaluation.signature) {
       setError(SURVEY_CHANGED);
       return false;
     }

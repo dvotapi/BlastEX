@@ -68,7 +68,17 @@ function tolerancesText(t: SurveyTolerances): string {
  * Поле глубины: значение уходит в оценку по Enter или при уходе с поля.
  * Введённая глубина остаётся в поле — её можно сменить или стереть (снять).
  */
-function DepthInput({ holeId, entered, onCommit }: { holeId: string; entered: number | null; onCommit: (m: number | null) => void }) {
+function DepthInput({
+  holeId,
+  entered,
+  disabled,
+  onCommit,
+}: {
+  holeId: string;
+  entered: number | null;
+  disabled: boolean;
+  onCommit: (m: number | null) => void;
+}) {
   const [text, setText] = useState(entered === null ? "" : ruNumber(entered));
   const [invalid, setInvalid] = useState(false);
   // Enter и уход с поля после него — одна оценка, а не две.
@@ -107,6 +117,7 @@ function DepthInput({ holeId, entered, onCommit }: { holeId: string; entered: nu
         placeholder="глубина, м"
         aria-label={`Глубина скважины ${holeId}, м`}
         aria-invalid={invalid || undefined}
+        disabled={disabled}
         value={text}
         onChange={(event) => setText(event.target.value)}
         onKeyDown={onKeyDown}
@@ -179,6 +190,7 @@ function StatusCell({ row, survey }: { row: SurveyRow; survey: SurveyImportView 
           key={`${row.holeId}|${entered ?? ""}`}
           holeId={row.holeId}
           entered={entered}
+          disabled={survey.busy}
           onCommit={(m) => survey.setDepth(row.holeId as string, m)}
         />
       )}

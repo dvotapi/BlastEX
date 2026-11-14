@@ -906,6 +906,8 @@ export function DesignPage({
     status: document.lifecycle_status,
     chargeRequest,
     onFork: () => forkPlan({ name: `${document.name} · по съёмке`, keepStage: true }),
+    // Сервер ставит скважины по живым параметрам сетки, как пересчёт по кровле на странице.
+    withParams: (design) => designWithParams({ present: design, saved: state.saved }, { patternParams, chargeRules, explosiveKey }),
     onApplied: () => {
       // Скважины и заряды сменились: прежние сравнения и прогноз — не о них.
       setFragResult(null);

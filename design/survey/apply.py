@@ -220,6 +220,7 @@ def _geology_reset(before: Hole, after: Hole) -> bool:
     return rock or water
 
 
+TRAJECTORY_RESET_TEXT = "Траектория скважин {count} сброшена съёмкой."
 GEOLOGY_RESET_TEXT = "Геология {count} скважин сброшена после сдвига — пересеките геологию заново."
 
 
@@ -307,6 +308,7 @@ def apply_survey(
     holes: list[Hole] = []
     changed_ids: list[str] = []
     reset = 0
+    trajectories = 0
     for hole in work.holes:
         point = points.get(hole.id)
         if point is None:
@@ -320,7 +322,11 @@ def apply_survey(
         )
         # Факт — до правки скважины: запись сверяет, что проектная скважина не меняется.
         previous = next((item for item in work.as_drilled_holes if item.design_hole_id == hole.id), None)
-        record_as_drilled(work, _fact(hole, point, shaped, fact, previous))
+        recorded = record_as_drilled(work, _fact(hole, point, shaped, fact, previous))
+        if geometry and any(sample.has_xyz for sample in recorded.survey_points):
+            # Новое устье и ось: траектория прежней записи заменила бы забой (`normalize_as_drilled`).
+            recorded.survey_points = [sample for sample in recorded.survey_points if not sample.has_xyz]
+            trajectories += 1
         water = _survey_water(hole.id, point, shaped.length_m if geometry else hole.length_m, survey, warnings)
         if not geometry and not _water_differs(hole, water):
             holes.append(hole)
@@ -332,6 +338,8 @@ def apply_survey(
         changed_ids.append(hole.id)
     if reset:
         warnings.append(GEOLOGY_RESET_TEXT.format(count=reset))
+    if trajectories:
+        warnings.append(TRAJECTORY_RESET_TEXT.format(count=trajectories))
 
     application = SurveyApplication(
         applied_at=now,

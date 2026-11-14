@@ -423,4 +423,11 @@ describe("SurveyPanel", () => {
     expect(screen.getByText("Решения изменились — повторите оценку")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Применить к проекту" })).toBeDisabled();
   });
+
+  it("пока идёт запрос, глубину, привязку и пропуск не поменять", () => {
+    render(<SurveyPanel survey={view({ busy: true })} />);
+    expect(screen.getByLabelText("Глубина скважины 1-02, м")).toBeDisabled();
+    expect(screen.getByLabelText("Скважина для точки 7")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Пропустить точку 7" })).toBeDisabled();
+  });
 });

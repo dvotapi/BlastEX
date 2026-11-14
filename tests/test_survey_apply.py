@@ -735,3 +735,28 @@ def test_collar_below_floor_is_refused():
     with pytest.raises(SurveyGeometryError) as err:
         evaluate_survey(design, matches, SurveyTolerances())
     assert str(err.value) == "Устье скважины 2-02 по съёмке ниже подошвы — проверьте систему высот."
+
+
+def test_moved_hole_drops_xyz_trajectory_of_previous_record():
+    from design.as_drilled import normalize_as_drilled, record_as_drilled
+    from design.models import AsDrilledHole, MwdSample, SurveyPoint
+
+    design = _design()
+    hole, still = _hole(design, "2-02"), _hole(design, "2-03")
+    for target in (hole, still):
+        record_as_drilled(design, AsDrilledHole(
+            design_hole_id=target.id, actual_collar=target.collar, actual_toe=target.toe, actual_depth=target.length_m,
+            survey_points=[SurveyPoint(depth_m=5.0), SurveyPoint(depth_m=target.length_m, x=target.toe.x + 1.0, y=target.toe.y, z=target.toe.z)],
+            mwd_samples=[MwdSample(depth_m=1.0)],
+        ))
+    points = {"2-02": _point(hole, dx=0.4), "2-03": _point(still)}
+    result = _apply(design, _matches(design, points, only=set(points)))
+    facts = {item.design_hole_id: item for item in result.as_drilled_holes}
+    moved = _by_id(result.holes)["2-02"]
+    assert [p.has_xyz for p in facts["2-02"].survey_points] == [False]
+    assert len(facts["2-02"].mwd_samples) == 1
+    toe = normalize_as_drilled(facts["2-02"]).actual_toe
+    assert (toe.x, toe.y, toe.z) == pytest.approx((moved.toe.x, moved.toe.y, moved.toe.z))
+    # Без изменения геометрии траектория остаётся.
+    assert [p.has_xyz for p in facts["2-03"].survey_points] == [False, True]
+    assert "Траектория скважин 1 сброшена съёмкой." in result.warnings

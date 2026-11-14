@@ -94,6 +94,13 @@ function applied(): SurveyApplyResponse {
 
 type ForkFn = (dispatch: Dispatch<DesignAction>) => Promise<ForkResult | null>;
 
+/** Живые (несохранённые) параметры сетки страницы — как `designWithParams`. */
+let liveParams: Record<string, unknown> | null = null;
+
+function withLive(design: BlastDesign): BlastDesign {
+  return liveParams ? { ...design, pattern_params: { ...design.pattern_params, ...liveParams } } : design;
+}
+
 function setup(initial: BlastDesign, fork: ForkFn = async () => null, swallow: DesignAction["type"][] = []) {
   const actions: DesignAction[] = [];
   const onFork = vi.fn();
@@ -111,6 +118,7 @@ function setup(initial: BlastDesign, fork: ForkFn = async () => null, swallow: D
       status: state.present.lifecycle_status,
       chargeRequest: () => null,
       onFork,
+      withParams: withLive,
     });
     return { state, dispatch: rawDispatch, survey };
   });
@@ -120,6 +128,7 @@ function setup(initial: BlastDesign, fork: ForkFn = async () => null, swallow: D
 const FILE = new File(["66-1-01,5,10,420"], "66.csv");
 
 beforeEach(() => {
+  liveParams = null;
   api.survey.read.mockReset().mockResolvedValue(READ);
   api.survey.evaluate.mockReset().mockResolvedValue(evaluation());
   api.survey.apply.mockReset().mockResolvedValue(applied());
@@ -444,5 +453,36 @@ describe("useSurveyImport", () => {
     await act(() => view.result.current.survey.apply());
     expect(view.result.current.survey.error).toBe(SURVEY_CHANGED);
     expect(api.survey.apply).not.toHaveBeenCalled();
+  });
+
+  it("оценка и «Применить» — по документу с живыми параметрами сетки страницы", async () => {
+    liveParams = { depth_m: 11 };
+    const { view } = await loaded(design());
+    expect(api.survey.evaluate.mock.calls[0][0].design.pattern_params.depth_m).toBe(11);
+    await act(() => view.result.current.survey.apply());
+    expect(api.survey.apply.mock.calls[0][0].design.pattern_params.depth_m).toBe(11);
+    // Параметры на странице сменились после оценки — подпись другая, применять нельзя.
+    liveParams = { depth_m: 12 };
+    view.rerender();
+    api.survey.apply.mockClear();
+    await act(() => view.result.current.survey.apply());
+    expect(api.survey.apply).not.toHaveBeenCalled();
+  });
+
+  it("решения сменились, пока шёл «Применить», — ответ не применяется", async () => {
+    let release: (value: SurveyApplyResponse) => void = () => undefined;
+    api.survey.apply.mockImplementation(() => new Promise((resolve) => (release = resolve)));
+    const { view, actions } = await loaded(design());
+    let pending: Promise<void> = Promise.resolve();
+    act(() => {
+      pending = view.result.current.survey.apply();
+    });
+    await act(async () => view.result.current.survey.setDepth("1-02", 11.8));
+    await act(async () => {
+      release(applied());
+      await pending;
+    });
+    expect(actions.some((action) => action.type === "APPLY_SURVEY")).toBe(false);
+    expect(view.result.current.survey.error).toBe(DECISIONS_CHANGED);
   });
 });

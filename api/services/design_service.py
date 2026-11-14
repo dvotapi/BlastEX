@@ -635,14 +635,18 @@ def list_mwd_schema() -> MwdSchemaResponse:
 
 
 def record_as_drilled(request: AsDrilledRecordRequest) -> AsDrilledRecordResponse:
-    from design.as_drilled import compare_design, record_as_drilled_many
+    from design.as_drilled import compare_design, entered_depth, record_as_drilled_many
 
     design = BlastDesign.from_dict(request.design.model_dump())
     designed_before = [hole.to_dict() for hole in design.holes]
+    stored = {item.design_hole_id: item for item in design.as_drilled_holes}
     try:
         record_as_drilled_many(
             design,
-            [AsDrilledHole.from_dict(item.model_dump()) for item in request.holes],
+            [
+                entered_depth(stored.get(item.design_hole_id), AsDrilledHole.from_dict(item.model_dump()))
+                for item in request.holes
+            ],
             replace=request.replace,
         )
         payload = compare_design(design)

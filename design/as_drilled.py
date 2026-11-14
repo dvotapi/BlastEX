@@ -225,6 +225,32 @@ def record_as_drilled(design: BlastDesign, item: AsDrilledHole) -> AsDrilledHole
     return recorded
 
 
+# Ручной ввод факта в панели «Факт бурения» (`emptyProvenance` фронта).
+MANUAL_SOURCE = "engineer"
+MANUAL_METHOD = "manual"
+_DEPTH_SAME_M = 1e-6
+
+
+def entered_depth(existing: AsDrilledHole | None, incoming: AsDrilledHole) -> AsDrilledHole:
+    """Глубина, введённая поверх записи съёмки без замера, — замер.
+
+    Запись без замера (`SURVEY_NO_DEPTH_METHOD`) и новая глубина в ней — пометка
+    снимается: источник и метод — ручного ввода. Та же глубина — запись как есть.
+    """
+
+    if (
+        existing is None
+        or existing.provenance.method != SURVEY_NO_DEPTH_METHOD
+        or incoming.provenance.method != SURVEY_NO_DEPTH_METHOD
+        or abs(float(incoming.actual_depth or 0.0) - float(existing.actual_depth or 0.0)) <= _DEPTH_SAME_M
+    ):
+        return incoming
+    incoming.provenance = DataProvenance(
+        source=MANUAL_SOURCE, method=MANUAL_METHOD, timestamp=incoming.provenance.timestamp, role=ROLE_EXECUTED
+    )
+    return incoming
+
+
 def record_as_drilled_many(
     design: BlastDesign,
     items: list[AsDrilledHole],

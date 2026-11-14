@@ -162,3 +162,21 @@ def test_quoted_decimal_comma_in_comma_csv():
     raw = '№,E,N,Глубина\nA,"1472880,04","593722,99","12,5"\n'.encode()
     p = read_survey(raw, "s.csv").points[0]
     assert (p.x, p.y, p.depth_m) == (1472880.04, 593722.99, 12.5)
+
+
+def test_dxf_stacked_labels_fail_fast():
+    import time
+
+    import ezdxf
+
+    doc = ezdxf.new("R12")
+    msp = doc.modelspace()
+    for i in range(500):
+        msp.add_point((10, 20, 1))
+        msp.add_text(f"A-{i}", height=0.4).set_placement((10.1, 20.1, 1))
+    stream = io.StringIO()
+    doc.write(stream)
+    started = time.monotonic()
+    with pytest.raises(SurveyReadError, match="Слишком много подписей"):
+        read_survey(stream.getvalue().encode(), "s.dxf")
+    assert time.monotonic() - started < 5

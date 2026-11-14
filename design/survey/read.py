@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import heapq
 import io
 import math
 import re
@@ -24,6 +25,8 @@ LABEL_RADIUS_M = 0.6
 MAX_SURVEY_BYTES = 20 * 1024 * 1024
 MAX_SURVEY_ROWS = 50_000
 MAX_COLUMNS = 64
+MAX_LABELS_PER_CELL = 50  # подписей в квадрате со стороной LABEL_RADIUS_M
+LABEL_CANDIDATES = 4  # ближайших подписей на точку
 MAX_UNPACKED_BYTES = 200 * 1024 * 1024  # xlsx в распакованном виде
 
 COLUMN_KEYS = ("name", "east", "north", "z", "depth", "angle", "azimuth", "wet", "water")
@@ -253,8 +256,13 @@ def _read_dxf(data: bytes, filename: str, warnings: list[str]) -> list[SurveyedP
     for j, t in enumerate(labels):
         cell = (math.floor(t.points[0][0] / LABEL_RADIUS_M), math.floor(t.points[0][1] / LABEL_RADIUS_M))
         grid.setdefault(cell, []).append(j)
+    if any(len(js) > MAX_LABELS_PER_CELL for js in grid.values()):
+        raise SurveyReadError(
+            f"Слишком много подписей в одном месте чертежа (больше {MAX_LABELS_PER_CELL} на {LABEL_RADIUS_M} м)."
+        )
     pairs: list[tuple[float, int, int]] = []
     for i, m in enumerate(marks):
+        near: list[tuple[float, int, int]] = []
         cx, cy = math.floor(m.points[0][0] / LABEL_RADIUS_M), math.floor(m.points[0][1] / LABEL_RADIUS_M)
         for dx in (-1, 0, 1):
             for dy in (-1, 0, 1):
@@ -262,7 +270,8 @@ def _read_dxf(data: bytes, filename: str, warnings: list[str]) -> list[SurveyedP
                     t = labels[j]
                     d = math.hypot(m.points[0][0] - t.points[0][0], m.points[0][1] - t.points[0][1])
                     if d <= LABEL_RADIUS_M:
-                        pairs.append((d, i, j))
+                        near.append((d, i, j))
+        pairs.extend(heapq.nsmallest(LABEL_CANDIDATES, near))
     pairs.sort()
     named: dict[int, int] = {}
     used: set[int] = set()

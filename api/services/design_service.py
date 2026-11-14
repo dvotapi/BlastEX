@@ -1253,7 +1253,9 @@ def _design_to_hole_and_block(design: BlastDesign) -> tuple[HoleGeometrySchema, 
         grid_a_m=grid_a_m,
         grid_b_m=grid_b_m,
         depth_m=avg_depth_m,
-        overdrill_m=avg_subdrill_m,
+        # Недобур по съёмке даёт отрицательный перебур (подошва проектная, TASK-014):
+        # в смету — не меньше 0, длина `depth_m` и так фактическая.
+        overdrill_m=max(0.0, avg_subdrill_m),
         undercharge_m=avg_undercharge_m,
         charge_length_m=max(0.0, avg_depth_m - avg_undercharge_m),
         # Диаметр скважины паспорта — фактический (с разбуриванием): он и есть диаметр заряда.

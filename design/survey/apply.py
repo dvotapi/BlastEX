@@ -42,6 +42,7 @@ from design.models import (
     BlastDesign,
     DataProvenance,
     Hole,
+    HoleInterval,
     HoleLoad,
     ManualOffset,
     Point3,
@@ -161,7 +162,12 @@ def _apply_hole(
     water: list[WaterInterval] | None,
     axes: tuple[Point2, Point2],
 ) -> Hole:
-    """Скважина по съёмке: геометрия (если `geometry`) с пометками ручной правки и вода."""
+    """Скважина по съёмке: геометрия (если `geometry`) с пометками ручной правки и вода.
+
+    Сменилась геометрия — проектная геология и проектная вода прежнего места
+    сбрасываются, как при сдвиге на плане (`designReducer`, MOVE_HOLES): заряды
+    пересчитываются уже без них. Непроектные интервалы и `measured_*` — как были.
+    """
 
     updated = surveyed_hole(hole, point) if geometry else replace(hole)
     manual = list(hole.manual)
@@ -178,9 +184,28 @@ def _apply_hole(
             elif MOVED_FLAG not in manual:
                 manual.append(MOVED_FLAG)
     water_intervals = [deepcopy(iv) for iv in hole.water_intervals]
-    if water is not None:
-        water_intervals = [iv for iv in water_intervals if iv.role != ROLE_DESIGNED] + water
-    return replace(updated, manual=manual, manual_offset=offset, water_intervals=water_intervals)
+    intervals = updated.intervals
+    if geometry:
+        intervals = [iv for iv in intervals if iv.role != ROLE_DESIGNED]
+    if water is not None or geometry:
+        water_intervals = [iv for iv in water_intervals if iv.role != ROLE_DESIGNED] + (water or [])
+    return replace(
+        updated, manual=manual, manual_offset=offset, intervals=intervals, water_intervals=water_intervals
+    )
+
+
+def _geology_reset(before: Hole, after: Hole) -> bool:
+    """У скважины пропала проектная геология или проектная вода прежнего места."""
+
+    def designed(items: list[HoleInterval] | list[WaterInterval]) -> bool:
+        return any(iv.role == ROLE_DESIGNED for iv in items)
+
+    rock = designed(before.intervals) and not designed(after.intervals)
+    water = designed(before.water_intervals) and not designed(after.water_intervals)
+    return rock or water
+
+
+GEOLOGY_RESET_TEXT = "Геология {count} скважин сброшена после сдвига — пересеките геологию заново."
 
 
 def _water_differs(hole: Hole, water: list[WaterInterval] | None) -> bool:
@@ -266,6 +291,7 @@ def apply_survey(
     warnings: list[str] = []
     holes: list[Hole] = []
     changed_ids: list[str] = []
+    reset = 0
     for hole in work.holes:
         point = points.get(hole.id)
         if point is None:
@@ -279,8 +305,13 @@ def apply_survey(
         if not geometry and not _water_differs(hole, water):
             holes.append(hole)
             continue
-        holes.append(_apply_hole(hole, point, geometry=geometry, water=water, axes=axes))
+        updated = _apply_hole(hole, point, geometry=geometry, water=water, axes=axes)
+        if geometry and _geology_reset(hole, updated):
+            reset += 1
+        holes.append(updated)
         changed_ids.append(hole.id)
+    if reset:
+        warnings.append(GEOLOGY_RESET_TEXT.format(count=reset))
 
     application = SurveyApplication(
         applied_at=now,

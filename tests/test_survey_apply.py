@@ -212,7 +212,8 @@ def test_water_replaces_designed_intervals():
     # Измеренная вода съёмкой не трогается.
     assert [iv.role for iv in holes["2-04"].water_intervals].count("measured") == 1
     assert holes["3-04"].water_intervals == []
-    assert [iv.to_dict() for iv in holes["4-04"].water_intervals] == [iv.to_dict() for iv in keep.water_intervals]
+    # Сдвинутая без воды в съёмке: проектная вода прежнего места сброшена, как при сдвиге на плане.
+    assert holes["4-04"].water_intervals == []
     # Вода без изменения геометрии — тоже изменение скважины (заряд пересчитывается).
     assert set(result.changed_ids) == {"2-04", "3-04", "4-04"}
 
@@ -511,3 +512,63 @@ def test_unmeasured_depth_is_not_drilled_depth_in_charge_compare():
     assert row["depth_basis"] == "designed"
     row = compare_hole(holes["2-02"], None, AsChargedHole(design_hole_id="2-02"), drilled["2-02"])
     assert row["depth_basis"] == "drilled"
+
+
+GEOLOGY_RESET = "Геология 1 скважин сброшена после сдвига — пересеките геологию заново."
+
+
+def _with_geology(design: BlastDesign, hole_id: str) -> None:
+    from design.models import HoleInterval
+
+    hole = _hole(design, hole_id)
+    hole.intervals = [
+        HoleInterval(from_m=0.0, to_m=hole.length_m, domain_id="d1", domain_name="Порфирит"),
+        HoleInterval(from_m=0.0, to_m=2.0, domain_id="m1", role="measured"),
+    ]
+    hole.water_intervals = [WaterInterval(from_m=5.0, to_m=hole.length_m, condition="wet")]
+    hole.measured_intervals = [HoleInterval(from_m=0.0, to_m=3.0, domain_id="mwd", role="measured")]
+
+
+def test_moved_hole_loses_designed_geology_and_charge_ignores_it(monkeypatch):
+    import design.survey.apply as survey_apply
+
+    design = _design(loads=True)
+    _with_geology(design, "2-02")
+    seen: dict[str, Hole] = {}
+    original = survey_apply.apply_charge_rules
+
+    def spy(holes, *args, **kwargs):
+        seen.update({hole.id: hole for hole in holes})
+        return original(holes, *args, **kwargs)
+
+    monkeypatch.setattr(survey_apply, "apply_charge_rules", spy)
+    moved = _point(_hole(design, "2-02"), dx=0.4)
+    result = _apply(design, _matches(design, {"2-02": moved}))
+    hole = _by_id(result.holes)["2-02"]
+    assert [iv.domain_id for iv in hole.intervals] == ["m1"]  # проектная геология сброшена, не проектная — нет
+    assert hole.water_intervals == []
+    assert [iv.domain_id for iv in hole.measured_intervals] == ["mwd"]
+    assert [iv.domain_id for iv in seen["2-02"].intervals] == ["m1"]  # заряды — без прежней геологии
+    assert GEOLOGY_RESET in result.warnings
+
+
+def test_moved_hole_with_survey_water_keeps_it():
+    design = _design()
+    _with_geology(design, "2-02")
+    moved = _point(_hole(design, "2-02"), dx=0.4, wet=True, water_depth_m=4.0)
+    hole = _by_id(_apply(design, _matches(design, {"2-02": moved})).holes)["2-02"]
+    assert [(iv.from_m, iv.condition) for iv in hole.water_intervals] == [(4.0, "wet")]
+
+
+def test_unchanged_or_water_only_hole_keeps_geology():
+    design = _design()
+    _with_geology(design, "2-02")
+    _with_geology(design, "2-03")
+    before = {hid: [iv.to_dict() for iv in _hole(design, hid).intervals] for hid in ("2-02", "2-03")}
+    wet_only = _point(_hole(design, "2-03"), wet=False)
+    result = _apply(design, _matches(design, {"2-03": wet_only}))
+    holes = _by_id(result.holes)
+    assert result.changed_ids == ["2-03"]
+    for hid in ("2-02", "2-03"):
+        assert [iv.to_dict() for iv in holes[hid].intervals] == before[hid]
+    assert not any("Геология" in text for text in result.warnings)

@@ -175,3 +175,10 @@ def test_horizon_with_unit_is_not_doubled():
     layout = build_layout(context66(payload))
     assert dict(layout.title.summary)["Блок / горизонт"] == "66 / +410,0 м"
     assert layout.header.endswith("гор. +410,0 м")
+
+
+def test_angle_tolerance_only_when_set():
+    layout = build_layout(context66({**PAYLOAD_V07, "tol_angle_deg": 1.5, "tol_burden_pct": 5.0}))
+    assert layout.depth_pages[0].tolerances == "глубина ±0,3 м; положение устья ±0,3 м; угол ±1,5°"
+    layout = build_layout(context66({**PAYLOAD_V07, "tol_angle_deg": None}))
+    assert layout.depth_pages[0].tolerances == "глубина ±0,3 м; положение устья ±0,3 м"

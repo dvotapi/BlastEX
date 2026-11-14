@@ -283,3 +283,16 @@ def test_draft_mark_is_drawn_over_page_content(tmp_path):
     # неё, а не под непрозрачными заливками ячеек.
     text = _raw_text(render_passport_pdf(context66(), draft=True), 3, tmp_path)
     assert text.index("ЧЕРНОВИК") > text.index("Всего:")
+
+
+def test_unset_survey_tolerances_keep_bytes(pdf66):
+    # Допуски ЛСПП и шага — для акта готовности, в паспорте не печатаются; угол не задан — строки нет.
+    payload = {**PAYLOAD_V07, "tol_angle_deg": None, "tol_burden_pct": 7.0, "tol_spacing_pct": 10.0}
+    assert render_passport_pdf(context66(payload), revision_no=1) == pdf66
+
+
+@pytest.mark.skipif(shutil.which("pdftotext") is None, reason="нет pdftotext (poppler)")
+def test_angle_tolerance_is_printed(tmp_path):
+    pdf = render_passport_pdf(context66({**PAYLOAD_V07, "tol_angle_deg": 1.5}), revision_no=1)
+    text = " ".join(_page_text(pdf, 3, tmp_path).split())
+    assert "положение устья ±0,3 м; угол ±1,5°" in text

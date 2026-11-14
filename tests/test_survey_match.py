@@ -1,0 +1,224 @@
+import math
+import random
+import time
+import unittest
+
+from api.schemas.design import PatternGenerateRequest
+from api.services import design_service
+from design.models import Hole, Point3
+from design.survey.match import _pairs, match_survey, swap_detect
+from design.survey.read import SurveyedPoint
+
+
+def _hole(hid: str, x: float, y: float, enabled: bool = True) -> Hole:
+    return Hole(
+        id=hid, row=1, col=1, collar=Point3(x, y, 0.0), toe=Point3(x, y, -10.0),
+        diameter_mm=152.0, enabled=enabled,
+    )
+
+
+def _grid() -> list[Hole]:
+    return [_hole(f"{c}-0{r}", c * 5.0, r * 4.0) for c in (1, 2, 3) for r in (1, 2, 3)]
+
+
+def _pt(name: str, x: float, y: float, line: int = 0) -> SurveyedPoint:
+    return SurveyedPoint(name=name, x=x, y=y, line=line)
+
+
+def _match(points, **kw):
+    kw.setdefault("block", "66")
+    kw.setdefault("tol_collar_m", 0.3)
+    return match_survey(_grid(), points, **kw)
+
+
+def _by_hole(result, hid):
+    return [m for m in result if m.hole_id == hid]
+
+
+class MatchTests(unittest.TestCase):
+    def test_by_name_with_block_prefix_and_case(self):
+        pts = [_pt("66-1-01", 5, 4), _pt("1-02", 5, 8), _pt("66-1-03".lower(), 5, 12)]
+        res = _match(pts)
+        for hid in ("1-01", "1-02", "1-03"):
+            (m,) = _by_hole(res, hid)
+            self.assertEqual((m.by, m.issue), ("name", ""))
+            self.assertIsNotNone(m.point)
+
+    def test_numeric_name_three_digits(self):
+        holes = [_hole("7", 0, 0)]
+        res = match_survey(holes, [_pt("66-007", 50, 50)], block="66", tol_collar_m=0.3)
+        self.assertEqual((res[0].hole_id, res[0].by), ("7", "name"))
+
+    def test_exact_name_before_numeric_alias(self):
+        """Скважины «1» и «01»: точка «66-01» — к «01», «66-1» — к «1», не по порядку в списке."""
+
+        holes = [_hole("1", 0, 0), _hole("01", 30, 0)]
+        res = match_survey(holes, [_pt("66-01", 60, 60, 1), _pt("66-1", 90, 90, 2)], block="66", tol_collar_m=0.3)
+        self.assertEqual({m.hole_id: m.point.line for m in res if m.point}, {"01": 1, "1": 2})
+        self.assertTrue(all(m.by == "name" for m in res if m.point))
+
+    def test_ambiguous_numeric_alias_is_not_a_name_match(self):
+        """«66-001» подходит и к «1», и к «01» — по имени не сопоставляется (дальше близость)."""
+
+        holes = [_hole("1", 0, 0), _hole("01", 30, 0)]
+        res = match_survey(holes, [_pt("66-001", 30.1, 0, 1)], block="66", tol_collar_m=0.3)
+        (m,) = [m for m in res if m.point]
+        self.assertEqual((m.hole_id, m.by), ("01", "nearest"))
+        far = match_survey(holes, [_pt("66-001", 90, 90, 1)], block="66", tol_collar_m=0.3)
+        (m,) = [m for m in far if m.point]
+        self.assertEqual((m.hole_id, m.issue), (None, "unmatched_point"))
+
+    def test_nearest_within_two_tolerances(self):
+        res = _match([_pt("zzz", 5.5, 4.0)])
+        (m,) = _by_hole(res, "1-01")
+        self.assertEqual((m.by, m.issue), ("nearest", ""))
+
+    def test_far_point_not_matched(self):
+        res = _match([_pt("RP1", 5.7, 4.0)])
+        (m,) = _by_hole(res, "1-01")
+        self.assertEqual(m.issue, "missing_point")
+        self.assertIsNone(m.point)
+        extra = [x for x in res if x.hole_id is None]
+        self.assertEqual([x.issue for x in extra], ["unmatched_point"])
+
+    def test_toe_point_suffix_T_ignored(self):
+        res = _match([_pt("66-1-01_T", 5.0, 4.0)])
+        (m,) = _by_hole(res, "1-01")
+        self.assertEqual(m.issue, "missing_point")
+        extra = [x for x in res if x.hole_id is None]
+        self.assertEqual([(x.point.name, x.issue) for x in extra], [("66-1-01_T", "unmatched_point")])
+
+    def test_two_points_one_hole(self):
+        res = _match([_pt("66-1-01", 5, 4), _pt("1-01", 5.1, 4)])
+        recs = _by_hole(res, "1-01")
+        self.assertEqual(sorted(m.issue for m in recs), ["duplicate_point", "duplicate_point", "missing_point"])
+        self.assertTrue(all(m.point is None for m in recs if m.issue == "missing_point"))
+
+    def test_manual_overrides_and_skip(self):
+        pts = [_pt("A", 40, 40, 1), _pt("66-1-02", 5, 8, 2), _pt("RP", 5, 4, 3)]
+        res = _match(pts, manual={1: "1-02"}, skip={3})
+        (m,) = _by_hole(res, "1-02")
+        self.assertEqual((m.by, m.point.name, m.issue), ("manual", "A", ""))
+        self.assertFalse(any(x.point is not None and x.point.name == "RP" for x in res))
+        (m1,) = _by_hole(res, "1-01")
+        self.assertEqual(m1.issue, "missing_point")
+
+    def test_manual_resolves_duplicate(self):
+        res = _match([_pt("66-1-01", 5, 4, 1), _pt("X", 5.1, 4, 2)], manual={2: "1-01"})
+        (m,) = _by_hole(res, "1-01")
+        self.assertEqual((m.by, m.point.name), ("manual", "X"))
+
+    def test_name_of_manually_taken_hole_not_nearest(self):
+        pts = [_pt("X", 40, 40, 1), _pt("1-01", 5, 7.9, 2)]
+        res = _match(pts, manual={1: "1-01"})
+        (m1,) = _by_hole(res, "1-01")
+        self.assertEqual((m1.by, m1.point.name), ("manual", "X"))
+        (m2,) = _by_hole(res, "1-02")
+        self.assertEqual((m2.issue, m2.point), ("missing_point", None))
+        extra = [x for x in res if x.hole_id is None]
+        self.assertEqual([(x.point.name, x.issue, x.by) for x in extra], [("1-01", "unmatched_point", "")])
+
+    def test_decisions_by_line_separate_points_with_same_name(self):
+        """Две точки «1-03»: пропуск одной (по строке файла) другую не трогает."""
+
+        pts = [_pt("1-03", 5, 12, 4), _pt("1-03", 5.1, 12, 9)]
+        res = _match(pts, skip={9})
+        (m,) = _by_hole(res, "1-03")
+        self.assertEqual((m.by, m.issue, m.point.line), ("name", "", 4))
+        res = _match(pts, manual={9: "1-02"})
+        (m2,) = _by_hole(res, "1-02")
+        self.assertEqual((m2.by, m2.point.line), ("manual", 9))
+        (m3,) = _by_hole(res, "1-03")
+        self.assertEqual((m3.by, m3.point.line, m3.issue), ("name", 4, ""))
+
+    def test_name_match_can_be_detached(self):
+        """«Без скважины» (пустой id в manual) снимает привязку по имени: точка — без скважины."""
+
+        res = _match([_pt("1-01", 45, 4, 1)], manual={1: ""})
+        (m,) = _by_hole(res, "1-01")
+        self.assertEqual(m.issue, "missing_point")
+        extra = [x for x in res if x.hole_id is None]
+        self.assertEqual([(x.point.line, x.by, x.issue) for x in extra], [(1, "manual", "unmatched_point")])
+
+    def test_disabled_hole_matched(self):
+        holes = [_hole("1", 0, 0, enabled=False)]
+        res = match_survey(holes, [_pt("p", 0.1, 0)], block="", tol_collar_m=0.3)
+        self.assertEqual(res[0].by, "nearest")
+
+    def test_swap_detect_true_for_mirrored_points(self):
+        holes = _grid()
+        mirrored = [_pt(f"p{i}", h.collar.y, h.collar.x) for i, h in enumerate(holes)]
+        self.assertTrue(swap_detect(holes, mirrored, 0.3))
+
+    def test_swap_detect_false_for_normal_points(self):
+        holes = _grid()
+        pts = [_pt(f"p{i}", h.collar.x, h.collar.y) for i, h in enumerate(holes)]
+        self.assertFalse(swap_detect(holes, pts, 0.3))
+
+    def test_generated_grid(self):
+        holes = design_service.generate_pattern(
+            PatternGenerateRequest(
+                contour={
+                    "vertices": [{"x": x, "y": y, "z": 0.0} for x, y in [(0, 0), (24, 0), (24, 16), (0, 16)]],
+                    "free_faces": [[0, 1]],
+                    "bench": {"crest_z_m": 0.0, "toe_z_m": -10.0, "face_angle_deg": 90.0},
+                    "name": "Блок",
+                },
+                params={"pattern": "rectangular", "spacing_a_m": 5.0, "burden_b_m": 4.0,
+                        "offset_from_face_m": 0.0, "edge_margin_m": 0.0, "diameter_mm": 152.0,
+                        "subdrill_m": 1.0},
+            )
+        ).holes
+        real = [Hole(id=h.id, row=h.row, col=h.col, collar=Point3(h.collar.x, h.collar.y, h.collar.z),
+                     toe=Point3(h.toe.x, h.toe.y, h.toe.z), diameter_mm=h.diameter_mm) for h in holes]
+        pts = [_pt(f"p{i}", h.collar.x + 0.05, h.collar.y) for i, h in enumerate(real)]
+        res = match_survey(real, pts, block="", tol_collar_m=0.3)
+        self.assertTrue(all(m.issue == "" and m.by == "nearest" for m in res))
+        self.assertEqual(len(res), len(real))
+
+
+def _brute_pairs(holes, points, limit, swap=False):
+    candidates = []
+    for hi, hole in enumerate(holes):
+        for pi, point in enumerate(points):
+            px, py = (point.y, point.x) if swap else (point.x, point.y)
+            dist = math.hypot(hole.collar.x - px, hole.collar.y - py)
+            if dist <= limit:
+                candidates.append((dist, hi, pi))
+    candidates.sort()
+    used_h, used_p, out = set(), set(), []
+    for _, hi, pi in candidates:
+        if hi not in used_h and pi not in used_p:
+            used_h.add(hi)
+            used_p.add(pi)
+            out.append((holes[hi].id, pi))
+    return out
+
+
+class PairsGridTest(unittest.TestCase):
+    def test_grid_gives_same_pairs_as_full_search(self):
+        rng = random.Random(14)
+        holes = [_hole(f"h{i}", rng.uniform(0, 30), rng.uniform(0, 30)) for i in range(150)]
+        points = [_pt(f"p{i}", rng.uniform(-1, 31), rng.uniform(-1, 31), i + 1) for i in range(300)]
+        for limit in (0.0, 0.3, 0.6, 2.0, 7.5):
+            for swap in (False, True):
+                got = [(h.id, points.index(p)) for h, p in _pairs(holes, points, limit, swap)]
+                self.assertEqual(got, _brute_pairs(holes, points, limit, swap), (limit, swap))
+
+    def test_large_survey_is_not_quadratic(self):
+        # 2000 скважин × 20 000 точек: полный перебор — 4·10⁷ расстояний за вызов.
+        holes = [_hole(f"h{i}", (i % 50) * 4.0, (i // 50) * 4.0) for i in range(2000)]
+        points = [_pt(f"p{i}", 1000.0 + (i % 200) * 4.0, (i // 200) * 4.0, i + 1) for i in range(20000)]
+        started = time.perf_counter()
+        swap_detect(holes, points, 0.3)
+        match_survey(holes, points, block="", tol_collar_m=0.3)
+        self.assertLess(time.perf_counter() - started, 3.0)
+
+    def test_huge_coordinates_do_not_break_the_grid(self):
+        holes = [_hole("h", 0.0, 0.0)]
+        points = [_pt("far", 1e308, -1e308, 1), _pt("near", 0.1, 0.0, 2)]
+        self.assertEqual([(h.id, p.name) for h, p in _pairs(holes, points, 0.3)], [("h", "near")])
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -8,7 +8,9 @@
 что Р**, на копии проекта с фактической геометрией (решения владельца
 12.11.2026, план PR 5 §2):
 
-- глубина — фактическая длина по оси (`AsDrilledHole.length_m`);
+- глубина — фактическая длина по оси (`AsDrilledHole.length_m`); у записи
+  съёмки без замера глубины (`SURVEY_NO_DEPTH_METHOD`) глубины и перебура Ф
+  нет — длина в ней проектная;
 - перебур — Δ_ф = L_ф − (Z_уст.ф − Z_подошвы)/cos α_ф, подошва — проектная
   (Z_уст.проект − H_у), как в формуле длины L = (S − Z)/cos α + Δ (В4);
 - ЛСПП, расстояние между скважинами и между рядами — `toe_line.floor_burdens`,
@@ -28,7 +30,7 @@ from copy import deepcopy
 from typing import Any, Iterable, Mapping, Sequence
 
 from design.as_charged import normalize_as_charged
-from design.as_drilled import normalize_as_drilled
+from design.as_drilled import SURVEY_NO_DEPTH_METHOD, normalize_as_drilled
 from design.as_fired import normalize_as_fired
 from design.editing import local_spacing
 from design.lifecycle import execution_payload
@@ -313,8 +315,10 @@ def block_fact(
             proxy = fact_holes[hole_id]
             spacing = local_spacing(same_row[proxy.row], proxy)
             burden = burdens.get(hole_id) if row.get("first_row") else None
-            row["depth_fact_m"] = _r(item.length_m, 1)
-            row["subdrill_fact_m"] = _r(fact_subdrill_m(by_id[hole_id], item), 1)
+            # Съёмка без замера глубины: устье — факт, длина — проектная, не замер.
+            measured = item.provenance.method != SURVEY_NO_DEPTH_METHOD
+            row["depth_fact_m"] = _r(item.length_m, 1) if measured else None
+            row["subdrill_fact_m"] = _r(fact_subdrill_m(by_id[hole_id], item), 1) if measured else None
             row["lspp_fact_m"] = None if burden is None else _r(burden.value_m, 2)
             row["spacing_fact_m"] = _r(spacing, 2)
             row["burden_fact_m"] = _r(steps.get(hole_id), 2)
@@ -409,13 +413,16 @@ def _totals(rows: Sequence[Mapping[str, Any]], project: dict[str, Any]) -> dict[
         value = _mean(known(key)) if all_drilled else None
         return None if value is None else round(value, digits)
 
+    # Глубина Ф — замер: итог и средний перебур — только когда глубина замерена у всех.
+    all_depths = all_drilled and all(row.get("depth_fact_m") is not None for row in rows)
+
     stemming = known("stemming_fact_m")
     return {
         **project,
         "drilled_count": len(drilled),
         "charged_count": len(charged),
-        "depth_fact_m": round(sum(known("depth_fact_m")), 1) if all_drilled else None,
-        "subdrill_fact_mean_m": mean("subdrill_fact_m", 1),
+        "depth_fact_m": round(sum(known("depth_fact_m")), 1) if all_depths else None,
+        "subdrill_fact_mean_m": mean("subdrill_fact_m", 1) if all_depths else None,
         "spacing_fact_mean_m": mean("spacing_fact_m", 2),
         "burden_fact_mean_m": mean("burden_fact_m", 2),
         # Итог Ф — точная сумма записанных масс (В3), а не сумма округлённых до 1 кг.

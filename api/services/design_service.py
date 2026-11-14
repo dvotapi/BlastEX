@@ -232,10 +232,8 @@ def intercept_geology(request: GeologyInterceptRequest) -> GeologyInterceptRespo
     )
 
 
-def generate_charge(request: ChargeGenerateRequest) -> ChargeGenerateResponse:
-    holes = [Hole.from_dict(h.model_dump()) for h in request.holes]
-    if not holes:
-        raise InvalidDesignError("Список скважин пуст — нечего заряжать.")
+def charge_explosives(request: ChargeGenerateRequest) -> tuple[ExplosiveProperties, list[ExplosiveProperties]]:
+    """ВВ правил заряжания и каталог ВВ шаблонов из запроса расчёта зарядов."""
 
     explosive = ExplosiveProperties(
         name=request.explosive.name,
@@ -250,6 +248,15 @@ def generate_charge(request: ChargeGenerateRequest) -> ChargeGenerateResponse:
         )
         for item in request.explosives
     ]
+    return explosive, catalog
+
+
+def generate_charge(request: ChargeGenerateRequest) -> ChargeGenerateResponse:
+    holes = [Hole.from_dict(h.model_dump()) for h in request.holes]
+    if not holes:
+        raise InvalidDesignError("Список скважин пуст — нечего заряжать.")
+
+    explosive, catalog = charge_explosives(request)
     contour = BlockContour.from_dict(request.contour.model_dump()) if request.contour is not None else None
     loads = apply_charge_rules(holes, request.rules, explosive, contour=contour, explosives=catalog)
 
@@ -628,14 +635,18 @@ def list_mwd_schema() -> MwdSchemaResponse:
 
 
 def record_as_drilled(request: AsDrilledRecordRequest) -> AsDrilledRecordResponse:
-    from design.as_drilled import compare_design, record_as_drilled_many
+    from design.as_drilled import compare_design, entered_depth, record_as_drilled_many
 
     design = BlastDesign.from_dict(request.design.model_dump())
     designed_before = [hole.to_dict() for hole in design.holes]
+    stored = {item.design_hole_id: item for item in design.as_drilled_holes}
     try:
         record_as_drilled_many(
             design,
-            [AsDrilledHole.from_dict(item.model_dump()) for item in request.holes],
+            [
+                entered_depth(stored.get(item.design_hole_id), AsDrilledHole.from_dict(item.model_dump()))
+                for item in request.holes
+            ],
             replace=request.replace,
         )
         payload = compare_design(design)
@@ -1253,7 +1264,9 @@ def _design_to_hole_and_block(design: BlastDesign) -> tuple[HoleGeometrySchema, 
         grid_a_m=grid_a_m,
         grid_b_m=grid_b_m,
         depth_m=avg_depth_m,
-        overdrill_m=avg_subdrill_m,
+        # Недобур по съёмке даёт отрицательный перебур (подошва проектная, TASK-014):
+        # в смету — не меньше 0, длина `depth_m` и так фактическая.
+        overdrill_m=max(0.0, avg_subdrill_m),
         undercharge_m=avg_undercharge_m,
         charge_length_m=max(0.0, avg_depth_m - avg_undercharge_m),
         # Диаметр скважины паспорта — фактический (с разбуриванием): он и есть диаметр заряда.

@@ -242,6 +242,10 @@ def _depth_pages(
         f"глубина ±{fmt.short(_number(payload.get('tol_depth_m')) or DEFAULT_TOLERANCE_M)} м; "
         f"положение устья ±{fmt.short(_number(payload.get('tol_collar_m')) or DEFAULT_TOLERANCE_M)} м"
     )
+    # Угол — только когда задан: у прежних паспортов строка допусков та же.
+    angle = _number(payload.get("tol_angle_deg"))
+    if angle is not None:
+        tolerances += f"; угол ±{fmt.short(angle)}°"
     total = f"Всего: {len(cells)} скв., {fmt.num(summary.get('total_length_m'), 1)} п. м"
     pages = []
     for index, chunk in enumerate(chunks):

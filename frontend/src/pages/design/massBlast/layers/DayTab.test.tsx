@@ -97,6 +97,18 @@ describe("слои дня взрыва", () => {
     expect(screen.getByRole("button", { name: "Перенести данные заново" })).toBeTruthy();
   });
 
+  it("«Факт»: пробуренная без замера глубины считается пробуренной", async () => {
+    const rows = [
+      { hole_id: "1-01", drilled: true, charged: false, depth_fact_m: 11.2 },
+      { hole_id: "1-02", drilled: true, charged: false, depth_fact_m: null },
+      { hole_id: "1-03", drilled: false, charged: false, depth_fact_m: null },
+    ];
+    const execution = layer({ id: "e1", kind: "EXECUTION", payload: {}, view: { blocks: [{ code: "66", parameter_table: { rows } }] } });
+    vi.mocked(api.massBlast.layers).mockResolvedValue([layer(), execution]);
+    render(<DayTab project={projectV2({ lifecycle_status: "executed", current_revision_id: "r1" })} />);
+    expect(await screen.findByText(/факт бурения — 2 из 3/)).toBeTruthy();
+  });
+
   it("поля наряда показывают значения по умолчанию с источником", async () => {
     const base = layer();
     vi.mocked(api.massBlast.layers).mockResolvedValue([{

@@ -347,6 +347,11 @@ export type Hole = {
   manual?: HoleManualFlag[];
   /** Только у сдвинутой скважины сетки, вместе с `xy` в `manual`. */
   manual_offset?: HoleManualOffset | null;
+  /**
+   * Проектный перебур, м: только когда «Применить» съёмку сменило `subdrill_m`
+   * на фактический (TASK-014) — по нему пересъёмка считает нужную длину.
+   */
+  design_subdrill_m?: number | null;
 };
 
 /** Флаги пересчёта: устье вне кровли, высота уступа у скважины меньше 1 м. */
@@ -640,14 +645,15 @@ export type HoleDeviation = {
   role: "executed" | string;
   collar_offset_m: number;
   toe_offset_m: number;
-  depth_deviation_m: number;
+  // null — глубина не замерена (съёмка без глубины).
+  depth_deviation_m: number | null;
   angle_deviation_deg: number;
   azimuth_deviation_deg: number;
   actual_burden_m: number | null;
   actual_spacing_m: number | null;
   designed_burden_m: number | null;
   designed_spacing_m: number | null;
-  actual_depth_m: number;
+  actual_depth_m: number | null;
   designed_depth_m: number;
   actual_diameter_mm: number;
   designed_diameter_mm: number;
@@ -887,6 +893,8 @@ export type BlastDesign = {
   as_drilled_holes: AsDrilledHole[];
   as_charged_holes: AsChargedHole[];
   as_fired_holes: AsFiredHole[];
+  /** Записи «Применить съёмку» (TASK-014, PR 5а): есть — проект «по съёмке». */
+  survey_applications?: SurveyApplication[];
   blast_result: BlastResult | null;
   lifecycle_status: DesignLifecycleStatus | string;
   revision: number;
@@ -1085,6 +1093,181 @@ export type ChargeGenerateResponse = {
   total_holes_charged: number;
 };
 
+/** Запрос расчёта зарядов (`POST /design/charge`). */
+export type ChargeGenerateRequest = {
+  holes: Hole[];
+  rules: ChargeRules | Record<string, unknown>;
+  explosive: ChargeExplosive;
+  contour?: BlockContour;
+  explosives?: ChargeExplosive[];
+};
+
+// --- съёмка к проекту блока (TASK-014, PR 5а) ---
+
+/** Запись «Применить съёмку»: дата съёмки, файл, кто применил, счётчики по статусам. */
+export type SurveyApplication = {
+  applied_at: string;
+  survey_date: string;
+  file_name: string;
+  file_sha256: string;
+  actor: string;
+  counts: Record<string, number>;
+};
+
+export type SurveyFormat = "PNEZD_CSV" | "PENZD_CSV" | "PNEZ_TXT" | "DXF_POINTS" | "TABLE";
+
+/** Точка съёмки: x — восток, y — север (как у `Point3`); чего нет в файле — null. */
+export type SurveyedPoint = {
+  name: string;
+  x: number;
+  y: number;
+  z?: number | null;
+  depth_m?: number | null;
+  angle_deg?: number | null;
+  azimuth_deg?: number | null;
+  wet?: boolean | null;
+  water_depth_m?: number | null;
+  line: number;
+};
+
+/** Ключ колонки (`name`, `east`, `north`, `z`, `depth`, `angle`, `azimuth`, `wet`, `water`) → заголовок файла. */
+export type SurveyColumns = Record<string, string>;
+
+export type SurveyReadParams = {
+  format?: SurveyFormat;
+  swapXy?: boolean;
+  columns?: SurveyColumns;
+};
+
+export type SurveyReadResponse = {
+  points: SurveyedPoint[];
+  format: SurveyFormat;
+  columns: SurveyColumns;
+  warnings: string[];
+  sha256: string;
+  file_name: string;
+  /** Заголовки колонок таблицы (TABLE) — для выбора колонок вручную; у профилей — пусто. */
+  headers?: string[];
+};
+
+export type SurveyMatchBy = "name" | "nearest" | "manual" | "";
+export type SurveyMatchIssue = "" | "unmatched_point" | "duplicate_point" | "missing_point";
+
+export type SurveyMatch = {
+  hole_id: string | null;
+  point: SurveyedPoint | null;
+  by: SurveyMatchBy;
+  issue: SurveyMatchIssue;
+};
+
+export type SurveyVerdictCode =
+  | "ok"
+  | "underdrill"
+  | "overdrill"
+  | "offset"
+  | "angle"
+  | "burden"
+  | "spacing"
+  | "no_depth";
+
+/** Оценка скважины по допускам; `point` — её точка съёмки. */
+export type SurveyHoleVerdict = {
+  hole_id: string;
+  point: SurveyedPoint;
+  codes: SurveyVerdictCode[];
+  offset_m: number | null;
+  depth_delta_m: number | null;
+  required_length_m: number | null;
+  angle_delta_deg: number | null;
+  burden_delta_pct: number | null;
+  spacing_delta_pct: number | null;
+  unchanged: boolean;
+};
+
+export type SurveyToleranceSource = "passport" | "parent_passport" | "default";
+
+export type SurveyTolerances = {
+  depth_m: number;
+  collar_m: number;
+  angle_deg: number;
+  burden_pct: number;
+  spacing_pct: number;
+  source: SurveyToleranceSource;
+  /** Паспорт на бурение, чья ревизия дала допуски; у умолчаний — пусто. */
+  passport_no: string;
+  revision_no: number | null;
+  passport_design_id: string;
+};
+
+export type SurveyEvaluateRequest = {
+  design: BlastDesign;
+  design_id?: string;
+  points: SurveyedPoint[];
+  /** Пусто — блок паспорта на бурение. */
+  block?: string;
+  /**
+   * Решения инженера — по строке файла точки (`SurveyedPoint.line`), а не по имени:
+   * строка → id скважины; пустой id — «без скважины».
+   */
+  manual?: Record<number, string>;
+  /** Строки файла пропущенных точек. */
+  skip?: number[];
+};
+
+export type SurveyEvaluateResponse = {
+  matches: SurveyMatch[];
+  verdicts: SurveyHoleVerdict[];
+  tolerances: SurveyTolerances;
+  swap_suggested: boolean;
+  block: string;
+  warnings: string[];
+};
+
+/** Съёмка старого блока на объекте (без точек — в списке). */
+export type SiteSurvey = {
+  id: string;
+  site_code: string;
+  block_label: string;
+  horizon_m?: number | null;
+  /** ГГГГ-ММ-ДД. */
+  survey_date: string;
+  file_name?: string | null;
+  file_sha256?: string | null;
+  points_count: number;
+  created_at: string;
+  created_by?: string | null;
+};
+
+export type SiteSurveyDetail = SiteSurvey & { points: SurveyedPoint[] };
+
+/** Ответ загрузки съёмки старого блока: как файл прочитан (только в ответе). */
+export type SiteSurveyCreated = SiteSurveyDetail & { format: SurveyFormat; warnings: string[] };
+
+export type SiteSurveyCreateParams = SurveyReadParams & {
+  blockLabel: string;
+  /** ГГГГ-ММ-ДД. */
+  surveyDate: string;
+  horizonM?: number | null;
+};
+
+export type SurveyApplyRequest = SurveyEvaluateRequest & {
+  file_name: string;
+  file_sha256: string;
+  /** ГГГГ-ММ-ДД; пусто — не указана. */
+  survey_date: string;
+  charge: ChargeGenerateRequest | null;
+};
+
+export type SurveyApplyResponse = {
+  holes: Hole[];
+  /** null — заряды не трогались: документ оставляет свои. */
+  loads: HoleLoad[] | null;
+  as_drilled_holes: AsDrilledHole[];
+  survey_application: SurveyApplication;
+  changed_ids: string[];
+  warnings: string[];
+};
+
 export type DesignSummary = {
   design_id: string;
   name: string;
@@ -1094,6 +1277,8 @@ export type DesignSummary = {
   revision?: number;
   designed_sha256?: string;
   parent_design_id?: string;
+  /** Есть запись «Применить съёмку» — проект «по съёмке». */
+  surveyed?: boolean;
 };
 
 export type SchemeType = "row" | "echelon" | "diagonal_v" | "trapezoid" | "trunk_chains";

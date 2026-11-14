@@ -14,6 +14,7 @@ from design.lifecycle import (
     STATUS_IN_REVIEW,
     allowed_transitions,
     designed_sha256,
+    execution_payload,
     plan_transition,
 )
 from design.models import (
@@ -26,6 +27,7 @@ from design.models import (
     BlockContour,
     Hole,
     Point3,
+    SurveyApplication,
 )
 from design.persistence import (
     delete_design,
@@ -253,6 +255,31 @@ class DesignLifecycleTests(unittest.TestCase):
         original = load_design(TEAM_ID, approved.design_id)
         self.assertEqual(original.lifecycle_status, STATUS_APPROVED)
         self.assertEqual(len(original.as_drilled_holes), 1)
+
+    def test_survey_application_is_execution_record(self):
+        saved = save_design(TEAM_ID, self._design())
+        approved = self._walk(saved, STATUS_IN_REVIEW, STATUS_APPROVED)
+        before = designed_sha256(approved)
+        # У прежних паспортов ключа нет: отпечаток факта (execution_payload) прежний.
+        self.assertEqual(
+            list(execution_payload(approved)), ["as_drilled_holes", "as_charged_holes", "as_fired_holes"]
+        )
+        self.assertFalse(list_designs(TEAM_ID)[0].surveyed)
+        approved.survey_applications = [
+            SurveyApplication(
+                applied_at="2026-11-14T10:00:00Z", survey_date="2026-11-13", file_name="s.csv",
+                file_sha256="ab" * 32, actor="mark@mine", counts={"ok": 1},
+            )
+        ]
+        updated = save_design(TEAM_ID, approved)
+        self.assertEqual(updated.lifecycle_status, STATUS_APPROVED)
+        self.assertEqual(updated.designed_sha256, before)
+        self.assertEqual(updated.lifecycle_events[-1].kind, "record_execution")
+        self.assertEqual(load_design(TEAM_ID, approved.design_id).survey_applications, approved.survey_applications)
+        self.assertTrue(list_designs(TEAM_ID)[0].surveyed)
+        forked = fork_design(TEAM_ID, approved.design_id, actor="lead@mine")
+        self.assertEqual(forked.survey_applications, [])
+        self.assertNotIn("survey_applications", forked.to_dict())
 
     def test_draft_can_be_deleted_approved_cannot(self):
         draft = save_design(TEAM_ID, self._design("Черновик"))

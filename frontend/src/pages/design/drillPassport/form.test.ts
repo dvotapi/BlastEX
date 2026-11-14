@@ -42,6 +42,19 @@ describe("форма ⇄ payload", () => {
     expect(payload.extra_approvals).toEqual(["маркшейдер"]);
   });
 
+  it("допуски съёмки: заданные — круг без потерь, пустые — не отправляются", () => {
+    const passport = passport66();
+    passport.payload = { ...passport.payload, tol_angle_deg: 1.5, tol_burden_pct: 7, tol_spacing_pct: 10 };
+    const form = formFromPassport(passport);
+    expect([form.values.tol_angle_deg, form.values.tol_burden_pct, form.values.tol_spacing_pct]).toEqual(["1,5", "7", "10"]);
+    expect(toUpdate(form, 3).payload).toEqual(passport.payload);
+    form.values.tol_angle_deg = " ";
+    const payload = toUpdate(form, 3).payload;
+    expect("tol_angle_deg" in payload).toBe(false);
+    expect(payload.tol_burden_pct).toBe(7);
+    expect(Object.keys(toUpdate(formFromPassport(passport66()), 3).payload)).not.toContain("tol_spacing_pct");
+  });
+
   it("пустой допуск — 0,3 м", () => {
     const form = formFromPassport(passport66());
     form.values.tol_depth_m = "";
@@ -68,6 +81,12 @@ describe("форма ⇄ payload", () => {
       tol_depth_m: "Больше 0 и не больше 2.",
       axis_offset_m: "От 0 до 5.",
       block_area_m2: "Больше 0.",
+    });
+    form.values = { ...formFromPassport(passport66()).values, tol_angle_deg: "10,5", tol_burden_pct: "0", tol_spacing_pct: "51" };
+    expect(formErrors(form)).toEqual({
+      tol_angle_deg: "Больше 0 и не больше 10.",
+      tol_burden_pct: "Больше 0 и не больше 50.",
+      tol_spacing_pct: "Больше 0 и не больше 50.",
     });
   });
 

@@ -93,6 +93,30 @@ class AsDrilledApiTests(unittest.TestCase):
         self.assertEqual(echoed.collar.model_dump(), designed_collar)
         self.assertAlmostEqual(echoed.diameter_mm, first["diameter_mm"])
 
+    def test_manual_depth_on_unmeasured_survey_record_drops_marker(self):
+        """Глубина, введённая в «Факт бурения» поверх съёмки без замера, — замер (метод ручного ввода)."""
+
+        design = self._design()
+        first = design["holes"][0]
+        record = {
+            "design_hole_id": first["id"],
+            "actual_collar": first["collar"],
+            "actual_toe": first["toe"],
+            "actual_depth": 12.0,
+            "actual_diameter": 165.0,
+            "provenance": {"source": "s66.csv", "method": "survey_import_no_depth", "role": "executed"},
+        }
+        design["as_drilled_holes"] = [record]
+        same = design_service.record_as_drilled(AsDrilledRecordRequest(design=design, holes=[record]))
+        self.assertEqual(same.as_drilled_holes[0].provenance.method, "survey_import_no_depth")
+        changed = design_service.record_as_drilled(
+            AsDrilledRecordRequest(design=design, holes=[{**record, "actual_depth": 11.4}])
+        )
+        stored = changed.as_drilled_holes[0]
+        self.assertEqual(stored.provenance.method, "manual")
+        self.assertEqual(stored.provenance.source, "engineer")
+        self.assertIsNotNone(changed.deviations[0].depth_deviation_m)
+
     def test_compare_reads_stored_as_drilled(self):
         design = self._design()
         first = design["holes"][0]

@@ -18,6 +18,18 @@ export const STATUS_LABELS_RU: Record<DesignLifecycleStatus, string> = {
   closed: "закрыт",
 };
 
+/** Стадия проекта: «по съёмке» — применена хотя бы одна съёмка (TASK-014, PR 5а). */
+export type SurveyStage = "preliminary" | "surveyed";
+
+export const SURVEY_STAGE_LABELS: Record<SurveyStage, string> = {
+  preliminary: "предварительный",
+  surveyed: "по съёмке",
+};
+
+export function surveyStage(design: Pick<BlastDesign, "survey_applications">): SurveyStage {
+  return (design.survey_applications?.length ?? 0) > 0 ? "surveyed" : "preliminary";
+}
+
 export const ROLE_CODES: Record<DataRole, "DESIGNED" | "EXECUTED" | "PREDICTED" | "MEASURED"> = {
   designed: "DESIGNED",
   executed: "EXECUTED",

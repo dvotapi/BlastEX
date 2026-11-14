@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { errorMessage, HttpError, request } from "./client";
+import { errorMessage, HttpError, postForm, request } from "./client";
 
 const response = (body: unknown, status = 422) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -53,6 +53,23 @@ describe("request", () => {
       expect(failure).toBeInstanceOf(HttpError);
       expect(failure.status).toBe(404);
       expect(failure.message).toBe("Импорт чертежа не найден.");
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+});
+
+describe("postForm", () => {
+  it("422 с объектом detail: читаемый текст и сам detail (заголовки таблицы)", async () => {
+    const original = globalThis.fetch;
+    const detail = { message: "В таблице не найдена колонка «север». Укажите её вручную.", headers: ["A", "B"] };
+    globalThis.fetch = (async () => response({ detail }, 422)) as typeof fetch;
+    try {
+      const failure = (await postForm("/x", new FormData()).catch((reason: unknown) => reason)) as HttpError;
+      expect(failure).toBeInstanceOf(HttpError);
+      expect(failure.status).toBe(422);
+      expect(failure.message).toBe(detail.message);
+      expect(failure.detail).toEqual(detail);
     } finally {
       globalThis.fetch = original;
     }

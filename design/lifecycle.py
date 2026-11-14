@@ -105,7 +105,12 @@ EXECUTION_PAYLOAD_KEYS = (
     "as_drilled_holes",
     "as_charged_holes",
     "as_fired_holes",
+    "survey_applications",
 )
+# Ключи исполнительской части, которых у прежних паспортов нет: в срезе — только
+# когда заданы, иначе отпечаток факта (`mass_blast_fact.execution_sha256`)
+# сменился бы у всех прежних проектов.
+OPTIONAL_EXECUTION_KEYS = frozenset({"survey_applications"})
 
 MEASURED_PAYLOAD_KEYS = (
     "vibration_measurements",
@@ -248,7 +253,12 @@ def designed_payload(design: Any) -> dict[str, Any]:
 
 
 def execution_payload(design: Any) -> dict[str, Any]:
-    return slice_payload(design, EXECUTION_PAYLOAD_KEYS)
+    data = _as_dict(design)
+    return {
+        key: data.get(key)
+        for key in EXECUTION_PAYLOAD_KEYS
+        if key not in OPTIONAL_EXECUTION_KEYS or data.get(key)
+    }
 
 
 def measured_payload(design: Any) -> dict[str, Any]:

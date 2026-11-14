@@ -25,6 +25,10 @@ from design.models import (
     SurveyPoint,
 )
 
+# `provenance.method` записи факта по съёмке маркшейдера без замера глубины
+# (TASK-014): устье и угол — факт, длина — проектная, не замер.
+SURVEY_NO_DEPTH_METHOD = "survey_import_no_depth"
+
 MWD_FIELD_SCHEMA: tuple[dict[str, Any], ...] = (
     {
         "id": "depth_m",
@@ -221,6 +225,32 @@ def record_as_drilled(design: BlastDesign, item: AsDrilledHole) -> AsDrilledHole
     return recorded
 
 
+# Ручной ввод факта в панели «Факт бурения» (`emptyProvenance` фронта).
+MANUAL_SOURCE = "engineer"
+MANUAL_METHOD = "manual"
+_DEPTH_SAME_M = 1e-6
+
+
+def entered_depth(existing: AsDrilledHole | None, incoming: AsDrilledHole) -> AsDrilledHole:
+    """Глубина, введённая поверх записи съёмки без замера, — замер.
+
+    Запись без замера (`SURVEY_NO_DEPTH_METHOD`) и новая глубина в ней — пометка
+    снимается: источник и метод — ручного ввода. Та же глубина — запись как есть.
+    """
+
+    if (
+        existing is None
+        or existing.provenance.method != SURVEY_NO_DEPTH_METHOD
+        or incoming.provenance.method != SURVEY_NO_DEPTH_METHOD
+        or abs(float(incoming.actual_depth or 0.0) - float(existing.actual_depth or 0.0)) <= _DEPTH_SAME_M
+    ):
+        return incoming
+    incoming.provenance = DataProvenance(
+        source=MANUAL_SOURCE, method=MANUAL_METHOD, timestamp=incoming.provenance.timestamp, role=ROLE_EXECUTED
+    )
+    return incoming
+
+
 def record_as_drilled_many(
     design: BlastDesign,
     items: list[AsDrilledHole],
@@ -332,19 +362,21 @@ def compare_hole(designed: Hole, executed: AsDrilledHole, mixed: list[Hole], des
     azimuth_dev = 0.0
     if horizontal_actual > 1e-9 and horizontal_designed > 1e-9:
         azimuth_dev = _signed_azimuth_delta(actual.azimuth_deg, designed.azimuth_deg)
+    # Съёмка без замера глубины: длина в записи — проектная, это не замер.
+    depth_measured = executed.provenance.method != SURVEY_NO_DEPTH_METHOD
     return {
         "design_hole_id": designed.id,
         "role": ROLE_EXECUTED,
         "collar_offset_m": round(_distance3(actual.actual_collar, designed.collar), 3),
         "toe_offset_m": round(_distance3(actual.actual_toe, designed.toe), 3),
-        "depth_deviation_m": round(actual.length_m - designed.length_m, 3),
+        "depth_deviation_m": round(actual.length_m - designed.length_m, 3) if depth_measured else None,
         "angle_deviation_deg": round(actual.angle_deg - designed.angle_deg, 3),
         "azimuth_deviation_deg": round(azimuth_dev, 3),
         "actual_burden_m": _round_opt(actual_burden),
         "actual_spacing_m": _round_opt(actual_spacing),
         "designed_burden_m": _round_opt(designed_burden),
         "designed_spacing_m": _round_opt(designed_spacing),
-        "actual_depth_m": round(actual.length_m, 3),
+        "actual_depth_m": round(actual.length_m, 3) if depth_measured else None,
         "designed_depth_m": round(designed.length_m, 3),
         "actual_diameter_mm": round(actual.actual_diameter, 2),
         "designed_diameter_mm": round(designed.diameter_mm, 2),

@@ -107,6 +107,13 @@ export const FIELD_GROUPS: { title: string; fields: FieldSpec[] }[] = [
     fields: [
       number("tol_depth_m", "По глубине скважины, ±", "м", { min: 0, max: 2, minExclusive: true }),
       number("tol_collar_m", "По положению устья, ±", "м", { min: 0, max: 2, minExclusive: true }),
+      // Допуски съёмки (TASK-014, PR 5а): пусто — не заданы, оценка берёт ±1° и ±5 %.
+      number("tol_angle_deg", "По углу, ±", "°", { min: 0, max: 10, minExclusive: true },
+        "Для оценки съёмки; пусто — ±1°. В паспорте печатается, только когда задан."),
+      number("tol_burden_pct", "По ЛСПП, ±", "%", { min: 0, max: 50, minExclusive: true },
+        "Для оценки съёмки и акта готовности; пусто — ±5 %."),
+      number("tol_spacing_pct", "По расстоянию между скважинами, ±", "%", { min: 0, max: 50, minExclusive: true },
+        "Для оценки съёмки и акта готовности; пусто — ±5 %."),
     ],
   },
   {
@@ -127,6 +134,8 @@ export const SIGNERS: { key: SignerKey; label: string }[] = [
 
 const FIELDS = FIELD_GROUPS.flatMap((group) => group.fields);
 const REQUIRED_NUMBERS = new Set<ScalarKey>(["tol_depth_m", "tol_collar_m"]);
+/** Пустое — ключ не отправляется: сервер пишет их в payload только заданными. */
+const OPTIONAL_NUMBERS = new Set<ScalarKey>(["tol_angle_deg", "tol_burden_pct", "tol_spacing_pct"]);
 
 export type PassportForm = {
   values: Record<ScalarKey, string>;
@@ -204,6 +213,7 @@ export function toUpdate(form: PassportForm, version: number): DrillPassportUpda
     if (field.key === "passport_no" || field.key === "passport_date") continue;
     if (field.kind === "number") {
       const value = parseFormNumber(form.values[field.key]);
+      if (value === null && OPTIONAL_NUMBERS.has(field.key)) continue;
       // Пустое число — значение возьмётся из справочника или проекта; допуск — 0,3 м.
       payload[field.key] = value === null && REQUIRED_NUMBERS.has(field.key) ? DEFAULT_TOLERANCE_M : value;
     } else {

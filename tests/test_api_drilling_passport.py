@@ -409,6 +409,19 @@ def test_form_v07_fields_are_stored(client):
         assert stored[key] == payload[key]
 
 
+SURVEY_TOLERANCES = ("tol_angle_deg", "tol_burden_pct", "tol_spacing_pct")
+
+
+def test_survey_tolerances_are_stored_only_when_set(client):
+    # Допуски съёмки (TASK-014, PR 5а) не меняют payload прежних паспортов: ключ — только заданный.
+    passport = _create(client)
+    assert not set(SURVEY_TOLERANCES) & set(passport["payload"])
+    payload = {**PAYLOAD, "tol_angle_deg": 1.5, "tol_burden_pct": 7.0, "tol_spacing_pct": None}
+    stored = client.get(f"{BASE}/{_create(client, payload)['id']}").json()["payload"]
+    assert (stored["tol_angle_deg"], stored["tol_burden_pct"]) == (1.5, 7.0)
+    assert "tol_spacing_pct" not in stored
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
@@ -418,6 +431,12 @@ def test_form_v07_fields_are_stored(client):
         ("bench_height_for_s_m", 31),
         ("tol_depth_m", 0),
         ("tol_collar_m", 2.5),
+        ("tol_angle_deg", 0),
+        ("tol_angle_deg", 10.5),
+        ("tol_burden_pct", 0),
+        ("tol_burden_pct", 51),
+        ("tol_spacing_pct", -1),
+        ("tol_spacing_pct", 50.5),
     ],
 )
 def test_form_v07_fields_out_of_range_are_422(client, field, value):
@@ -1210,7 +1229,7 @@ def test_new_draft_copies_previous_passport_of_site(client, references):
         "compiled_by": {"position": "Инженер БВР", "organization": "", "name": "Сидоров С. С."},
         "personnel": [{"name": "Кузнецов", "position": "машинист"}],
         "basis": "проект БВР № 12", "rig_number": "12", "bit_diameter_mm": 152,
-        "extra_approvals": ["маркшейдер Орлова"], "tol_depth_m": 0.2,
+        "extra_approvals": ["маркшейдер Орлова"], "tol_depth_m": 0.2, "tol_angle_deg": 1.5,
     }
     _bare(client, **people)
     payload = _bare(client)["payload"]
@@ -1313,6 +1332,9 @@ def test_old_draft_with_manual_c_and_w_max_opens_and_saves(client, repository):
         ("Блок", "Новый паспорт", ""),  # в названии нет номера — поле пустое, а не «блок № Новый паспорт»
         ("Блок", "Блок", ""),
         ("66", "Блок 66", "66"),  # имя контура задано — оно
+        ("Блок", "Блок 66 · по съёмке", "66"),  # копия проекта: суффикс копии — не номер блока
+        ("Блок", "Блок 66 · ревизия", "66"),
+        ("Блок", "Уступ 120 · ревизия", "Уступ 120"),
         ("Блок", "", ""),
     ],
 )

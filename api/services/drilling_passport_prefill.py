@@ -29,7 +29,7 @@ from design.models import BlastDesign
 # Поля, которые переходят из прошлого паспорта того же объекта.
 FROM_PREVIOUS = (
     "agreed_by", "approved_by", "compiled_by", "personnel", "basis", "extra_approvals",
-    "tol_depth_m", "tol_collar_m", "rig_type_code",
+    "tol_depth_m", "tol_collar_m", "tol_angle_deg", "tol_burden_pct", "tol_spacing_pct", "rig_type_code",
 )
 # Данные станка — из прошлого паспорта только при том же типе станка.
 RIG_FROM_PREVIOUS = ("rig_name", "rig_number", "bit_diameter_mm")

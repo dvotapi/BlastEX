@@ -64,6 +64,16 @@ import type {
   VibrationPredictResponse,
   AsDrilledHole,
   AsDrilledCompareResponse,
+  SiteSurvey,
+  SiteSurveyCreateParams,
+  SiteSurveyCreated,
+  SiteSurveyDetail,
+  SurveyApplyRequest,
+  SurveyApplyResponse,
+  SurveyEvaluateRequest,
+  SurveyEvaluateResponse,
+  SurveyReadParams,
+  SurveyReadResponse,
   AsChargedHole,
   AsChargedCompareResponse,
   AsFiredHole,
@@ -531,6 +541,40 @@ export const api = {
     },
     sourceSituation: (id: string) =>
       get<CadSituationGeometry>(`${V1}/design/cad/sources/${encodeURIComponent(id)}/situation`),
+  },
+  // --- съёмка к проекту блока (TASK-014, PR 5а): ничего не сохраняет ---
+  survey: {
+    read: (file: File, params: SurveyReadParams = {}) => {
+      const form = new FormData();
+      form.append("file", file);
+      if (params.format) form.append("format", params.format);
+      if (params.swapXy !== undefined) form.append("swap_xy", String(params.swapXy));
+      if (params.columns) form.append("columns", JSON.stringify(params.columns));
+      return postForm<SurveyReadResponse>(`${V1}/design/survey/read`, form);
+    },
+    evaluate: (body: SurveyEvaluateRequest) => post<SurveyEvaluateResponse>(`${V1}/design/survey/evaluate`, body),
+    apply: (body: SurveyApplyRequest) => post<SurveyApplyResponse>(`${V1}/design/survey/apply`, body),
+    // Съёмка старого блока на объекте (хранится, в отличие от остального)
+    sites: {
+      list: (siteCode: string) => get<SiteSurvey[]>(`${V1}/design/survey/sites/${encodeURIComponent(siteCode)}`),
+      get: (siteCode: string, id: string) =>
+        get<SiteSurveyDetail>(
+          `${V1}/design/survey/sites/${encodeURIComponent(siteCode)}/${encodeURIComponent(id)}`,
+        ),
+      create: (siteCode: string, file: File, params: SiteSurveyCreateParams) => {
+        const form = new FormData();
+        form.append("file", file);
+        form.append("block_label", params.blockLabel);
+        form.append("survey_date", params.surveyDate);
+        if (params.horizonM != null) form.append("horizon_m", String(params.horizonM));
+        if (params.format) form.append("format", params.format);
+        if (params.swapXy !== undefined) form.append("swap_xy", String(params.swapXy));
+        if (params.columns) form.append("columns", JSON.stringify(params.columns));
+        return postForm<SiteSurveyCreated>(`${V1}/design/survey/sites/${encodeURIComponent(siteCode)}`, form);
+      },
+      remove: (siteCode: string, id: string) =>
+        del<void>(`${V1}/design/survey/sites/${encodeURIComponent(siteCode)}/${encodeURIComponent(id)}`),
+    },
   },
   design: {
     // Азимут тыла (наиболее длинной несвободной стороны) для шаблона «от тыла»

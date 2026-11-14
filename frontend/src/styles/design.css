@@ -510,6 +510,52 @@
 .vib-warn-metric strong { color:#9e3025; }
 .secondary-button.active { background:#e8f3ec; border-color:#2d7556; color:#173125; }
 
+/* Съёмка бурения (TASK-014, PR 5а): таблица сопоставления, статусы цветом, стадия проекта. */
+.survey-stage-pill.stage-preliminary { background:#f3f1ea; color:#5b5440; }
+.survey-stage-pill.stage-surveyed { background:#eef2ff; color:#2a3a7a; }
+.survey-swap { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:6px 8px; border-radius:7px; background:#fff3d6; color:#6a4a28; font-size:11px; }
+.survey-swap .secondary-button { height:24px; padding:0 8px; font-size:11px; }
+.survey-busy { color:#7b8982; }
+.survey-warnings { margin:0; padding-left:16px; font-size:11px; }
+.survey-tolerances { color:#5c6a63; }
+.survey-table-wrap { max-height:320px; overflow:auto; border:1px solid #e2e8e5; border-radius:7px; }
+.survey-table { width:100%; border-collapse:collapse; font-size:10.5px; font-variant-numeric:tabular-nums; }
+.survey-table th { position:sticky; top:0; padding:4px 5px; background:#f6f8f7; color:#5c6a63; font-weight:var(--font-weight-strong); text-align:left; white-space:nowrap; }
+.survey-table td { padding:3px 5px; border-top:1px solid #edf1ef; vertical-align:top; }
+.survey-table tr.issue td { background:#fbf8f1; }
+.survey-table select { width:auto; min-width:64px; height:24px; padding:0 4px; font-size:10.5px; }
+.survey-statuses { display:flex; flex-wrap:wrap; align-items:center; gap:3px; }
+.survey-status { padding:1px 5px; border-radius:999px; font-size:9.5px; font-weight:var(--font-weight-strong); white-space:nowrap; }
+.survey-status.ok { background:#e5f4eb; color:#247752; }
+.survey-status.over { background:#fdecea; color:#9e3025; }
+.survey-status.note { background:#fff3d6; color:#6a4a28; }
+.panel-body .survey-depth-input { width:72px; height:22px; padding:0 4px; font-size:10.5px; }
+.survey-panel > .panel-body > .secondary-button, .survey-panel .plans-actions > .secondary-button { height:26px; padding:0 8px; font-size:11px; }
+.survey-panel .survey-skip { height:20px; padding:0 5px; font-size:10px; }
+.survey-skipped { display:flex; flex-wrap:wrap; align-items:center; gap:4px; }
+.survey-skipped .secondary-button { height:22px; padding:0 6px; font-size:10.5px; }
+.survey-columns { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:4px 8px; margin:0; padding:6px 8px 8px; border:1px solid #e2e8e5; border-radius:7px; }
+.survey-columns legend { padding:0 4px; color:#5c6a63; font-size:var(--fs-label); font-weight:var(--font-weight-strong); }
+.survey-columns label { display:grid; gap:2px; color:#5c6a63; font-size:10.5px; }
+.panel-body .survey-columns select { height:24px; padding:0 4px; font-size:10.5px; }
+.survey-columns .secondary-button { grid-column:1 / -1; justify-self:start; height:24px; padding:0 8px; font-size:11px; }
+.survey-site-dialog { width:min(640px, calc(100vw - 32px)); }
+.survey-site-form { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:8px 12px; margin:0 12px; }
+.survey-site-form label { display:grid; gap:3px; color:#5c6a63; font-size:var(--fs-label); }
+.survey-site-form input, .survey-site-form select { height:var(--control-h); padding:4px 8px; border:1px solid #cfd9d4; border-radius:var(--radius-control); color:#17231d; background:#fbfcfb; }
+.survey-site-form .primary-button { align-self:end; }
+.survey-site-form .survey-site-swap { display:flex; align-items:center; gap:6px; align-self:end; min-height:var(--control-h); }
+.survey-site-form .survey-site-swap input { height:auto; padding:0; }
+.survey-site-dialog > .survey-columns, .survey-site-read { margin:0 12px; }
+.survey-site-read { display:grid; gap:4px; }
+.survey-site-list { margin:0 12px; }
+.survey-site-list ul { display:grid; gap:4px; margin:0; padding:0; list-style:none; max-height:260px; overflow:auto; }
+.survey-site-list li { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:6px 8px; border:1px solid #e2e8e5; border-radius:7px; }
+.survey-site-list li span { display:grid; gap:2px; }
+.survey-site-list li small { color:#7b8982; }
+.survey-site-delete { height:24px; padding:0 8px; }
+@media (max-width: 560px) { .survey-site-form { grid-template-columns:1fr; } }
+
 .as-drilled-marker circle { fill:none; stroke:#c45c1a; stroke-width:1.8; stroke-dasharray:3 2; }
 .as-drilled-marker.selected circle { stroke:#8a3d10; stroke-width:2.4; }
 .as-drilled-offset { stroke:#c45c1a; stroke-width:1.2; stroke-dasharray:4 3; opacity:0.85; }

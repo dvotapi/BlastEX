@@ -76,6 +76,38 @@ class DesignCostConversionTests(unittest.TestCase):
         design.pattern_params = {"pattern": "rectangular", "spacing_a_m": 4.0, "burden_b_m": 3.0}
         self.assertEqual(_design_to_hole_and_block(design)[0].grid_b_m, 3.0)
 
+    def test_underdrilled_block_hands_off_with_zero_overdrill(self):
+        # Блок по съёмке недобурен глубже проектного перебура (TASK-014, PR 5а):
+        # перебур скважин отрицательный, в смету — 0, длина — фактическая.
+        from api.services.design_service import _design_to_hole_and_block
+        from design.survey.apply import apply_survey
+        from design.survey.evaluate import SurveyTolerances, evaluate_survey
+        from design.survey.match import SurveyMatch
+        from design.survey.read import SurveyedPoint
+
+        design = _design()
+        matches = [
+            SurveyMatch(
+                hole.id,
+                SurveyedPoint(
+                    hole.id, hole.collar.x, hole.collar.y, hole.collar.z, hole.length_m - hole.subdrill_m - 0.5
+                ),
+                "name",
+            )
+            for hole in design.holes
+        ]
+        result = apply_survey(
+            design, matches, evaluate_survey(design, matches, SurveyTolerances()), file_name="s.csv",
+            file_sha256="", survey_date="2026-11-13", actor="", charge=None, now="",
+        )
+        design.holes = result.holes
+        self.assertTrue(all(hole.subdrill_m < 0 for hole in design.holes))
+        hole, _, _ = _design_to_hole_and_block(design)
+        self.assertEqual(hole.overdrill_m, 0.0)
+        self.assertAlmostEqual(hole.depth_m, sum(h.length_m for h in design.holes) / len(design.holes))
+        request = DesignCostRequest(design=BlastDesignSchema(**design.to_dict()), scenario_id="drill_blast")
+        self.assertGreater(estimate_design_cost(request, default_legacy_references()).total_amount_rub, 0.0)
+
     def test_empty_design_raises(self):
         design = BlastDesign(design_id="empty")
         request = DesignCostRequest(

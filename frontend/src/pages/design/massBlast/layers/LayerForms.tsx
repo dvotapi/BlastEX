@@ -533,7 +533,10 @@ export function ExecutionForm({ layer, draft, set, disabled, remember }: FormPro
       )}
       {blocks.map((block) => {
         const total = block.parameter_table.rows.length;
-        const drilled = block.parameter_table.rows.filter((row) => row.depth_fact_m !== null && row.depth_fact_m !== undefined).length;
+        // Пробурена — есть запись факта (`drilled`): у съёмки без замера глубины глубины Ф нет.
+        const drilled = block.parameter_table.rows.filter(
+          (row) => row.drilled === true || (row.depth_fact_m !== null && row.depth_fact_m !== undefined),
+        ).length;
         const charged = block.parameter_table.rows.filter((row) => row.charged).length;
         return (
           <small key={block.code} className="drill-hint">

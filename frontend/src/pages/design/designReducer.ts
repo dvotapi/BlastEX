@@ -29,6 +29,7 @@ import type {
   AsChargedHole,
   AsFiredHole,
   BlastResult,
+  SurveyApplication,
 } from "../../types/design";
 import {
   defaultVibrationModel,
@@ -88,6 +89,18 @@ export type DesignAction =
       holes: Hole[];
       network: InitiationNetwork;
       pattern_params: Record<string, unknown>;
+    }
+  /**
+   * «Применить съёмку» (TASK-014, PR 5а): ответ `POST /design/survey/apply`
+   * целиком, один шаг отмены. `loads: null` — заряды прежние.
+   */
+  | {
+      type: "APPLY_SURVEY";
+      holes: Hole[];
+      loads: HoleLoad[] | null;
+      as_drilled_holes: AsDrilledHole[];
+      survey_application: SurveyApplication;
+      changed_ids: string[];
     }
   /** Ответ пересчёта по кровле и подошве: новые устья и забои, вне истории отмены. */
   | { type: "RECOMPUTE_HOLES"; holes: Hole[] }
@@ -432,6 +445,25 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
       // «Сетка» надо взять из документа (применение, отмена, повтор).
       return { ...cleared, network: normalizeNetwork(action.network), pattern_params: action.pattern_params };
     }
+    case "APPLY_SURVEY": {
+      // Коммутация устаревает, только если у изменённой скважины сменились устье
+      // или забой; одна вода сети не касается.
+      const previous = new Map(document.holes.map((h) => [h.id, h]));
+      const changed = new Set(action.changed_ids);
+      const geometryChanged = action.holes.some((h) => {
+        if (!changed.has(h.id)) return false;
+        const old = previous.get(h.id);
+        return !old || !samePoint(old.collar, h.collar) || !samePoint(old.toe, h.toe);
+      });
+      return {
+        ...document,
+        holes: action.holes.map(normalizeHole),
+        loads: action.loads ?? document.loads,
+        as_drilled_holes: action.as_drilled_holes,
+        survey_applications: [...(document.survey_applications ?? []), action.survey_application],
+        network: geometryChanged ? staleNetwork(document.network) : document.network,
+      };
+    }
     case "RECOMPUTE_HOLES": {
       // Только геометрия: устье и забой. Прочие поля скважины (диаметр, вид,
       // ручные флаги) — как в документе; геология старой оси сбрасывается.
@@ -672,6 +704,7 @@ const UNDOABLE: DesignAction["type"][] = [
   "CLEAR_SURFACE",
   "SET_HOLES",
   "APPLY_LAYOUT",
+  "APPLY_SURVEY",
   "RENUMBER_HOLES",
   "MOVE_HOLES",
   "RETURN_TO_NODE",
@@ -723,6 +756,7 @@ const HOLE_SET_ACTIONS: ReadonlySet<DesignAction["type"]> = new Set([
   "DELETE_HOLES",
   "SET_HOLES_ENABLED",
   "UPDATE_HOLE",
+  "APPLY_SURVEY",
 ]);
 
 export function designReducer(state: DesignState, action: DesignAction): DesignState {

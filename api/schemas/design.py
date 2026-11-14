@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from api.schemas.blast import ExplosivePropertiesSchema, KuzRamSettingsSchema, RockPropertiesSchema
 from api.schemas.cost import CalculationContextInputSchema, MaterialsSelectionSchema
 from design.spatial.tin import MAX_INDEX_ENTRIES, index_entries
+from design.survey.evaluate import MIN_SUBDRILL_M
 
 
 class Point3Schema(BaseModel):
@@ -149,6 +150,9 @@ class ManualOffsetSchema(BaseModel):
     across: float
 
 
+# Нижняя граница перебура: недобур не глубже высоты уступа, 100 м — с запасом (`design.survey.evaluate`).
+
+
 class HoleSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -158,7 +162,8 @@ class HoleSchema(BaseModel):
     collar: Point3Schema
     toe: Point3Schema
     diameter_mm: float = Field(..., ge=0)
-    subdrill_m: float = Field(0.0, ge=0)
+    # Может быть отрицательным: недобур по съёмке при проектной подошве (TASK-014, М7).
+    subdrill_m: float = Field(0.0, ge=MIN_SUBDRILL_M)
     kind: str = "production"
     source: str = "generated"
     enabled: bool = True
@@ -170,6 +175,8 @@ class HoleSchema(BaseModel):
     # `xy` — скважина сетки сдвинута от узла (TASK-017, PR 2), см. `manual_offset`.
     manual: list[Literal["collar_z", "length", "xy"]] = Field(default_factory=list)
     manual_offset: ManualOffsetSchema | None = None
+    # Проектный перебур, когда съёмка сменила `subdrill_m` (TASK-014); иначе нет.
+    design_subdrill_m: float | None = None
 
 
 class DeckSchema(BaseModel):
@@ -570,14 +577,15 @@ class HoleDeviationSchema(BaseModel):
     role: str = "executed"
     collar_offset_m: float
     toe_offset_m: float
-    depth_deviation_m: float
+    # None — глубина не замерена (съёмка без глубины, `survey_import_no_depth`).
+    depth_deviation_m: float | None
     angle_deviation_deg: float
     azimuth_deviation_deg: float
     actual_burden_m: float | None = None
     actual_spacing_m: float | None = None
     designed_burden_m: float | None = None
     designed_spacing_m: float | None = None
-    actual_depth_m: float = 0.0
+    actual_depth_m: float | None = 0.0
     designed_depth_m: float = 0.0
     actual_diameter_mm: float = 0.0
     designed_diameter_mm: float = 0.0
@@ -615,6 +623,19 @@ class LifecycleEventSchema(BaseModel):
     mutations: list[str] = Field(default_factory=list)
 
 
+class SurveyApplicationSchema(BaseModel):
+    """Запись «Применить съёмку» (TASK-014, PR 5а)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    applied_at: str = ""
+    survey_date: str = ""
+    file_name: str = ""
+    file_sha256: str = ""
+    actor: str = ""
+    counts: dict[str, int] = Field(default_factory=dict)
+
+
 class BlastDesignSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -640,6 +661,7 @@ class BlastDesignSchema(BaseModel):
     as_drilled_holes: list[AsDrilledHoleSchema] = Field(default_factory=list)
     as_charged_holes: list[AsChargedHoleSchema] = Field(default_factory=list)
     as_fired_holes: list[AsFiredHoleSchema] = Field(default_factory=list)
+    survey_applications: list[SurveyApplicationSchema] = Field(default_factory=list)
     blast_result: BlastResultSchema | None = None
     lifecycle_status: str = "draft"
     revision: int = 0
@@ -1384,6 +1406,7 @@ class DesignSummarySchema(BaseModel):
     revision: int = 0
     designed_sha256: str = ""
     parent_design_id: str = ""
+    surveyed: bool = False
 
 
 class LifecycleStatusSchema(BaseModel):

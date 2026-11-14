@@ -113,11 +113,12 @@ def moved_offset(before: Hole, new_x: float, new_y: float, along: Point2, across
 
 
 def _survey_water(
-    point: SurveyedPoint, length_m: float, provenance: DataProvenance
+    hole_id: str, point: SurveyedPoint, length_m: float, provenance: DataProvenance, warnings: list[str]
 ) -> list[WaterInterval] | None:
     """Проектные интервалы воды по съёмке; `None` — съёмка о воде ничего не говорит.
 
     Уровень воды — глубина от устья; уровня нет — обводнена вся скважина.
+    Уровень ниже забоя — проектной воды нет, с предупреждением.
     """
 
     if point.wet is False:
@@ -126,6 +127,7 @@ def _survey_water(
         return None
     top = max(0.0, float(point.water_depth_m or 0.0))
     if top >= length_m - _LENGTH_EPS:
+        warnings.append(f"Скважина {hole_id}: уровень воды ниже забоя — проектной воды нет.")
         return []
     return [
         WaterInterval(from_m=top, to_m=length_m, condition="wet", provenance=deepcopy(provenance), role=ROLE_DESIGNED)
@@ -138,6 +140,8 @@ def _fact(hole: Hole, point: SurveyedPoint, provenance: DataProvenance) -> AsDri
         design_hole_id=hole.id,
         actual_collar=Point3(drilled.collar.x, drilled.collar.y, drilled.collar.z),
         actual_toe=Point3(drilled.toe.x, drilled.toe.y, drilled.toe.z),
+        # Глубина не замерена — длина проектная: `AsDrilledHole.actual_depth` пустой не бывает
+        # (0 нормализуется в расстояние устье — забой), статус «не замерено» — в оценке.
         actual_depth=drilled.length_m,
         actual_diameter=hole.diameter_mm,
         role=ROLE_EXECUTED,
@@ -200,6 +204,11 @@ def _loads(
             holes, charge.rules, charge.explosive, contour=design.contour, explosives=charge.explosives
         )
     }
+    missing = [hole_id for hole_id in changed_ids if hole_id not in fresh]
+    if missing:
+        warnings.append(
+            f"Правила заряжания не дали заряда скважинам {', '.join(missing)} — прежний заряд оставлен, проверьте его."
+        )
     changed = set(changed_ids)
     loads = [fresh.get(load.hole_id, load) if load.hole_id in changed else load for load in design.loads]
     present = {load.hole_id for load in design.loads}
@@ -262,9 +271,7 @@ def apply_survey(
         record_as_drilled(work, _fact(hole, point, fact))
         geometry = hole.id not in unchanged
         length = surveyed_hole(hole, point).length_m if geometry else hole.length_m
-        water = _survey_water(point, length, survey)
-        if point.wet and water == []:
-            warnings.append(f"Скважина {hole.id}: уровень воды ниже забоя — проектной воды нет.")
+        water = _survey_water(hole.id, point, length, survey, warnings)
         if not geometry and not _water_differs(hole, water):
             holes.append(hole)
             continue

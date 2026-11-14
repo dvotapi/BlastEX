@@ -257,7 +257,7 @@ def execution_payload(design: Any) -> dict[str, Any]:
     return {
         key: data.get(key)
         for key in EXECUTION_PAYLOAD_KEYS
-        if key not in OPTIONAL_EXECUTION_KEYS or data.get(key) is not None
+        if key not in OPTIONAL_EXECUTION_KEYS or data.get(key)
     }
 
 

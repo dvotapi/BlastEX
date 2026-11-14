@@ -158,7 +158,8 @@ class HoleSchema(BaseModel):
     collar: Point3Schema
     toe: Point3Schema
     diameter_mm: float = Field(..., ge=0)
-    subdrill_m: float = Field(0.0, ge=0)
+    # Может быть отрицательным: недобур по съёмке при проектной подошве (TASK-014, М7).
+    subdrill_m: float = 0.0
     kind: str = "production"
     source: str = "generated"
     enabled: bool = True

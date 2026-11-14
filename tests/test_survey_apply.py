@@ -9,7 +9,7 @@ import pytest
 from Blast import ExplosiveProperties
 from design.charging import apply_charge_rules
 from design.geometry import hole_from_collar, layout_axes
-from design.lifecycle import classify_mutations, designed_sha256, execution_payload
+from design.lifecycle import classify_mutations, designed_payload, designed_sha256, execution_payload
 from design.models import BlastDesign, Hole, ManualOffset, Point3, WaterInterval
 from design.survey.apply import ChargeInputs, SurveyApplication, apply_survey, moved_offset
 from design.survey.evaluate import VERDICT_CODES, SurveyTolerances, evaluate_survey
@@ -334,3 +334,84 @@ def test_input_design_not_mutated():
     assert design.to_dict() == snapshot
     assert all(a is not b for a, b in zip(result.holes, design.holes))
     assert math.isfinite(_by_id(result.holes)["1-02"].subdrill_m)
+
+
+def _max_deck_depth(load) -> float:
+    return max((deck.to_m for deck in load.decks), default=0.0)
+
+
+def test_underdrilled_hole_keeps_design_floor_and_round_trips():
+    from api.schemas.design import BlastDesignSchema
+    from design.charge_templates import example_wet_dry_bottom_templates
+
+    design = _design(loads=True)
+    hole = _hole(design, "2-03")  # вертикальная, перебур 1 м
+    point = _point(hole, dl=-1.6, wet=True, water_depth_m=5.0)
+    result = _apply(design, _matches(design, {"2-03": point}))
+    under = _by_id(result.holes)["2-03"]
+    # Недобур ниже проектного перебура: перебур отрицательный, подошва — проектная.
+    assert under.subdrill_m == pytest.approx(-0.6)
+    assert under.collar.z - under.bench_height_m == pytest.approx(hole.collar.z - hole.bench_height_m)
+
+    applied = _applied(design, result)
+    schema = BlastDesignSchema.model_validate(applied.to_dict())
+    back = BlastDesign.from_dict(schema.model_dump())
+    assert _by_id(back.holes)["2-03"].subdrill_m == pytest.approx(-0.6)
+    # Сравнение значений, а не хэша: заготовка контура с целыми координатами схема делает float.
+    assert designed_payload(back) == designed_payload(applied)
+
+    # Заряд — в пределах фактической длины скважины: и правилами, и шаблонами.
+    load = next(item for item in result.loads if item.hole_id == "2-03")
+    assert 0 < _max_deck_depth(load) <= under.length_m + 1e-9
+    catalog = [
+        ExplosiveProperties(name="Эмульсия плотная", density_t_m3=1.25, power_mj_kg=3.2),
+        ExplosiveProperties(name="Эмульсия водоустойчивая", density_t_m3=1.2, power_mj_kg=3.0),
+    ]
+    templated = apply_charge_rules(
+        back.holes, {"stemming_m": 3.0}, EXPLOSIVE, contour=back.contour,
+        explosives=catalog, templates=example_wet_dry_bottom_templates(),
+    )
+    by_hole = {item.hole_id: item for item in templated}
+    assert 0 < _max_deck_depth(by_hole["2-03"]) <= under.length_m + 1e-9
+    assert by_hole["2-03"].total_charge_kg > 0
+
+
+def test_water_level_without_wet_flag_and_wet_without_level():
+    design = _design()
+    level = _hole(design, "2-02")
+    whole = _hole(design, "2-04")
+    below = _hole(design, "3-02")
+    below.water_intervals = [WaterInterval(from_m=6.0, to_m=below.length_m)]
+    points = {
+        "2-02": _point(level, wet=None, water_depth_m=7.5),
+        "2-04": _point(whole, wet=True, water_depth_m=None),
+        "3-02": _point(below, wet=None, water_depth_m=below.length_m + 1.0),
+    }
+    result = _apply(design, _matches(design, points))
+    holes = _by_id(result.holes)
+    [wet_level] = holes["2-02"].water_intervals
+    assert (wet_level.from_m, wet_level.to_m, wet_level.condition) == pytest.approx((7.5, level.length_m, "wet"))
+    [wet_whole] = holes["2-04"].water_intervals
+    assert (wet_whole.from_m, wet_whole.to_m) == pytest.approx((0.0, whole.length_m))
+    assert holes["3-02"].water_intervals == []
+    assert any("3-02" in warning and "ниже забоя" in warning for warning in result.warnings)
+
+
+def test_missing_fresh_load_is_warned(monkeypatch):
+    import design.survey.apply as apply_module
+
+    design = _design(loads=True)
+    real = apply_module.apply_charge_rules
+
+    def without(holes, *args, **kwargs):
+        return [load for load in real(holes, *args, **kwargs) if load.hole_id != "2-03"]
+
+    monkeypatch.setattr(apply_module, "apply_charge_rules", without)
+    result = _apply(design, _matches(design, {"2-03": _point(_hole(design, "2-03"), dl=-0.6)}))
+    assert any("2-03" in warning for warning in result.warnings)
+
+
+def test_empty_survey_applications_not_in_execution_payload():
+    data = _design().to_dict()
+    data["survey_applications"] = []
+    assert "survey_applications" not in execution_payload(data)

@@ -800,6 +800,35 @@ b/4, умолчание a/4 и b/4, от положения до жеста; Shi
 режимах «по рядам», «V» и «диагональ» — предупреждение
 `manual_first_row_warning`. Тест — `tests/test_template_manual_holes.py`.
 
+## Исполнительная съёмка (TASK-014 PR 5)
+
+Панель «Съёмка бурения» (`frontend/src/pages/design/SurveyPanel.tsx`,
+`useSurveyImport.ts`) — файл маркшейдера → сопоставление → оценка →
+«Применить». Чистые модули — `design/survey/`: `read.py` (форматы `PNEZD_CSV`,
+`PENZD_CSV`, `PNEZ_TXT`, `DXF_POINTS`, `TABLE`; `;`, десятичная запятая, BOM,
+cp1251; X по-русски — север, Y — восток, «Поменять» — `swap_xy`; угол — от
+вертикали, как `Hole.angle_deg`; описание выноса «L10.7» глубиной не считается;
+пределы 20 МБ / 50 000 строк), `match.py` (ручная привязка → имя с префиксом
+блока (`block_label`: паспорт, иначе проект) → близость в плане ≤ 2·`tol_collar_m`;
+забойные `_T` и лишние точки — `unmatched_point`, не молча), `evaluate.py` (коды
+`ok`/`underdrill`/`overdrill`/`offset`/`angle`/`burden`/`spacing`/`no_depth`;
+нужная длина L = (Z_уст.ф − Z_подошвы)/cos α + Δ, подошва проектная; «без
+изменения» — < 0,001 м в плане и по отметке, < 0,01 м по глубине),
+`apply.py` (устье со сдвигом TASK-017, `collar_z`/`length` как ручные, вода
+съёмки заменяет проектные интервалы — `wet = False` стирает, `None` не
+трогает; заряды — только изменённым, факт `as_drilled`, `survey_applications`).
+Допуски (`tol_depth_m`, `tol_collar_m`, новые `tol_angle_deg`, `tol_burden_pct`,
+`tol_spacing_pct`, в payload только когда заданы) — ревизия паспорта на бурение,
+иначе паспорт предка по `parent_design_id`, иначе умолчания с предупреждением.
+Недобур — отрицательный `subdrill_m` при проектной подошве, в смету уходит
+`max(0, …)`. API — `/design/survey/read|evaluate|apply`, ничего не сохраняют;
+«Применить» — действие `APPLY_SURVEY`, один шаг отмены, коммутацию помечает
+устаревшей фронт; `approved` — 409, «Копия по съёмке» (`fork` + применение
+на копии), `in_review` — запрет. Стадия — `surveyStage`: «предварительный» /
+«по съёмке». Съёмка старого блока — `/design/survey/sites/{site_code}`,
+таблица `site_surveys` (повтор файла — 409, БД недоступна — 503). Подробности
+— `Docs/SURVEY_IMPORT.md`; справка «?» панели — `SurveyHelp.tsx`.
+
 ## Нумерация скважин
 
 `design/numbering.py::number_by_position`, зовёт `pattern._finish_pattern`.

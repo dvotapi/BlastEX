@@ -7,6 +7,7 @@ import { ruNumber } from "../../lib/format";
 import type { SurveyFormat, SurveyMatchBy, SurveyMatchIssue, SurveyTolerances, SurveyVerdictCode } from "../../types/design";
 import { RoleBadge } from "./RoleBadge";
 import { SiteSurveyDialog } from "./SiteSurveyDialog";
+import { SurveyHelp } from "./SurveyHelp";
 import { DATE_MISSING, type SurveyImportView, type SurveyRow } from "./useSurveyImport";
 
 const SURVEY_ACCEPT = ".csv,.txt,.xlsx,.xlsm,.dxf";
@@ -216,7 +217,7 @@ export function SurveyPanel({ survey }: { survey: SurveyImportView }) {
 
   return (
     <section className="panel survey-panel">
-      <header><b>Съёмка бурения</b><RoleBadge role="executed" /></header>
+      <header><b>Съёмка бурения</b><RoleBadge role="executed" /><SurveyHelp /></header>
       <div className="panel-body">
         <small>
           Файл исполнительной съёмки маркшейдера: точки сопоставляются со скважинами проекта и оцениваются по

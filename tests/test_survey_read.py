@@ -4,6 +4,7 @@ from pathlib import Path
 import openpyxl
 import pytest
 
+import design.survey.read as survey_read
 from design.survey.read import SurveyedPoint, SurveyReadError, read_survey
 
 FIX = Path("tests/fixtures/drill_passport/stakeout")
@@ -111,3 +112,53 @@ def test_empty_or_garbage_raises():
         read_survey(b"\x00\x01\x02garbage", "s.dxf")
     with pytest.raises(SurveyReadError):
         read_survey("только;заголовок\n".encode(), "s.csv", format="TABLE")
+
+
+def test_size_and_row_caps(monkeypatch):
+    monkeypatch.setattr(survey_read, "MAX_SURVEY_BYTES", 50)
+    with pytest.raises(SurveyReadError):
+        read_survey(b"1-01,1,2,3\n" * 10, "s.csv")
+    monkeypatch.setattr(survey_read, "MAX_SURVEY_BYTES", 10_000_000)
+    monkeypatch.setattr(survey_read, "MAX_SURVEY_ROWS", 3)
+    with pytest.raises(SurveyReadError):
+        read_survey(b"".join(b"%d,1,2,3\n" % i for i in range(10)), "s.csv", format="PNEZD_CSV")
+    with pytest.raises(SurveyReadError):
+        read_survey("№;E;N\n".encode() + b"".join(b"%d;1;2\n" % i for i in range(10)), "s.csv")
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["№", "E", "N"])
+    for i in range(10):
+        ws.append([str(i), 1, 2])
+    buf = io.BytesIO()
+    wb.save(buf)
+    with pytest.raises(SurveyReadError):
+        read_survey(buf.getvalue(), "s.xlsx")
+    dxf = (FIX / "66_DXF_POINTS.dxf").read_bytes()
+    with pytest.raises(SurveyReadError):
+        read_survey(dxf, "s.dxf")
+
+
+def test_dxf_unlabeled_point_warns():
+    import ezdxf
+
+    doc = ezdxf.new("R12")
+    msp = doc.modelspace()
+    msp.add_point((10, 20, 1))
+    msp.add_text("A-1", height=0.4).set_placement((10.15, 20.15, 1))
+    msp.add_point((50, 60, 1))
+    stream = io.StringIO()
+    doc.write(stream)
+    f = read_survey(stream.getvalue().encode(), "s.dxf")
+    assert [p.name for p in f.points] == ["A-1"]
+    assert any("без подписи" in w for w in f.warnings)
+
+
+def test_empty_wet_is_none_and_dash_too():
+    raw = "№;E;N;Вода\nA;1;2;\nB;3;4;-\nC;5;6;нет\n".encode()
+    assert [p.wet for p in read_survey(raw, "s.csv").points] == [None, None, False]
+
+
+def test_quoted_decimal_comma_in_comma_csv():
+    raw = '№,E,N,Глубина\nA,"1472880,04","593722,99","12,5"\n'.encode()
+    p = read_survey(raw, "s.csv").points[0]
+    assert (p.x, p.y, p.depth_m) == (1472880.04, 593722.99, 12.5)

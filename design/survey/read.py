@@ -20,6 +20,12 @@ SURVEY_FORMATS = ("PNEZD_CSV", "PENZD_CSV", "PNEZ_TXT", "DXF_POINTS", "TABLE")
 # Подпись точки в DXF выноса стоит со сдвигом (+0,15; +0,15) — ищем с запасом.
 LABEL_RADIUS_M = 0.6
 
+# Пределы входа: съёмка блока — сотни точек; всё, что больше, — не съёмка.
+MAX_SURVEY_BYTES = 20 * 1024 * 1024
+MAX_SURVEY_ROWS = 50_000
+MAX_COLUMNS = 64
+MAX_UNPACKED_BYTES = 200 * 1024 * 1024  # xlsx в распакованном виде
+
 COLUMN_KEYS = ("name", "east", "north", "z", "depth", "angle", "azimuth", "wet", "water")
 
 # Псевдонимы заголовков (в нижнем регистре, без пробелов по краям). Порядок
@@ -37,7 +43,7 @@ _ALIASES: dict[str, tuple[str, ...]] = {
 }
 _XY = {"x": "north", "y": "east"}  # по-русски X — север, Y — восток
 _TRUE = {"да", "1", "+", "wet", "true", "yes", "y", "д"}
-_FALSE = {"нет", "0", "-", "", "false", "no", "n", "н"}
+_FALSE = {"нет", "0", "false", "no", "n", "н"}
 
 
 class SurveyReadError(ValueError):
@@ -100,6 +106,8 @@ def read_survey(
 ) -> SurveyFile:
     if not data or not data.strip():
         raise SurveyReadError("Файл съёмки пустой.")
+    if len(data) > MAX_SURVEY_BYTES:
+        raise SurveyReadError(f"Файл съёмки больше {MAX_SURVEY_BYTES // (1024 * 1024)} МБ.")
     if format is not None and format not in SURVEY_FORMATS:
         raise SurveyReadError(f"Формат «{format}» не поддерживается.")
     fmt = format or _detect_format(data, filename)
@@ -112,7 +120,7 @@ def read_survey(
     else:
         points = _read_profile(_decode(data), fmt, warnings)
     if not points:
-        raise SurveyReadError("В файле нет ни одной точки съёмки.")
+        raise SurveyReadError("В файле нет ни одной точки съёмки: координаты не прочитаны как числа.")
     return SurveyFile(points, fmt, used, warnings, hashlib.sha256(data).hexdigest())
 
 
@@ -163,13 +171,21 @@ def _split(line: str, delim: str) -> list[str]:
     return next(csv.reader([line], delimiter=delim, skipinitialspace=True), [])
 
 
+_QUOTED_DECIMAL = re.compile(r"^[+-]?\d+,\d+$")
+
+
+def _too_many_rows() -> SurveyReadError:
+    return SurveyReadError(f"В файле больше {MAX_SURVEY_ROWS} строк — это не съёмка блока.")
+
+
 def _number(raw: Any, decimal_comma: bool) -> float | None:
     if raw is None or isinstance(raw, bool):
         return None
     if isinstance(raw, (int, float)):
         return float(raw) if math.isfinite(raw) else None
     text = str(raw).strip().replace("\xa0", "").replace(" ", "")
-    if decimal_comma:
+    # Запятая внутри ячейки (после разбора CSV — значит в кавычках) — десятичная.
+    if decimal_comma or _QUOTED_DECIMAL.match(text):
         text = text.replace(",", ".")
     try:
         value = float(text)
@@ -186,6 +202,8 @@ def _read_profile(text: str, fmt: str, warnings: list[str]) -> list[SurveyedPoin
     seen_first = False
     skipped: list[int] = []
     for number, line in enumerate(text.splitlines(), start=1):
+        if number > MAX_SURVEY_ROWS:
+            raise _too_many_rows()
         if not line.strip():
             continue
         first = not seen_first
@@ -228,11 +246,24 @@ def _read_dxf(data: bytes, filename: str, warnings: list[str]) -> list[SurveyedP
         raise SurveyReadError("Файл DXF не прочитан.") from exc
     marks = [e for e in drawing.entities if e.kind == "POINT" and e.points]
     labels = [e for e in drawing.entities if e.kind in ("TEXT", "MTEXT") and e.points and e.text]
-    pairs = sorted(
-        (math.hypot(m.points[0][0] - t.points[0][0], m.points[0][1] - t.points[0][1]), i, j)
-        for i, m in enumerate(marks)
-        for j, t in enumerate(labels)
-    )
+    if len(marks) > MAX_SURVEY_ROWS or len(labels) > MAX_SURVEY_ROWS:
+        raise _too_many_rows()
+    # Подписи — в сетку с ячейкой в радиус поиска: пары только из соседних ячеек.
+    grid: dict[tuple[int, int], list[int]] = {}
+    for j, t in enumerate(labels):
+        cell = (math.floor(t.points[0][0] / LABEL_RADIUS_M), math.floor(t.points[0][1] / LABEL_RADIUS_M))
+        grid.setdefault(cell, []).append(j)
+    pairs: list[tuple[float, int, int]] = []
+    for i, m in enumerate(marks):
+        cx, cy = math.floor(m.points[0][0] / LABEL_RADIUS_M), math.floor(m.points[0][1] / LABEL_RADIUS_M)
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for j in grid.get((cx + dx, cy + dy), ()):
+                    t = labels[j]
+                    d = math.hypot(m.points[0][0] - t.points[0][0], m.points[0][1] - t.points[0][1])
+                    if d <= LABEL_RADIUS_M:
+                        pairs.append((d, i, j))
+    pairs.sort()
     named: dict[int, int] = {}
     used: set[int] = set()
     for distance, i, j in pairs:
@@ -331,21 +362,38 @@ def _flag(value: Any) -> bool | None:
 
 
 def _text_rows(text: str) -> tuple[list[str], list[tuple[int, list[Any]]], bool]:
-    lines = [(n, ln) for n, ln in enumerate(text.splitlines(), start=1) if ln.strip()]
+    all_lines = text.splitlines()
+    if len(all_lines) > MAX_SURVEY_ROWS + 1:
+        raise _too_many_rows()
+    lines = [(n, ln) for n, ln in enumerate(all_lines, start=1) if ln.strip()]
     if not lines:
         return [], [], False
     delim = _delimiter(lines[0][1])
     header = [c.strip() for c in _split(lines[0][1], delim)]
+    if len(header) > MAX_COLUMNS:
+        raise SurveyReadError(f"В таблице больше {MAX_COLUMNS} колонок.")
     return header, [(n, _split(ln, delim)) for n, ln in lines[1:]], delim != ","
 
 
 def _xlsx_rows(data: bytes) -> tuple[list[str], list[tuple[int, list[Any]]], bool]:
     try:
+        import zipfile
+
         import openpyxl
 
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            unpacked = sum(item.file_size for item in archive.infolist())
+        if unpacked > MAX_UNPACKED_BYTES:
+            raise SurveyReadError("Книга Excel слишком велика.")
         book = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
         sheet = book.worksheets[0]
-        grid = [(n, list(row)) for n, row in enumerate(sheet.iter_rows(values_only=True), start=1)]
+        grid = []
+        for n, row in enumerate(sheet.iter_rows(max_col=MAX_COLUMNS, values_only=True), start=1):
+            if n > MAX_SURVEY_ROWS + 1:
+                raise _too_many_rows()
+            grid.append((n, list(row)))
+    except SurveyReadError:
+        raise
     except Exception as exc:  # noqa: BLE001 — не книга Excel
         raise SurveyReadError("Файл Excel не прочитан.") from exc
     grid = [(n, row) for n, row in grid if any(c is not None and str(c).strip() for c in row)]

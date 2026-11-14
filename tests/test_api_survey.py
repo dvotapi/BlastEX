@@ -302,3 +302,103 @@ def test_survey_routes_are_in_the_app():
 
     paths = TestClient(app).get("/openapi.json").json()["paths"]
     assert {f"{BASE}/read", f"{BASE}/evaluate", f"{BASE}/apply"} <= paths.keys()
+
+
+# --- съёмка старого блока на объекте ------------------------------------------------
+
+SITE = "KGOK"
+SITES_URL = f"{BASE}/sites/{SITE}"
+OTHER_SESSION = {"sub": "eve@example.ru", "role": "user", "org": "org-b"}
+CSV = "№;E;N;Z;Глубина\n1-01;8,0;2,0;0,0;11,0\n1-02;12,5;2,0;0,0;10,9\n".encode("cp1251")
+
+
+class _Snapshot:
+    def item(self, section: str, code: str):
+        return object() if section == "sites" and code == SITE else None
+
+
+@pytest.fixture()
+def sites_client(data_dir, repository):
+    from api.services.legacy_references import current_reference_snapshot
+    from api.services.survey_service import get_site_survey_repository
+    from design.survey.site_repository import InMemorySiteSurveyRepository
+
+    store = InMemorySiteSurveyRepository()
+    app = FastAPI()
+    app.add_exception_handler(RequestValidationError, request_validation_handler)
+    app.include_router(survey.router, prefix="/api/v1")
+    app.state.session = dict(SESSION)
+    app.dependency_overrides[require_internal_access] = lambda: dict(app.state.session)
+    app.dependency_overrides[current_reference_snapshot] = lambda: _Snapshot()
+    app.dependency_overrides[get_site_survey_repository] = lambda: store
+    return TestClient(app)
+
+
+def _upload(client, content: bytes = CSV, *, url: str = SITES_URL, **form):
+    data = {"block_label": " Б-12 ", "survey_date": "2026-10-01", "horizon_m": "410.5", **form}
+    data = {key: value for key, value in data.items() if value is not None}
+    return client.post(url, files={"file": ("b12.csv", content, "text/csv")}, data=data)
+
+
+def test_site_survey_create_list_get_delete(sites_client):
+    created = _upload(sites_client)
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["block_label"] == "Б-12"
+    assert body["horizon_m"] == 410.5
+    assert body["survey_date"] == "2026-10-01"
+    assert body["file_name"] == "b12.csv"
+    assert body["points_count"] == 2
+    assert [point["name"] for point in body["points"]] == ["1-01", "1-02"]
+    assert "organization_id" not in body
+
+    listing = sites_client.get(SITES_URL).json()
+    assert [item["id"] for item in listing] == [body["id"]]
+    assert "points" not in listing[0]
+    assert listing[0]["points_count"] == 2
+
+    detail = sites_client.get(f"{SITES_URL}/{body['id']}").json()
+    assert detail["points"][0]["depth_m"] == 11.0
+
+    assert sites_client.delete(f"{SITES_URL}/{body['id']}").status_code == 204
+    assert sites_client.get(SITES_URL).json() == []
+    assert sites_client.get(f"{SITES_URL}/{body['id']}").status_code == 404
+
+
+def test_site_surveys_newest_first(sites_client):
+    old = _upload(sites_client, CSV + b"1-03;1;1;0;5\n", survey_date="2026-01-01").json()
+    new = _upload(sites_client, survey_date="2026-09-01").json()
+    assert [item["id"] for item in sites_client.get(SITES_URL).json()] == [new["id"], old["id"]]
+
+
+def test_site_survey_unknown_site_is_404(sites_client):
+    other = f"{BASE}/sites/NOPE"
+    assert sites_client.get(other).status_code == 404
+    assert _upload(sites_client, url=other).status_code == 404
+
+
+def test_site_survey_duplicate_file_is_409(sites_client):
+    assert _upload(sites_client).status_code == 201
+    again = _upload(sites_client, block_label="Б-12")
+    assert again.status_code == 409
+    assert again.json()["detail"] == "Этот файл уже загружен"
+    # Тот же файл для другого блока — отдельная съёмка.
+    assert _upload(sites_client, block_label="Б-13").status_code == 201
+
+
+def test_site_survey_other_organization_gets_404_and_keeps_record(sites_client):
+    created = _upload(sites_client).json()
+    sites_client.app.state.session = dict(OTHER_SESSION)
+    assert sites_client.get(SITES_URL).json() == []
+    assert sites_client.get(f"{SITES_URL}/{created['id']}").status_code == 404
+    assert sites_client.delete(f"{SITES_URL}/{created['id']}").status_code == 404
+    sites_client.app.state.session = dict(SESSION)
+    assert sites_client.get(f"{SITES_URL}/{created['id']}").status_code == 200
+
+
+def test_site_survey_validates_form(sites_client):
+    assert _upload(sites_client, block_label="   ").status_code == 422
+    assert _upload(sites_client, survey_date="01.10.2026").status_code == 422
+    assert _upload(sites_client, survey_date=None).status_code == 422
+    assert _upload(sites_client, b"   ").status_code == 422
+    assert _upload(sites_client, horizon_m=None).json()["horizon_m"] is None

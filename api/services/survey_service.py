@@ -11,16 +11,22 @@
 """
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from datetime import date
+from functools import lru_cache
 from typing import Any
 
 from fastapi import HTTPException, status
 from sqlalchemy.exc import SQLAlchemyError
 
+from api import config
 from api.schemas.survey import (
     HoleVerdictSchema,
     SurveyApplyRequest,
+    SiteSurveyDetailSchema,
+    SiteSurveySchema,
     SurveyApplyResponse,
     SurveyedPointSchema,
     SurveyEvaluateRequest,
@@ -30,10 +36,17 @@ from api.schemas.survey import (
     SurveyTolerancesSchema,
 )
 from api.services.design_service import charge_explosives
+from cost.v2.models import ReferenceSnapshot
 from design import persistence as design_persistence
 from design.drilling_passport_repository import DrillingPassportRepositoryError
 from design.lifecycle import STATUS_DRAFT, STATUS_IN_REVIEW, utc_now_iso
 from design.models import BlastDesign
+from design.survey.site_repository import (
+    PostgresSiteSurveyRepository,
+    SiteSurveyDuplicateError,
+    SiteSurveyNotFoundError,
+    SiteSurveyRepository,
+)
 from design.survey.apply import ChargeInputs, apply_survey
 from design.survey.evaluate import (
     HoleVerdict,
@@ -264,3 +277,109 @@ def apply(request: SurveyApplyRequest, organization_id: str, actor: str, reposit
         changed_ids=applied.changed_ids,
         warnings=[*result.lookup.warnings, *applied.warnings],
     )
+
+
+# --- съёмка старого блока на объекте ---------------------------------------------
+
+
+@lru_cache(maxsize=4)
+def _postgres_site_repository(database_url: str) -> PostgresSiteSurveyRepository:
+    return PostgresSiteSurveyRepository(database_url)
+
+
+def get_site_survey_repository() -> SiteSurveyRepository:
+    return _postgres_site_repository(config.database_url())
+
+
+def check_site(snapshot: ReferenceSnapshot | None, site_code: str) -> None:
+    """`site_code` — код записи справочника «sites», иначе 404."""
+
+    code = (site_code or "").strip()
+    if not code or snapshot is None or snapshot.item("sites", code) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Объект «{site_code}» не найден в справочнике.")
+
+
+def _site_summary(record: Mapping[str, Any]) -> SiteSurveySchema:
+    return SiteSurveySchema(
+        **{key: record[key] for key in SiteSurveySchema.model_fields if key in record},
+        points_count=len(record["points"]),
+    )
+
+
+def _site_detail(record: Mapping[str, Any]) -> SiteSurveyDetailSchema:
+    summary = _site_summary(record)
+    return SiteSurveyDetailSchema(
+        **summary.model_dump(), points=[SurveyedPointSchema(**point) for point in record["points"]]
+    )
+
+
+def list_site_surveys(
+    snapshot: ReferenceSnapshot | None, repository: SiteSurveyRepository, organization_id: str, site_code: str
+) -> list[SiteSurveySchema]:
+    check_site(snapshot, site_code)
+    return [_site_summary(record) for record in repository.list(organization_id, site_code)]
+
+
+def get_site_survey(
+    repository: SiteSurveyRepository, organization_id: str, site_code: str, survey_id: str
+) -> SiteSurveyDetailSchema:
+    return _site_detail(_own_record(repository, organization_id, site_code, survey_id))
+
+
+def _own_record(repository: SiteSurveyRepository, organization_id: str, site_code: str, survey_id: str) -> dict:
+    try:
+        record = repository.get(organization_id, survey_id)
+    except SiteSurveyNotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    if record["site_code"] != site_code:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Съёмка {survey_id} не найдена.")
+    return record
+
+
+def create_site_survey(
+    snapshot: ReferenceSnapshot | None,
+    repository: SiteSurveyRepository,
+    organization_id: str,
+    actor: str,
+    site_code: str,
+    *,
+    survey: SurveyFile,
+    file_name: str,
+    block_label: str,
+    survey_date: str,
+    horizon_m: float | None,
+) -> SiteSurveyDetailSchema:
+    check_site(snapshot, site_code)
+    label = block_label.strip()
+    if not label:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Укажите блок съёмки.")
+    try:
+        day = date.fromisoformat(survey_date.strip())
+    except ValueError:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "Дата съёмки — в виде ГГГГ-ММ-ДД."
+        ) from None
+    if horizon_m is not None and not math.isfinite(horizon_m):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Горизонт — конечное число.")
+    record = {
+        "site_code": site_code,
+        "block_label": label,
+        "horizon_m": horizon_m,
+        "survey_date": day.isoformat(),
+        "file_name": file_name,
+        "file_sha256": survey.sha256,
+        "points": [point.to_dict() for point in survey.points],
+    }
+    try:
+        created = repository.create(organization_id, actor, record)
+    except SiteSurveyDuplicateError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    return _site_detail(created)
+
+
+def delete_site_survey(repository: SiteSurveyRepository, organization_id: str, site_code: str, survey_id: str) -> None:
+    _own_record(repository, organization_id, site_code, survey_id)
+    try:
+        repository.delete(organization_id, survey_id)
+    except SiteSurveyNotFoundError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc

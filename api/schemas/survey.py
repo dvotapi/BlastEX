@@ -149,3 +149,25 @@ class SurveyApplyResponse(BaseModel):
     survey_application: SurveyApplicationSchema
     changed_ids: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
+
+class SiteSurveySchema(BaseModel):
+    """Съёмка старого блока на объекте: без точек (список)."""
+
+    id: str
+    site_code: str
+    block_label: str
+    horizon_m: float | None = None
+    # ГГГГ-ММ-ДД.
+    survey_date: str
+    file_name: str | None = None
+    file_sha256: str | None = None
+    points_count: int
+    created_at: str
+    created_by: str | None = None
+
+
+class SiteSurveyDetailSchema(SiteSurveySchema):
+    """Съёмка с точками (None в точках опущены, как у `SurveyedPoint.to_dict`)."""
+
+    points: list[SurveyedPointSchema]

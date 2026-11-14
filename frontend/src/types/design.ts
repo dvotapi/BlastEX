@@ -1212,6 +1212,30 @@ export type SurveyEvaluateResponse = {
   warnings: string[];
 };
 
+/** Съёмка старого блока на объекте (без точек — в списке). */
+export type SiteSurvey = {
+  id: string;
+  site_code: string;
+  block_label: string;
+  horizon_m?: number | null;
+  /** ГГГГ-ММ-ДД. */
+  survey_date: string;
+  file_name?: string | null;
+  file_sha256?: string | null;
+  points_count: number;
+  created_at: string;
+  created_by?: string | null;
+};
+
+export type SiteSurveyDetail = SiteSurvey & { points: SurveyedPoint[] };
+
+export type SiteSurveyCreateParams = SurveyReadParams & {
+  blockLabel: string;
+  /** ГГГГ-ММ-ДД. */
+  surveyDate: string;
+  horizonM?: number | null;
+};
+
 export type SurveyApplyRequest = SurveyEvaluateRequest & {
   file_name: string;
   file_sha256: string;

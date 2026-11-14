@@ -23,7 +23,7 @@ const api = vi.hoisted(() => ({
 vi.mock("../../api/endpoints", () => ({ api }));
 
 import { HttpError } from "../../api/client";
-import { COPY_FAILED, DATE_MISSING, SURVEY_CHANGED, copyNotOpened, todayIso, useSurveyImport, type ForkResult } from "./useSurveyImport";
+import { COPY_FAILED, DATE_MISSING, DECISIONS_CHANGED, SURVEY_CHANGED, copyNotOpened, todayIso, useSurveyImport, type ForkResult } from "./useSurveyImport";
 
 function hole(id: string, x: number): Hole {
   return {
@@ -409,5 +409,24 @@ describe("useSurveyImport", () => {
     // «Поменять» после этого — Z по-прежнему выключена; нетронутые роли не уходят.
     await act(() => view.result.current.survey.swap());
     expect(api.survey.read).toHaveBeenLastCalledWith(FILE, { swapXy: true, columns: { ...found, z: "" } });
+  });
+
+  it("решения сменились, а оценка не удалась — «Применить» не шлёт новые решения под старую таблицу", async () => {
+    const { view } = await loaded(design());
+    expect(view.result.current.survey.ready).toBe(true);
+    api.survey.evaluate.mockRejectedValueOnce(new Error("Сервер недоступен"));
+    await act(async () => view.result.current.survey.setManual(3, "1-02"));
+    expect(view.result.current.survey.error).toBe("Сервер недоступен");
+    expect(view.result.current.survey.ready).toBe(false);
+    expect(view.result.current.survey.stale).toBe(true);
+    await act(() => view.result.current.survey.apply());
+    expect(api.survey.apply).not.toHaveBeenCalled();
+    expect(view.result.current.survey.error).toBe(DECISIONS_CHANGED);
+    // Оценка заново — по новым решениям — снова даёт применить.
+    await act(() => view.result.current.survey.evaluate());
+    expect(view.result.current.survey.stale).toBe(false);
+    await act(() => view.result.current.survey.apply());
+    expect(api.survey.apply).toHaveBeenCalledTimes(1);
+    expect(api.survey.apply.mock.calls[0][0].manual).toEqual({ 3: "1-02" });
   });
 });

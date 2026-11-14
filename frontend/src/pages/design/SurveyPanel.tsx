@@ -9,7 +9,7 @@ import { RoleBadge } from "./RoleBadge";
 import { SiteSurveyDialog } from "./SiteSurveyDialog";
 import { FORMAT_LABELS, formatLabel, SurveyColumnsPicker } from "./SurveyColumnsPicker";
 import { SurveyHelp } from "./SurveyHelp";
-import { DATE_MISSING, type SurveyImportView, type SurveyRow } from "./useSurveyImport";
+import { DATE_MISSING, DECISIONS_CHANGED, type SurveyImportView, type SurveyRow } from "./useSurveyImport";
 
 const SURVEY_ACCEPT = ".csv,.txt,.xlsx,.xlsm,.dxf";
 
@@ -347,6 +347,9 @@ export function SurveyPanel({ survey }: { survey: SurveyImportView }) {
         )}
         {survey.fileName && survey.actionHint && <small className="frag-warnings">{survey.actionHint}</small>}
         {survey.fileName && !survey.actionHint && !survey.surveyDate && <small className="frag-warnings">{DATE_MISSING}</small>}
+        {survey.fileName && survey.stale && !survey.busy && survey.error !== DECISIONS_CHANGED && (
+          <small className="frag-warnings">{DECISIONS_CHANGED}</small>
+        )}
         {copy && survey.fileName && (
           <small>Проект утверждён: съёмка ляжет на его копию, копия откроется черновиком.</small>
         )}

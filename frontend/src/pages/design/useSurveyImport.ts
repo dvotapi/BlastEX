@@ -34,6 +34,7 @@ import { headersOf } from "./SurveyColumnsPicker";
 import { stableJson } from "./useLayoutSearch";
 
 export const SURVEY_CHANGED = "Проект изменился, повторите оценку";
+export const DECISIONS_CHANGED = "Решения изменились — повторите оценку";
 export const IN_REVIEW_HINT = "Верните проект в черновик";
 export const CLOSED_HINT = "Проект закрыт: съёмку к нему не применить";
 export const DATE_MISSING = "Укажите дату съёмки";
@@ -92,8 +93,10 @@ export interface SurveyImportView {
   action: SurveyAction;
   /** Почему кнопка недоступна; иначе пусто. */
   actionHint: string;
-  /** Есть что применять. */
+  /** Есть что применять: оценка — по текущему проекту и решениям. */
   ready: boolean;
+  /** Таблица оценки — не по текущим решениям инженера. */
+  stale: boolean;
   busy: boolean;
   error: string;
   /** Итог применения. */
@@ -161,7 +164,8 @@ function message(reason: unknown, fallback: string): string {
 
 type Source = { file: File; formatChoice: SurveyFormat | ""; swapXy: boolean; columns: SurveyColumns };
 type Loaded = { fileName: string; sha256: string; format: SurveyFormat; readWarnings: string[] };
-type Evaluation = { response: SurveyEvaluateResponse; signature: string };
+/** Оценка и то, по чему она сделана: проект (`signature`) и решения инженера (`decisions`). */
+type Evaluation = { response: SurveyEvaluateResponse; signature: string; decisions: string };
 type Decisions = {
   /** Точки как в файле. */
   filePoints: SurveyedPoint[];
@@ -180,6 +184,11 @@ function effectivePoints(decisions: Decisions): SurveyedPoint[] {
   return decisions.filePoints.map((point) =>
     decisions.entered[point.line] !== undefined ? { ...point, depth_m: decisions.entered[point.line] } : point,
   );
+}
+
+/** Отпечаток решений инженера: точки с введёнными глубинами, привязки, пропуски. */
+function decisionsSignature(decisions: Decisions): string {
+  return stableJson({ points: effectivePoints(decisions), manual: decisions.manual, skip: decisions.skip });
 }
 
 export function useSurveyImport({
@@ -286,7 +295,7 @@ export function useSurveyImport({
         skip: next.skip,
       });
       if (own !== sequence.current) return;
-      setEvaluation({ response, signature: surveySignature(base) });
+      setEvaluation({ response, signature: surveySignature(base), decisions: decisionsSignature(next) });
     } catch (reason) {
       if (own === sequence.current) setError(message(reason, "Не удалось оценить съёмку."));
     } finally {
@@ -495,6 +504,11 @@ export function useSurveyImport({
       setError(SURVEY_CHANGED);
       return false;
     }
+    // Оценка после смены решений не удалась — таблица прежняя, а решения новые.
+    if (decisionsSignature(decisionsRef.current) !== evaluation.decisions) {
+      setError(DECISIONS_CHANGED);
+      return false;
+    }
     return true;
   }
 
@@ -554,6 +568,8 @@ export function useSurveyImport({
   const rows = useMemo(() => (evaluation ? surveyRows(evaluation.response) : []), [evaluation]);
   const points = useMemo(() => effectivePoints(decisions), [decisions]);
   const response = evaluation?.response ?? null;
+  // Показанная таблица — не по текущим решениям (оценка ещё идёт или не удалась).
+  const stale = Boolean(evaluation && decisionsSignature(decisions) !== evaluation.decisions);
   const warnings = applyWarnings ?? [...(loaded?.readWarnings ?? []), ...(response?.warnings ?? [])];
   const holeIds = useMemo(() => present.holes.map((hole) => hole.id), [present.holes]);
   const skipped = useMemo(
@@ -584,7 +600,8 @@ export function useSurveyImport({
     setSurveyDate,
     action,
     actionHint: hint,
-    ready: Boolean(loaded && response && response.verdicts.length > 0),
+    ready: Boolean(loaded && response && response.verdicts.length > 0 && !stale),
+    stale,
     busy: busy || pendingCopy !== null,
     error,
     notice,

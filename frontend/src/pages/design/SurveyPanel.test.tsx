@@ -88,6 +88,7 @@ function view(extra: Partial<SurveyImportView> = {}): SurveyImportView {
     action: "apply",
     actionHint: "",
     ready: true,
+    stale: false,
     busy: false,
     error: "",
     notice: "",
@@ -415,5 +416,11 @@ describe("SurveyPanel", () => {
     await user.click(within(dialog).getByRole("button", { name: "Загрузить" }));
     await waitFor(() => expect(api.survey.sites.create).toHaveBeenCalledTimes(3));
     expect(api.survey.sites.create).toHaveBeenLastCalledWith("GUS", file, { blockLabel: "65", surveyDate: "2026-11-01" });
+  });
+
+  it("таблица не по текущим решениям — подсказка «повторите оценку», «Применить» недоступно", () => {
+    render(<SurveyPanel survey={view({ stale: true, ready: false })} />);
+    expect(screen.getByText("Решения изменились — повторите оценку")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Применить к проекту" })).toBeDisabled();
   });
 });

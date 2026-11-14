@@ -14,7 +14,9 @@
   новое устье без пометки;
 - снятая отметка устья → `manual` `"collar_z"`, замеренная глубина → длина и
   `"length"`; угол и азимут — из съёмки, иначе проектные; подошва проектная
-  (`evaluate.surveyed_hole`);
+  (`evaluate.surveyed_hole`); без отметки — устье на кровле, без глубины —
+  длина до подошвы; скважина ставится пересчётом по кровле
+  (`hole_recompute.recompute_hole`) до факта и зарядов;
 - вода (М8): отметка «обводнена» и уровень заменяют проектные интервалы воды
   (роль `designed`, источник — съёмка); «сухая» — убирает их; о воде ни слова —
   прежние;
@@ -34,7 +36,7 @@ from design.as_drilled import SURVEY_NO_DEPTH_METHOD, record_as_drilled
 from design.charging import apply_charge_rules
 from design.geology import designed_water_intervals
 from design.geometry import Point2, layout_axes
-from design.hole_recompute import MANUAL_COLLAR_Z, MANUAL_LENGTH
+from design.hole_recompute import MANUAL_COLLAR_Z, MANUAL_LENGTH, recompute_hole
 from design.models import (
     ROLE_DESIGNED,
     ROLE_EXECUTED,
@@ -50,7 +52,7 @@ from design.models import (
     WaterInterval,
 )
 from design.pattern import MOVED_FLAG, is_moved_hole
-from design.survey.evaluate import VERDICT_CODES, HoleVerdict, applied_points, surveyed_hole
+from design.survey.evaluate import VERDICT_CODES, HoleVerdict, applied_points, collar_point, surveyed_hole
 from design.survey.match import SurveyMatch
 from design.survey.read import SurveyedPoint
 
@@ -139,59 +141,72 @@ def _survey_water(
     ]
 
 
-def _fact(hole: Hole, point: SurveyedPoint, provenance: DataProvenance) -> AsDrilledHole:
-    drilled = surveyed_hole(hole, point)
+def _fact(
+    hole: Hole, point: SurveyedPoint, drilled: Hole, provenance: DataProvenance, previous: AsDrilledHole | None
+) -> AsDrilledHole:
+    """Запись факта по скважине `drilled` (геометрия, которая ляжет в проект).
+
+    Диаметра съёмка не несёт: у прежней записи скважины — её замер, у новой — проектный.
+    """
+
     return AsDrilledHole(
         design_hole_id=hole.id,
         actual_collar=Point3(drilled.collar.x, drilled.collar.y, drilled.collar.z),
         actual_toe=Point3(drilled.toe.x, drilled.toe.y, drilled.toe.z),
-        # Глубина не замерена — длина проектная: `AsDrilledHole.actual_depth` пустой не бывает
+        # Глубина не замерена — длина по плану (до подошвы): `AsDrilledHole.actual_depth` пустой не бывает
         # (0 нормализуется в расстояние устье — забой); что она не замер — `METHOD_NO_DEPTH`.
         actual_depth=drilled.length_m,
-        actual_diameter=hole.diameter_mm,
+        actual_diameter=previous.actual_diameter if previous is not None else hole.diameter_mm,
         role=ROLE_EXECUTED,
         provenance=replace(deepcopy(provenance), method=METHOD if point.depth_m is not None else METHOD_NO_DEPTH),
     )
 
 
-def _apply_hole(
-    hole: Hole,
-    point: SurveyedPoint,
-    *,
-    geometry: bool,
-    water: list[WaterInterval] | None,
-    axes: tuple[Point2, Point2],
+def _shaped(
+    design: BlastDesign, hole: Hole, point: SurveyedPoint, axes: tuple[Point2, Point2]
 ) -> Hole:
-    """Скважина по съёмке: геометрия (если `geometry`) с пометками ручной правки и вода.
+    """Геометрия скважины по съёмке с пометками ручной правки, поставленная по
+    кровле и подошве так же, как пересчёт фронта (`hole_recompute.recompute_hole`).
+
+    Снятая отметка устья → `"collar_z"`, замеренная глубина → `"length"`: их
+    пересчёт не трогает. Точка без отметки — устье на кровле (`collar_point`),
+    без глубины — длина до подошвы с перебуром. Пересчёт на фронте после
+    «Применить» поэтому ничего не меняет (и не стирает воду съёмки).
+    """
+
+    updated = surveyed_hole(hole, collar_point(design, hole, point))
+    manual = list(hole.manual)
+    offset = hole.manual_offset
+    if point.z is not None and MANUAL_COLLAR_Z not in manual:
+        manual.append(MANUAL_COLLAR_Z)
+    if point.depth_m is not None and MANUAL_LENGTH not in manual:
+        manual.append(MANUAL_LENGTH)
+    if hole.source != "manual":
+        offset = moved_offset(hole, point.x, point.y, *axes)
+        if offset is None:
+            manual = [flag for flag in manual if flag != MOVED_FLAG]
+        elif MOVED_FLAG not in manual:
+            manual.append(MOVED_FLAG)
+    marked = replace(updated, manual=manual, manual_offset=offset)
+    return recompute_hole(marked, design.contour, design.surfaces, design.pattern_params).hole
+
+
+def _finish(hole: Hole, shaped: Hole, *, geometry: bool, water: list[WaterInterval] | None) -> Hole:
+    """Скважина по съёмке: геометрия `shaped` (если `geometry`) и вода.
 
     Сменилась геометрия — проектная геология и проектная вода прежнего места
     сбрасываются, как при сдвиге на плане (`designReducer`, MOVE_HOLES): заряды
     пересчитываются уже без них. Непроектные интервалы и `measured_*` — как были.
     """
 
-    updated = surveyed_hole(hole, point) if geometry else replace(hole)
-    manual = list(hole.manual)
-    offset = hole.manual_offset
-    if geometry:
-        if point.z is not None and MANUAL_COLLAR_Z not in manual:
-            manual.append(MANUAL_COLLAR_Z)
-        if point.depth_m is not None and MANUAL_LENGTH not in manual:
-            manual.append(MANUAL_LENGTH)
-        if hole.source != "manual":
-            offset = moved_offset(hole, point.x, point.y, *axes)
-            if offset is None:
-                manual = [flag for flag in manual if flag != MOVED_FLAG]
-            elif MOVED_FLAG not in manual:
-                manual.append(MOVED_FLAG)
+    updated = shaped if geometry else replace(hole)
     water_intervals = [deepcopy(iv) for iv in hole.water_intervals]
-    intervals = updated.intervals
+    intervals = hole.intervals
     if geometry:
         intervals = [iv for iv in intervals if iv.role != ROLE_DESIGNED]
     if water is not None or geometry:
         water_intervals = [iv for iv in water_intervals if iv.role != ROLE_DESIGNED] + (water or [])
-    return replace(
-        updated, manual=manual, manual_offset=offset, intervals=intervals, water_intervals=water_intervals
-    )
+    return replace(updated, intervals=intervals, water_intervals=water_intervals)
 
 
 def _geology_reset(before: Hole, after: Hole) -> bool:
@@ -297,15 +312,16 @@ def apply_survey(
         if point is None:
             holes.append(hole)
             continue
-        # Факт — до правки скважины: запись сверяет, что проектная скважина не меняется.
-        record_as_drilled(work, _fact(hole, point, fact))
         geometry = hole.id not in unchanged
-        length = surveyed_hole(hole, point).length_m if geometry else hole.length_m
-        water = _survey_water(hole.id, point, length, survey, warnings)
+        shaped = _shaped(work, hole, point, axes) if geometry else surveyed_hole(hole, collar_point(work, hole, point))
+        # Факт — до правки скважины: запись сверяет, что проектная скважина не меняется.
+        previous = next((item for item in work.as_drilled_holes if item.design_hole_id == hole.id), None)
+        record_as_drilled(work, _fact(hole, point, shaped, fact, previous))
+        water = _survey_water(hole.id, point, shaped.length_m if geometry else hole.length_m, survey, warnings)
         if not geometry and not _water_differs(hole, water):
             holes.append(hole)
             continue
-        updated = _apply_hole(hole, point, geometry=geometry, water=water, axes=axes)
+        updated = _finish(hole, shaped, geometry=geometry, water=water)
         if geometry and _geology_reset(hole, updated):
             reset += 1
         holes.append(updated)

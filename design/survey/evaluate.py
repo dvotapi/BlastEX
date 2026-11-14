@@ -28,7 +28,8 @@ from dataclasses import dataclass, replace
 from typing import Mapping
 
 from design.editing import local_spacing
-from design.geometry import hole_from_collar
+from design.geometry import collar_elevation, hole_from_collar
+from design.hole_recompute import MANUAL_COLLAR_Z
 from design.models import BlastDesign, Hole, Point3
 from design.survey.match import SurveyMatch
 from design.survey.read import SurveyedPoint
@@ -43,6 +44,7 @@ __all__ = [
     "HoleVerdict",
     "SurveyTolerances",
     "applied_points",
+    "collar_point",
     "design_subdrill",
     "evaluate_survey",
     "required_length_m",
@@ -146,6 +148,17 @@ def applied_points(design: BlastDesign, matches: list[SurveyMatch]) -> dict[str,
     }
 
 
+def collar_point(design: BlastDesign, hole: Hole, point: SurveyedPoint) -> SurveyedPoint:
+    """Точка без отметки устья: отметка — кровли в снятой точке, как поставит её
+    пересчёт по кровле (`hole_recompute.recompute_hole`); у ручной отметки
+    скважины — она. Отметка из файла не меняется. Оценка и «Применить» берут
+    одну и ту же точку, поэтому нужная длина — та, что ляжет в проект."""
+
+    if point.z is not None or MANUAL_COLLAR_Z in hole.manual:
+        return point
+    return replace(point, z=collar_elevation(point.x, point.y, design.contour, design.surfaces))
+
+
 def _surveyed(hole: Hole, point: SurveyedPoint) -> _Surveyed:
     z = hole.collar.z if point.z is None else point.z
     return _Surveyed(
@@ -186,18 +199,28 @@ def surveyed_hole(hole: Hole, point: SurveyedPoint) -> Hole:
     (ЛСПП) остаётся на проектной отметке подошвы, как у графы Ф проекта МВ
     (`mass_blast_fact._fact_geometry`). Перебур сменился — прежний проектный
     запоминается в `design_subdrill_m` (если его ещё нет): по нему пересъёмка
-    после добуривания считает нужную длину. Остальные поля — те же объекты, что
-    у `hole` (копия неглубокая); `hole` не меняется.
+    после добуривания считает нужную длину. Глубины в точке нет — скважина по
+    плану: до подошвы с прежним перебуром. Отметку устья точки без неё
+    подставляет вызывающий (`collar_point`). Остальные поля — те же объекты,
+    что у `hole` (копия неглубокая); `hole` не меняется.
     """
 
     surveyed = _surveyed(hole, point)
     to_floor = _length_to_floor(hole, surveyed.collar.z, surveyed.angle_deg)
-    subdrill = hole.subdrill_m if to_floor is None else surveyed.length_m - to_floor
+    length = surveyed.length_m
+    if point.depth_m is None:
+        # Глубина не замерена — скважина по плану: до подошвы с прежним перебуром,
+        # как её поставит пересчёт по кровле (длина не ручная).
+        subdrill = hole.subdrill_m
+        if to_floor is not None:
+            length = to_floor + subdrill
+    else:
+        subdrill = hole.subdrill_m if to_floor is None else surveyed.length_m - to_floor
     changed = abs(subdrill - hole.subdrill_m) > _EPS
     return replace(
         hole,
         collar=surveyed.collar,
-        toe=hole_from_collar(surveyed.collar, surveyed.length_m, surveyed.angle_deg, surveyed.azimuth_deg),
+        toe=hole_from_collar(surveyed.collar, length, surveyed.angle_deg, surveyed.azimuth_deg),
         subdrill_m=subdrill,
         design_subdrill_m=design_subdrill(hole) if changed else hole.design_subdrill_m,
     )
@@ -212,7 +235,8 @@ def surveyed_geometry(design: BlastDesign, matches: list[SurveyMatch]) -> BlastD
     points = applied_points(design, matches)
     copy = deepcopy(design)
     copy.holes = [
-        surveyed_hole(hole, points[hole.id]) if hole.id in points else hole for hole in copy.holes
+        surveyed_hole(hole, collar_point(design, hole, points[hole.id])) if hole.id in points else hole
+        for hole in copy.holes
     ]
     return copy
 
@@ -273,7 +297,7 @@ def evaluate_survey(design: BlastDesign, matches: list[SurveyMatch], tol: Survey
         point = points.get(hole.id)
         if point is None:
             continue
-        surveyed = _surveyed(hole, point)
+        surveyed = _surveyed(hole, collar_point(design, hole, point))
         offset = math.hypot(surveyed.collar.x - hole.collar.x, surveyed.collar.y - hole.collar.y)
         required = required_length_m(hole, surveyed.collar.z, surveyed.angle_deg)
         depth_delta = None if point.depth_m is None or required is None else point.depth_m - required

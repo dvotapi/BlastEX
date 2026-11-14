@@ -572,3 +572,53 @@ def test_unchanged_or_water_only_hole_keeps_geology():
     for hid in ("2-02", "2-03"):
         assert [iv.to_dict() for iv in holes[hid].intervals] == before[hid]
     assert not any("Геология" in text for text in result.warnings)
+
+
+def _sloped(design: BlastDesign) -> BlastDesign:
+    """Кровля с уклоном 0,1 по x; устья проекта — на ней (как после пересчёта по кровле)."""
+
+    from design.hole_recompute import recompute_holes
+    from design.spatial.surfaces import SurfaceSet, top_surface
+
+    points = [Point3(x, y, 0.1 * x) for x in (-10.0, 25.0, 60.0) for y in (-10.0, 15.0, 40.0)]
+    design.surfaces = SurfaceSet(top=top_surface(points))
+    design.holes = [item.hole for item in recompute_holes(design.holes, design.contour, design.surfaces, design.pattern_params)]
+    return design
+
+
+def test_point_without_z_lands_on_roof_like_recompute():
+    """Точка без отметки: устье — на кровле, длина без замера — до подошвы, как сделал бы пересчёт по кровле."""
+
+    from design.hole_recompute import recompute_hole
+
+    design = _sloped(_design())
+    hole = _hole(design, "2-02")
+    point = _point(hole, dx=2.0, z=None, depth_m=None, wet=True, water_depth_m=3.0)
+    matches = _matches(design, {"2-02": point}, only={"2-02"})
+    verdict = next(v for v in evaluate_survey(design, matches, SurveyTolerances()) if v.hole_id == "2-02")
+    result = _apply(design, matches)
+    moved = _by_id(result.holes)["2-02"]
+    assert moved.collar.z == pytest.approx(0.1 * (hole.collar.x + 2.0))
+    # Повторный пересчёт по кровле на фронте ничего не меняет (вода съёмки не стирается).
+    again = recompute_hole(moved, design.contour, design.surfaces, design.pattern_params).hole
+    assert again is moved
+    assert moved.water_intervals[0].to_m == pytest.approx(moved.length_m)
+    # Оценка считала нужную длину от той же отметки устья.
+    assert verdict.required_length_m == pytest.approx(moved.length_m, abs=1e-6)
+    fact = next(item for item in result.as_drilled_holes if item.design_hole_id == "2-02")
+    assert fact.actual_collar.z == pytest.approx(moved.collar.z)
+    assert fact.actual_depth == pytest.approx(moved.length_m)
+
+
+def test_fact_keeps_measured_diameter_of_previous_record():
+    from design.as_drilled import record_as_drilled
+    from design.models import AsDrilledHole
+
+    design = _design()
+    old, fresh = _hole(design, "2-02"), _hole(design, "2-03")
+    record_as_drilled(design, AsDrilledHole(design_hole_id="2-02", actual_collar=old.collar, actual_toe=old.toe, actual_diameter=228.0))
+    points = {"2-02": _point(old, dx=0.2), "2-03": _point(fresh, dx=0.2)}
+    result = _apply(design, _matches(design, points, only=set(points)))
+    facts = {item.design_hole_id: item for item in result.as_drilled_holes}
+    assert facts["2-02"].actual_diameter == 228.0  # замер прежней записи
+    assert facts["2-03"].actual_diameter == fresh.diameter_mm  # новой — проектный

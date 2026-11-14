@@ -105,6 +105,7 @@ def match_survey(
     assigned: dict[str, list[tuple[SurveyedPoint, str]]] = {}
     duplicates: set[str] = set()  # id скважин со спором
     loose: list[SurveyedPoint] = []
+    orphans: list[SurveyedPoint] = []  # имя указывает на скважину, занятую вручную
     toes: list[SurveyedPoint] = []
     pending: list[SurveyedPoint] = []
 
@@ -122,7 +123,9 @@ def match_survey(
     named: dict[str, list[SurveyedPoint]] = {}
     for point in pending:
         hole = hole_by_key.get(_point_key(point.name, prefix))
-        if hole is not None and hole.id not in taken:
+        if hole is not None and hole.id in taken:
+            orphans.append(point)
+        elif hole is not None:
             named.setdefault(hole.id, []).append(point)
         else:
             loose.append(point)
@@ -154,5 +157,6 @@ def match_survey(
     for point in loose:
         if id(point) not in matched_ids:
             result.append(SurveyMatch(None, point, "", "unmatched_point"))
+    result.extend(SurveyMatch(None, point, "", "unmatched_point") for point in orphans)
     result.extend(SurveyMatch(None, point, "", "unmatched_point") for point in toes)
     return result

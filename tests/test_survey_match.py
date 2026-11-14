@@ -86,6 +86,16 @@ class MatchTests(unittest.TestCase):
         (m,) = _by_hole(res, "1-01")
         self.assertEqual((m.by, m.point.name), ("manual", "X"))
 
+    def test_name_of_manually_taken_hole_not_nearest(self):
+        pts = [_pt("X", 40, 40), _pt("1-01", 5, 7.9)]
+        res = _match(pts, manual={"X": "1-01"})
+        (m1,) = _by_hole(res, "1-01")
+        self.assertEqual((m1.by, m1.point.name), ("manual", "X"))
+        (m2,) = _by_hole(res, "1-02")
+        self.assertEqual((m2.issue, m2.point), ("missing_point", None))
+        extra = [x for x in res if x.hole_id is None]
+        self.assertEqual([(x.point.name, x.issue, x.by) for x in extra], [("1-01", "unmatched_point", "")])
+
     def test_disabled_hole_matched(self):
         holes = [_hole("1", 0, 0, enabled=False)]
         res = match_survey(holes, [_pt("p", 0.1, 0)], block="", tol_collar_m=0.3)

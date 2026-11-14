@@ -402,3 +402,32 @@ def test_site_survey_validates_form(sites_client):
     assert _upload(sites_client, survey_date=None).status_code == 422
     assert _upload(sites_client, b"   ").status_code == 422
     assert _upload(sites_client, horizon_m=None).json()["horizon_m"] is None
+
+
+def test_site_surveys_database_down_is_503(sites_client):
+    from sqlalchemy.exc import OperationalError
+
+    from api.services.survey_service import get_site_survey_repository
+
+    class _Down:
+        def __getattr__(self, name):
+            def fail(*args, **kwargs):
+                raise OperationalError("select", {}, Exception("connection refused"))
+
+            return fail
+
+    sites_client.app.dependency_overrides[get_site_survey_repository] = lambda: _Down()
+    assert sites_client.get(SITES_URL).status_code == 503
+    assert sites_client.get(f"{SITES_URL}/x").status_code == 503
+    assert sites_client.delete(f"{SITES_URL}/x").status_code == 503
+    response = _upload(sites_client)
+    assert response.status_code == 503
+    assert "временно недоступны" in response.json()["detail"]
+
+
+def test_site_surveys_missing_database_url_is_503(sites_client, monkeypatch):
+    from api.services.survey_service import get_site_survey_repository
+
+    monkeypatch.delenv("BLASTEX_DATABASE_URL", raising=False)
+    sites_client.app.dependency_overrides.pop(get_site_survey_repository)
+    assert sites_client.get(SITES_URL).status_code == 503

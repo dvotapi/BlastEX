@@ -34,7 +34,7 @@ def upgrade() -> None:
         sa.Column("horizon_m", sa.Numeric(), nullable=True),
         sa.Column("survey_date", sa.Date(), nullable=False),
         sa.Column("file_name", sa.Text(), nullable=True),
-        sa.Column("file_sha256", sa.Text(), nullable=True),
+        sa.Column("file_sha256", sa.Text(), nullable=False),
         sa.Column("points", JSONB, nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("created_by", sa.Text(), nullable=True),

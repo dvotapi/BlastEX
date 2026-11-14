@@ -19,6 +19,9 @@ from sqlalchemy.orm import Mapped, mapped_column, sessionmaker
 from cost.v2.db_repository import Base, JsonType, SCHEMA
 
 
+UNIQUE_FILE_INDEX = "uq_site_surveys_file"
+
+
 class SiteSurveyError(RuntimeError):
     pass
 
@@ -35,7 +38,7 @@ class SiteSurveyRow(Base):
     __tablename__ = "site_surveys"
     __table_args__ = (
         Index("ix_site_surveys_org_site_date", "organization_id", "site_code", text("survey_date DESC")),
-        Index("uq_site_surveys_file", "organization_id", "site_code", "block_label", "file_sha256", unique=True),
+        Index(UNIQUE_FILE_INDEX, "organization_id", "site_code", "block_label", "file_sha256", unique=True),
         {"schema": SCHEMA},
     )
 
@@ -46,7 +49,7 @@ class SiteSurveyRow(Base):
     horizon_m: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
     survey_date: Mapped[date] = mapped_column(Date, nullable=False)
     file_name: Mapped[str | None] = mapped_column(Text, nullable=True)
-    file_sha256: Mapped[str | None] = mapped_column(Text, nullable=True)
+    file_sha256: Mapped[str] = mapped_column(Text, nullable=False)
     points: Mapped[list[dict[str, Any]]] = mapped_column(JsonType, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_by: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -134,6 +137,8 @@ class PostgresSiteSurveyRepository:
             with self.session_factory() as session, session.begin():
                 session.add(row)
         except IntegrityError as exc:
+            if UNIQUE_FILE_INDEX not in str(exc.orig):
+                raise
             raise _duplicate() from exc
         return self._record(row)
 
@@ -173,8 +178,8 @@ class InMemorySiteSurveyRepository:
 
     def create(self, organization_id: str, actor: str, record: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
-            sha = record.get("file_sha256")
-            if sha is not None and any(
+            sha = record["file_sha256"]
+            if any(
                 org == organization_id
                 and old["site_code"] == record["site_code"]
                 and old["block_label"] == record["block_label"]

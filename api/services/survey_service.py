@@ -287,8 +287,18 @@ def _postgres_site_repository(database_url: str) -> PostgresSiteSurveyRepository
     return PostgresSiteSurveyRepository(database_url)
 
 
+SITE_SURVEYS_UNAVAILABLE_TEXT = "Съёмки старых блоков временно недоступны: база данных не отвечает."
+
+
+def _unavailable(exc: Exception) -> HTTPException:
+    return HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, SITE_SURVEYS_UNAVAILABLE_TEXT)
+
+
 def get_site_survey_repository() -> SiteSurveyRepository:
-    return _postgres_site_repository(config.database_url())
+    try:
+        return _postgres_site_repository(config.database_url())
+    except (RuntimeError, SQLAlchemyError) as exc:
+        raise _unavailable(exc) from exc
 
 
 def check_site(snapshot: ReferenceSnapshot | None, site_code: str) -> None:
@@ -317,7 +327,11 @@ def list_site_surveys(
     snapshot: ReferenceSnapshot | None, repository: SiteSurveyRepository, organization_id: str, site_code: str
 ) -> list[SiteSurveySchema]:
     check_site(snapshot, site_code)
-    return [_site_summary(record) for record in repository.list(organization_id, site_code)]
+    try:
+        records = repository.list(organization_id, site_code)
+    except SQLAlchemyError as exc:
+        raise _unavailable(exc) from exc
+    return [_site_summary(record) for record in records]
 
 
 def get_site_survey(
@@ -331,6 +345,8 @@ def _own_record(repository: SiteSurveyRepository, organization_id: str, site_cod
         record = repository.get(organization_id, survey_id)
     except SiteSurveyNotFoundError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise _unavailable(exc) from exc
     if record["site_code"] != site_code:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Съёмка {survey_id} не найдена.")
     return record
@@ -374,6 +390,8 @@ def create_site_survey(
         created = repository.create(organization_id, actor, record)
     except SiteSurveyDuplicateError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise _unavailable(exc) from exc
     return _site_detail(created)
 
 
@@ -383,3 +401,5 @@ def delete_site_survey(repository: SiteSurveyRepository, organization_id: str, s
         repository.delete(organization_id, survey_id)
     except SiteSurveyNotFoundError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise _unavailable(exc) from exc

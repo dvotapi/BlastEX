@@ -20,7 +20,7 @@ from api.schemas.design import BlastDesignSchema
 from api.security import require_internal_access
 from api.services.drilling_passport_service import get_drilling_passport_repository
 from design import persistence as design_persistence
-from design.lifecycle import STATUS_APPROVED, STATUS_IN_REVIEW
+from design.lifecycle import STATUS_APPROVED, STATUS_CLOSED, STATUS_IN_REVIEW
 from design.models import BlastDesign
 from tests.front_rows_fixtures import GAP_PATTERN, design_with, grid_rows
 from tests.test_api_drilling_passport import _Repository
@@ -289,6 +289,37 @@ def test_apply_in_review_is_409_with_hint(client):
     assert response.status_code == 409
     assert response.json()["detail"] == "Проект на проверке: верните его в черновик"
 
+
+
+def test_apply_on_closed_is_409_with_own_text(client):
+    design = _saved(status=STATUS_CLOSED)
+    response = client.post(f"{BASE}/apply", json=_apply_body(design, _points(design)))
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Проект закрыт: съёмку к нему не применить"
+
+
+def test_decisions_are_keyed_by_line_of_the_point(client):
+    """Две точки с одним именем: решения инженера — по строке файла, а не по имени."""
+
+    design = _design()
+    points = _points(design)
+    twin = {**points[0], "x": points[0]["x"] + 0.1, "line": 500}
+    body = {"design": _schema(design), "points": [*points, twin]}
+    matches = client.post(f"{BASE}/evaluate", json=body).json()["matches"]
+    assert {m["issue"] for m in matches if m["hole_id"] == "1-01"} == {"duplicate_point", "missing_point"}
+
+    body["skip"] = [500]
+    matches = client.post(f"{BASE}/evaluate", json=body).json()["matches"]
+    (match,) = [m for m in matches if m["hole_id"] == "1-01"]
+    assert (match["issue"], match["point"]["line"]) == ("", points[0]["line"])
+
+    body["skip"] = []
+    body["manual"] = {"500": design.holes[1].id, str(points[1]["line"]): ""}
+    matches = client.post(f"{BASE}/evaluate", json=body).json()["matches"]
+    (match,) = [m for m in matches if m["hole_id"] == design.holes[1].id]
+    assert (match["by"], match["point"]["line"]) == ("manual", 500)
+    detached = [m for m in matches if m["hole_id"] is None and m["point"]["line"] == points[1]["line"]]
+    assert [(m["by"], m["issue"]) for m in detached] == [("manual", "unmatched_point")]
 
 def test_apply_mismatched_design_id_is_400(client):
     design = _saved()

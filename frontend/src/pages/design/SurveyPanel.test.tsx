@@ -95,6 +95,7 @@ function view(extra: Partial<SurveyImportView> = {}): SurveyImportView {
     swap: vi.fn(async () => undefined),
     evaluate: vi.fn(async () => undefined),
     setManual: vi.fn(),
+    detach: vi.fn(),
     skip: vi.fn(),
     unskip: vi.fn(),
     setDepth: vi.fn(),
@@ -109,7 +110,9 @@ describe("SurveyPanel", () => {
     render(<SurveyPanel survey={view()} />);
     const table = screen.getByRole("table");
     const rows = within(table).getAllByRole("row");
-    expect(within(rows[1]).getByText("1-01")).toBeTruthy();
+    // Скважина строки — показанный выбор: и точку по имени можно перепривязать.
+    const hole = within(rows[1]).getByLabelText("Скважина для точки 66-1-01") as HTMLSelectElement;
+    expect(hole.selectedOptions[0].textContent).toBe("1-01");
     expect(within(rows[1]).getByText("по имени")).toBeTruthy();
     expect(within(rows[1]).getByText("ОК")).toBeTruthy();
     expect(within(rows[2]).getByText("по близости")).toBeTruthy();
@@ -134,9 +137,9 @@ describe("SurveyPanel", () => {
     const survey = view();
     render(<SurveyPanel survey={survey} />);
     await user.selectOptions(screen.getByLabelText("Скважина для точки R1"), "1-03");
-    expect(survey.setManual).toHaveBeenCalledWith("R1", "1-03");
+    expect(survey.setManual).toHaveBeenCalledWith(3, "1-03");
     await user.click(screen.getByRole("button", { name: "Пропустить точку R1" }));
-    expect(survey.skip).toHaveBeenCalledWith("R1");
+    expect(survey.skip).toHaveBeenCalledWith(3);
   });
 
   it("глубина не замерена: введённая глубина уходит в setDepth", async () => {
@@ -229,15 +232,36 @@ describe("SurveyPanel", () => {
     const manualRow: SurveyRow = { key: "e", holeId: "1-03", point: { name: "9", x: 1, y: 1, line: 4 }, by: "manual", issue: "", verdict: verdict("1-03", { name: "9", x: 1, y: 1, line: 4 }, ["ok"]) };
     const survey = view({ rows: [...ROWS, manualRow] });
     render(<SurveyPanel survey={survey} />);
-    expect(screen.queryByLabelText("Скважина для точки 66-1-01")).toBeNull();
     await user.selectOptions(screen.getByLabelText("Скважина для точки 7"), "1-03");
-    expect(survey.setManual).toHaveBeenLastCalledWith("7", "1-03");
+    expect(survey.setManual).toHaveBeenLastCalledWith(2, "1-03");
     await user.click(screen.getByRole("button", { name: "Пропустить точку 7" }));
-    expect(survey.skip).toHaveBeenCalledWith("7");
+    expect(survey.skip).toHaveBeenCalledWith(2);
     expect(within(screen.getByLabelText("Скважина для точки 7")).queryByText("снять ручную привязку")).toBeNull();
     await user.selectOptions(screen.getByLabelText("Скважина для точки 9"), "снять ручную привязку");
-    expect(survey.setManual).toHaveBeenLastCalledWith("9", "");
+    expect(survey.setManual).toHaveBeenLastCalledWith(4, "");
+    expect(within(screen.getByLabelText("Скважина для точки 9")).queryByText("без скважины")).toBeNull();
     expect(screen.getByRole("button", { name: "Пропустить точку 9" })).toBeTruthy();
+  });
+
+  it("точку по имени можно перепривязать, отвязать («без скважины») и пропустить", async () => {
+    const user = userEvent.setup();
+    const survey = view();
+    render(<SurveyPanel survey={survey} />);
+    await user.selectOptions(screen.getByLabelText("Скважина для точки 66-1-01"), "1-02");
+    expect(survey.setManual).toHaveBeenLastCalledWith(1, "1-02");
+    await user.selectOptions(screen.getByLabelText("Скважина для точки 66-1-01"), "без скважины");
+    expect(survey.detach).toHaveBeenLastCalledWith(1);
+    await user.click(screen.getByRole("button", { name: "Пропустить точку 66-1-01" }));
+    expect(survey.skip).toHaveBeenLastCalledWith(1);
+  });
+
+  it("пропущенные точки: одноимённые различаются строкой файла, возврат — по строке", async () => {
+    const user = userEvent.setup();
+    const twin: SurveyedPoint = { ...P1, line: 9 };
+    const survey = view({ points: [P1, P2, R1, twin], skipped: [twin] });
+    render(<SurveyPanel survey={survey} />);
+    await user.click(screen.getByRole("button", { name: /66-1-01 · стр\. 9/ }));
+    expect(survey.unskip).toHaveBeenCalledWith(9);
   });
 
   it("введённая глубина видна и правится; стёртая — снимается; 0 — подсказка", async () => {

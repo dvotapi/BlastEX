@@ -347,6 +347,11 @@ export type Hole = {
   manual?: HoleManualFlag[];
   /** Только у сдвинутой скважины сетки, вместе с `xy` в `manual`. */
   manual_offset?: HoleManualOffset | null;
+  /**
+   * Проектный перебур, м: только когда «Применить» съёмку сменило `subdrill_m`
+   * на фактический (TASK-014) — по нему пересъёмка считает нужную длину.
+   */
+  design_subdrill_m?: number | null;
 };
 
 /** Флаги пересчёта: устье вне кровли, высота уступа у скважины меньше 1 м. */
@@ -1199,10 +1204,13 @@ export type SurveyEvaluateRequest = {
   points: SurveyedPoint[];
   /** Пусто — блок паспорта на бурение. */
   block?: string;
-  /** Имя точки → id скважины. */
-  manual?: Record<string, string>;
-  /** Имена пропущенных точек. */
-  skip?: string[];
+  /**
+   * Решения инженера — по строке файла точки (`SurveyedPoint.line`), а не по имени:
+   * строка → id скважины; пустой id — «без скважины».
+   */
+  manual?: Record<number, string>;
+  /** Строки файла пропущенных точек. */
+  skip?: number[];
 };
 
 export type SurveyEvaluateResponse = {

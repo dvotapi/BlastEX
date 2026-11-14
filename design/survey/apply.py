@@ -30,7 +30,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field, replace
 
 from Blast import ExplosiveProperties
-from design.as_drilled import record_as_drilled
+from design.as_drilled import SURVEY_NO_DEPTH_METHOD, record_as_drilled
 from design.charging import apply_charge_rules
 from design.geology import designed_water_intervals
 from design.geometry import Point2, layout_axes
@@ -55,6 +55,7 @@ from design.survey.read import SurveyedPoint
 
 __all__ = [
     "METHOD",
+    "METHOD_NO_DEPTH",
     "ChargeInputs",
     "SurveyApplication",
     "SurveyResult",
@@ -64,6 +65,9 @@ __all__ = [
 
 # `provenance.method` записей факта и интервалов воды из съёмки.
 METHOD = "survey_import"
+# Запись факта точки без замера глубины: длина в ней проектная, в графы Ф
+# глубины и перебура проекта МВ она не идёт (`mass_blast_fact.block_fact`).
+METHOD_NO_DEPTH = SURVEY_NO_DEPTH_METHOD
 # Вернулась в узел ближе этого по каждой оси — без пометки сдвига (`holeMove.markMoved`).
 _AT_NODE_M = 0.0005
 _LENGTH_EPS = 1e-6
@@ -141,11 +145,11 @@ def _fact(hole: Hole, point: SurveyedPoint, provenance: DataProvenance) -> AsDri
         actual_collar=Point3(drilled.collar.x, drilled.collar.y, drilled.collar.z),
         actual_toe=Point3(drilled.toe.x, drilled.toe.y, drilled.toe.z),
         # Глубина не замерена — длина проектная: `AsDrilledHole.actual_depth` пустой не бывает
-        # (0 нормализуется в расстояние устье — забой), статус «не замерено» — в оценке.
+        # (0 нормализуется в расстояние устье — забой); что она не замер — `METHOD_NO_DEPTH`.
         actual_depth=drilled.length_m,
         actual_diameter=hole.diameter_mm,
         role=ROLE_EXECUTED,
-        provenance=deepcopy(provenance),
+        provenance=replace(deepcopy(provenance), method=METHOD if point.depth_m is not None else METHOD_NO_DEPTH),
     )
 
 

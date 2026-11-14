@@ -4,7 +4,8 @@
 //
 // Сервер ничего не сохраняет: чтение, оценка и применение — чистые запросы,
 // результат кладёт в документ страница. Решения инженера (ручная привязка
-// точки, пропуск точки, введённая глубина, колонки таблицы) живут здесь и
+// точки, «без скважины», пропуск точки, введённая глубина — по строке файла
+// точки, а не по имени; колонки таблицы) живут здесь и
 // уходят одинаково в оценку и в применение — в том числе на копии
 // утверждённого проекта. После применения оценка повторяется по новому
 // документу: таблица показывает то, что теперь в проекте.
@@ -65,7 +66,8 @@ export interface SurveyImportView {
   tolerances: SurveyTolerances | null;
   swapSuggested: boolean;
   warnings: string[];
-  skipped: string[];
+  /** Пропущенные точки (решение — по строке файла). */
+  skipped: SurveyedPoint[];
   /** Глубины, введённые вручную: номер строки файла → м. */
   enteredDepths: Record<number, number>;
   /** Скважины проекта — для ручной привязки точки. */
@@ -92,9 +94,12 @@ export interface SurveyImportView {
   setFormat: (format: SurveyFormat | "") => Promise<void>;
   swap: () => Promise<void>;
   evaluate: () => Promise<void>;
-  setManual: (point: string, holeId: string) => void;
-  skip: (point: string) => void;
-  unskip: (point: string) => void;
+  /** Привязать точку строки `line` к скважине; пустой id — снять ручное решение. */
+  setManual: (line: number, holeId: string) => void;
+  /** Точка строки `line` — «без скважины»: не сопоставляется ни по имени, ни по близости. */
+  detach: (line: number) => void;
+  skip: (line: number) => void;
+  unskip: (line: number) => void;
   setDepth: (holeId: string, m: number | null) => void;
   apply: () => Promise<void>;
   copyBySurvey: () => Promise<void>;
@@ -166,8 +171,10 @@ type Decisions = {
   filePoints: SurveyedPoint[];
   /** Введённые глубины: номер строки → м. */
   entered: Record<number, number>;
-  manual: Record<string, string>;
-  skip: string[];
+  /** Строка точки → id скважины; пусто — «без скважины». */
+  manual: Record<number, string>;
+  /** Строки пропущенных точек. */
+  skip: number[];
 };
 
 const NO_DECISIONS: Decisions = { filePoints: [], entered: {}, manual: {}, skip: [] };
@@ -386,25 +393,34 @@ export function useSurveyImport({
     await runEvaluate(decisionsRef.current);
   }
 
-  function setManual(point: string, holeId: string) {
+  /** Решение по точке строки `line`: id скважины, "" — «без скважины», null — снять решение. */
+  function bind(line: number, holeId: string | null) {
     decide((current) => {
       const manual = { ...current.manual };
-      if (holeId) manual[point] = holeId;
-      else delete manual[point];
-      return { ...current, manual, skip: current.skip.filter((name) => name !== point) };
+      if (holeId === null) delete manual[line];
+      else manual[line] = holeId;
+      return { ...current, manual, skip: current.skip.filter((item) => item !== line) };
     });
   }
 
-  function skip(point: string) {
+  function setManual(line: number, holeId: string) {
+    bind(line, holeId || null);
+  }
+
+  function detach(line: number) {
+    bind(line, "");
+  }
+
+  function skip(line: number) {
     decide((current) => {
       const manual = { ...current.manual };
-      delete manual[point];
-      return { ...current, manual, skip: current.skip.includes(point) ? current.skip : [...current.skip, point] };
+      delete manual[line];
+      return { ...current, manual, skip: current.skip.includes(line) ? current.skip : [...current.skip, line] };
     });
   }
 
-  function unskip(point: string) {
-    decide((current) => ({ ...current, skip: current.skip.filter((name) => name !== point) }));
+  function unskip(line: number) {
+    decide((current) => ({ ...current, skip: current.skip.filter((item) => item !== line) }));
   }
 
   /** Глубина скважины вручную; null — снять введённую (глубина — как в файле). */
@@ -537,6 +553,13 @@ export function useSurveyImport({
   const response = evaluation?.response ?? null;
   const warnings = applyWarnings ?? [...(loaded?.readWarnings ?? []), ...(response?.warnings ?? [])];
   const holeIds = useMemo(() => present.holes.map((hole) => hole.id), [present.holes]);
+  const skipped = useMemo(
+    () =>
+      decisions.skip
+        .map((line) => points.find((point) => point.line === line))
+        .filter((point): point is SurveyedPoint => point !== undefined),
+    [decisions.skip, points],
+  );
 
   return {
     fileName: loaded?.fileName ?? source?.file.name ?? "",
@@ -547,7 +570,7 @@ export function useSurveyImport({
     tolerances: response?.tolerances ?? null,
     swapSuggested: Boolean(response?.swap_suggested),
     warnings,
-    skipped: decisions.skip,
+    skipped,
     enteredDepths: decisions.entered,
     holeIds,
     headers,
@@ -567,6 +590,7 @@ export function useSurveyImport({
     swap,
     evaluate,
     setManual,
+    detach,
     skip,
     unskip,
     setDepth,

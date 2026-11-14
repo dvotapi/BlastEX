@@ -45,6 +45,8 @@ _ALIASES: dict[str, tuple[str, ...]] = {
     "wet": ("вода", "обводн", "обводнена", "обводнённая", "wet"),
 }
 _XY = {"x": "north", "y": "east"}  # по-русски X — север, Y — восток
+# «Поменять»: восток и север переставлены (таблица с колонками востока и севера, профили, DXF).
+SWAPPED_TEXT = "Колонки востока и севера переставлены по запросу."
 _TRUE = {"да", "1", "+", "wet", "true", "yes", "y", "д"}
 _FALSE = {"нет", "0", "false", "no", "n", "н"}
 
@@ -130,6 +132,11 @@ def read_survey(
         points = _read_table(data, filename, columns, swap_xy, warnings, used, headers)
     else:
         points = _read_profile(_decode(data), fmt, warnings)
+    if swap_xy and fmt != "TABLE" and points:
+        # У таблицы перестановка — в колонках (`_map_columns`), у профилей и DXF — в точках.
+        for point in points:
+            point.x, point.y = point.y, point.x
+        warnings.append(SWAPPED_TEXT)
     if not points:
         raise SurveyReadError("В файле нет ни одной точки съёмки: координаты не прочитаны как числа.")
     return SurveyFile(points, fmt, used, warnings, hashlib.sha256(data).hexdigest(), headers)
@@ -457,5 +464,5 @@ def _map_columns(
                 warnings.append("Колонки X/Y прочитаны как X — север, Y — восток (как в маркшейдерской практике).")
     elif swap_xy and "east" in mapping and "north" in mapping:
         mapping["east"], mapping["north"] = mapping["north"], mapping["east"]
-        warnings.append("Колонки востока и севера переставлены по запросу.")
+        warnings.append(SWAPPED_TEXT)
     return mapping

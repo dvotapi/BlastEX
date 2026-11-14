@@ -2,8 +2,9 @@
 
 Чистый модуль. Порядок: ручная привязка (`manual`) → имя точки → близость в
 плане (не дальше 2·`tol_collar_m`, жадно по возрастанию расстояния, одна точка —
-одна скважина). Отключённые скважины участвуют: пробуренная отключённая — тоже
-факт. Забойные точки файла выноса («…_T») и лишние точки (репер, станция) в
+одна скважина). Решения инженера (`manual`, `skip`) — по строке файла
+(`SurveyedPoint.line`), а не по имени: у двух точек с одним именем они разные.
+Отключённые скважины участвуют: пробуренная отключённая — тоже факт. Забойные точки файла выноса («…_T») и лишние точки (репер, станция) в
 скважины не попадают и по близости не подбираются.
 """
 
@@ -15,9 +16,6 @@ from dataclasses import dataclass
 from design.export_survey import TOE_SUFFIX, ascii_name
 from design.models import Hole
 from design.survey.read import SurveyedPoint
-
-BY_VALUES = ("name", "nearest", "manual", "")
-ISSUES = ("", "unmatched_point", "duplicate_point", "missing_point")
 
 
 @dataclass
@@ -84,14 +82,16 @@ def match_survey(
     *,
     block: str,
     tol_collar_m: float,
-    manual: dict[str, str] | None = None,
-    skip: set[str] | None = None,
+    manual: dict[int, str] | None = None,
+    skip: set[int] | None = None,
 ) -> list[SurveyMatch]:
     """По записи на каждую скважину (в том числе `missing_point`) и на каждую
     точку без скважины (`unmatched_point`) или спорную (`duplicate_point`).
 
-    Точки из `skip` в результат не попадают вовсе. `manual` — {имя точки: id
-    скважины}, главнее имени и близости.
+    Точки, чья строка файла в `skip`, в результат не попадают вовсе. `manual` —
+    {строка файла: id скважины}, главнее имени и близости; пустой id — «без
+    скважины»: точка не сопоставляется ни по имени, ни по близости
+    (`unmatched_point` со способом «manual»). Неизвестный id не действует.
     """
 
     manual = manual or {}
@@ -107,13 +107,17 @@ def match_survey(
     loose: list[SurveyedPoint] = []
     orphans: list[SurveyedPoint] = []  # имя указывает на скважину, занятую вручную
     toes: list[SurveyedPoint] = []
+    detached: list[SurveyedPoint] = []  # «без скважины» по решению инженера
     pending: list[SurveyedPoint] = []
 
     for point in points:
-        if point.name in skip:
+        if point.line in skip:
             continue
-        if manual.get(point.name) in by_id:
-            assigned.setdefault(manual[point.name], []).append((point, "manual"))
+        decision = manual.get(point.line)
+        if decision in by_id:
+            assigned.setdefault(decision, []).append((point, "manual"))
+        elif decision == "":
+            detached.append(point)
         elif _is_toe(point.name):
             toes.append(point)
         else:
@@ -159,4 +163,5 @@ def match_survey(
             result.append(SurveyMatch(None, point, "", "unmatched_point"))
     result.extend(SurveyMatch(None, point, "", "unmatched_point") for point in orphans)
     result.extend(SurveyMatch(None, point, "", "unmatched_point") for point in toes)
+    result.extend(SurveyMatch(None, point, "manual", "unmatched_point") for point in detached)
     return result

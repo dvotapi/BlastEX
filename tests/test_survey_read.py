@@ -199,3 +199,15 @@ def test_dxf_stacked_labels_fail_fast():
     with pytest.raises(SurveyReadError, match="Слишком много подписей"):
         read_survey(stream.getvalue().encode(), "s.dxf")
     assert time.monotonic() - started < 5
+
+
+@pytest.mark.parametrize("name", ["66_PNEZD_CSV.csv", "66_PENZD_CSV.csv", "66_PNEZ_TXT.txt", "66_DXF_POINTS.dxf"])
+def test_swap_xy_for_profiles_and_dxf(name):
+    """«Поменять» действует на все форматы, а не только на таблицу."""
+
+    raw = (FIX / name).read_bytes()
+    plain = read_survey(raw, name, format=name[3:-4])
+    swapped = read_survey(raw, name, format=name[3:-4], swap_xy=True)
+    assert [(p.name, p.x, p.y) for p in swapped.points] == [(p.name, p.y, p.x) for p in plain.points]
+    assert "Колонки востока и севера переставлены по запросу." in swapped.warnings
+    assert "Колонки востока и севера переставлены по запросу." not in plain.warnings

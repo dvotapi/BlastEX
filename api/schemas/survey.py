@@ -103,10 +103,12 @@ class SurveyEvaluateRequest(BaseModel):
     points: list[SurveyedPointSchema] = Field(default_factory=list, max_length=MAX_SURVEY_ROWS)
     # Пусто — блок паспорта на бурение (префикс имён точек «66-1-01»).
     block: str = Field(default="", max_length=NAME_MAX_LENGTH)
-    # Имя точки → id скважины: ручная привязка.
-    manual: dict[str, str] = Field(default_factory=dict, max_length=MAX_SURVEY_ROWS)
-    # Имена пропущенных точек.
-    skip: list[str] = Field(default_factory=list, max_length=MAX_SURVEY_ROWS)
+    # Решения инженера — по строке файла точки (`line`), а не по имени: у двух
+    # одноимённых точек они разные. Строка → id скважины (ручная привязка);
+    # пустой id — «без скважины». В JSON ключи — строки («12»).
+    manual: dict[int, str] = Field(default_factory=dict, max_length=MAX_SURVEY_ROWS)
+    # Строки файла пропущенных точек.
+    skip: list[int] = Field(default_factory=list, max_length=MAX_SURVEY_ROWS)
 
 
 class SurveyEvaluateResponse(BaseModel):

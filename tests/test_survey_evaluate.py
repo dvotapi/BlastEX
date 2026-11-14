@@ -6,7 +6,7 @@ import math
 
 import pytest
 
-from design.models import Hole
+from design.models import Hole, Point3
 from design.survey.evaluate import (
     VERDICT_CODES,
     SurveyTolerances,
@@ -264,3 +264,13 @@ def test_surveyed_geometry_is_a_copy_with_survey():
 
 def hole_dict(design, hole_id):
     return _hole(design, hole_id).to_dict()
+
+
+def test_required_length_uses_design_subdrill_when_set():
+    from design.survey.evaluate import required_length_m
+
+    hole = Hole(id="1", row=1, col=1, collar=Point3(0, 0, 0), toe=Point3(0, 0, -10.5), diameter_mm=152.0,
+                subdrill_m=0.5, design_subdrill_m=1.0)
+    assert required_length_m(hole, 0.0, 0.0) == pytest.approx(11.0)
+    hole.design_subdrill_m = None
+    assert required_length_m(hole, 0.0, 0.0) == pytest.approx(10.5)

@@ -151,13 +151,33 @@ describe("useSurveyImport", () => {
     expect(survey.warnings).toContain("Строка 9: нет координат — пропущена.");
   });
 
-  it("выбор скважины для точки уходит в manual, пропуск — в skip", async () => {
+  it("выбор скважины для точки уходит в manual, пропуск — в skip: по строке файла, а не по имени", async () => {
     const { view } = await loaded(design());
-    await act(async () => view.result.current.survey.setManual("R1", "1-02"));
-    expect(api.survey.evaluate).toHaveBeenLastCalledWith(expect.objectContaining({ manual: { R1: "1-02" }, skip: [] }));
-    await act(async () => view.result.current.survey.skip("R1"));
-    expect(api.survey.evaluate).toHaveBeenLastCalledWith(expect.objectContaining({ manual: {}, skip: ["R1"] }));
-    expect(view.result.current.survey.skipped).toEqual(["R1"]);
+    await act(async () => view.result.current.survey.setManual(3, "1-02"));
+    expect(api.survey.evaluate).toHaveBeenLastCalledWith(expect.objectContaining({ manual: { 3: "1-02" }, skip: [] }));
+    await act(async () => view.result.current.survey.skip(3));
+    expect(api.survey.evaluate).toHaveBeenLastCalledWith(expect.objectContaining({ manual: {}, skip: [3] }));
+    expect(view.result.current.survey.skipped).toEqual([R1]);
+    await act(async () => view.result.current.survey.unskip(3));
+    expect(api.survey.evaluate).toHaveBeenLastCalledWith(expect.objectContaining({ skip: [] }));
+  });
+
+  it("две точки с одним именем: пропуск одной не трогает другую", async () => {
+    const twin: SurveyedPoint = { ...P1, x: 10.1, line: 4 };
+    api.survey.read.mockResolvedValue({ ...READ, points: [P1, P2, R1, twin] });
+    const { view } = await loaded(design());
+    await act(async () => view.result.current.survey.skip(4));
+    const body = api.survey.evaluate.mock.calls.at(-1)![0];
+    expect(body.skip).toEqual([4]);
+    expect(view.result.current.survey.skipped).toEqual([twin]);
+  });
+
+  it("привязку по имени можно снять: «без скважины» — пустой id в manual", async () => {
+    const { view } = await loaded(design());
+    await act(async () => view.result.current.survey.detach(1));
+    expect(api.survey.evaluate).toHaveBeenLastCalledWith(expect.objectContaining({ manual: { 1: "" } }));
+    await act(async () => view.result.current.survey.setManual(1, ""));
+    expect(api.survey.evaluate).toHaveBeenLastCalledWith(expect.objectContaining({ manual: {} }));
   });
 
   it("введённая глубина уходит в точку скважины, оценка пересчитывается", async () => {
@@ -170,11 +190,11 @@ describe("useSurveyImport", () => {
 
   it("«Применить» — одно APPLY_SURVEY с ответом сервера и одна запись отмены", async () => {
     const { view, actions } = await loaded(design());
-    await act(async () => view.result.current.survey.setManual("R1", "1-02"));
+    await act(async () => view.result.current.survey.setManual(3, "1-02"));
     await act(() => view.result.current.survey.apply());
     expect(api.survey.apply).toHaveBeenCalledTimes(1);
     const body = api.survey.apply.mock.calls[0][0];
-    expect(body).toMatchObject({ design_id: "d1", manual: { R1: "1-02" }, skip: [], file_name: "66.csv", file_sha256: "abc", charge: null });
+    expect(body).toMatchObject({ design_id: "d1", manual: { 3: "1-02" }, skip: [], file_name: "66.csv", file_sha256: "abc", charge: null });
     const surveyActions = actions.filter((action) => action.type === "APPLY_SURVEY");
     expect(surveyActions).toHaveLength(1);
     expect(surveyActions[0]).toMatchObject({ changed_ids: ["1-02"], loads: null });
@@ -220,16 +240,16 @@ describe("useSurveyImport", () => {
       return copy;
     };
     const { view, actions, onFork } = await loaded(design("approved"), fork);
-    await act(async () => view.result.current.survey.setManual("R1", "1-02"));
-    await act(async () => view.result.current.survey.skip("7"));
+    await act(async () => view.result.current.survey.setManual(3, "1-02"));
+    await act(async () => view.result.current.survey.skip(2));
     await act(() => view.result.current.survey.copyBySurvey());
     await waitFor(() => expect(api.survey.apply).toHaveBeenCalledTimes(1));
     expect(onFork).toHaveBeenCalledTimes(1);
     const body = api.survey.apply.mock.calls[0][0];
     expect(body.design_id).toBe("d2");
     expect(body.design.lifecycle_status).toBe("draft");
-    expect(body.manual).toEqual({ R1: "1-02" });
-    expect(body.skip).toEqual(["7"]);
+    expect(body.manual).toEqual({ 3: "1-02" });
+    expect(body.skip).toEqual([2]);
     expect(body.points).toEqual([P1, P2, R1]);
     await waitFor(() => expect(actions.filter((action) => action.type === "APPLY_SURVEY")).toHaveLength(1));
     expect(view.result.current.state.present.design_id).toBe("d2");
@@ -290,9 +310,9 @@ describe("useSurveyImport", () => {
 
   it("ручную привязку можно снять", async () => {
     const { view } = await loaded(design());
-    await act(async () => view.result.current.survey.setManual("7", "1-01"));
-    expect(api.survey.evaluate).toHaveBeenLastCalledWith(expect.objectContaining({ manual: { "7": "1-01" } }));
-    await act(async () => view.result.current.survey.setManual("7", ""));
+    await act(async () => view.result.current.survey.setManual(2, "1-01"));
+    expect(api.survey.evaluate).toHaveBeenLastCalledWith(expect.objectContaining({ manual: { 2: "1-01" } }));
+    await act(async () => view.result.current.survey.setManual(2, ""));
     expect(api.survey.evaluate).toHaveBeenLastCalledWith(expect.objectContaining({ manual: {} }));
   });
 

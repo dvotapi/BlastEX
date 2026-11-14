@@ -18,8 +18,8 @@ def _grid() -> list[Hole]:
     return [_hole(f"{c}-0{r}", c * 5.0, r * 4.0) for c in (1, 2, 3) for r in (1, 2, 3)]
 
 
-def _pt(name: str, x: float, y: float) -> SurveyedPoint:
-    return SurveyedPoint(name=name, x=x, y=y)
+def _pt(name: str, x: float, y: float, line: int = 0) -> SurveyedPoint:
+    return SurveyedPoint(name=name, x=x, y=y, line=line)
 
 
 def _match(points, **kw):
@@ -73,8 +73,8 @@ class MatchTests(unittest.TestCase):
         self.assertTrue(all(m.point is None for m in recs if m.issue == "missing_point"))
 
     def test_manual_overrides_and_skip(self):
-        pts = [_pt("A", 40, 40), _pt("66-1-02", 5, 8), _pt("RP", 5, 4)]
-        res = _match(pts, manual={"A": "1-02"}, skip={"RP"})
+        pts = [_pt("A", 40, 40, 1), _pt("66-1-02", 5, 8, 2), _pt("RP", 5, 4, 3)]
+        res = _match(pts, manual={1: "1-02"}, skip={3})
         (m,) = _by_hole(res, "1-02")
         self.assertEqual((m.by, m.point.name, m.issue), ("manual", "A", ""))
         self.assertFalse(any(x.point is not None and x.point.name == "RP" for x in res))
@@ -82,19 +82,41 @@ class MatchTests(unittest.TestCase):
         self.assertEqual(m1.issue, "missing_point")
 
     def test_manual_resolves_duplicate(self):
-        res = _match([_pt("66-1-01", 5, 4), _pt("X", 5.1, 4)], manual={"X": "1-01"})
+        res = _match([_pt("66-1-01", 5, 4, 1), _pt("X", 5.1, 4, 2)], manual={2: "1-01"})
         (m,) = _by_hole(res, "1-01")
         self.assertEqual((m.by, m.point.name), ("manual", "X"))
 
     def test_name_of_manually_taken_hole_not_nearest(self):
-        pts = [_pt("X", 40, 40), _pt("1-01", 5, 7.9)]
-        res = _match(pts, manual={"X": "1-01"})
+        pts = [_pt("X", 40, 40, 1), _pt("1-01", 5, 7.9, 2)]
+        res = _match(pts, manual={1: "1-01"})
         (m1,) = _by_hole(res, "1-01")
         self.assertEqual((m1.by, m1.point.name), ("manual", "X"))
         (m2,) = _by_hole(res, "1-02")
         self.assertEqual((m2.issue, m2.point), ("missing_point", None))
         extra = [x for x in res if x.hole_id is None]
         self.assertEqual([(x.point.name, x.issue, x.by) for x in extra], [("1-01", "unmatched_point", "")])
+
+    def test_decisions_by_line_separate_points_with_same_name(self):
+        """Две точки «1-03»: пропуск одной (по строке файла) другую не трогает."""
+
+        pts = [_pt("1-03", 5, 12, 4), _pt("1-03", 5.1, 12, 9)]
+        res = _match(pts, skip={9})
+        (m,) = _by_hole(res, "1-03")
+        self.assertEqual((m.by, m.issue, m.point.line), ("name", "", 4))
+        res = _match(pts, manual={9: "1-02"})
+        (m2,) = _by_hole(res, "1-02")
+        self.assertEqual((m2.by, m2.point.line), ("manual", 9))
+        (m3,) = _by_hole(res, "1-03")
+        self.assertEqual((m3.by, m3.point.line, m3.issue), ("name", 4, ""))
+
+    def test_name_match_can_be_detached(self):
+        """«Без скважины» (пустой id в manual) снимает привязку по имени: точка — без скважины."""
+
+        res = _match([_pt("1-01", 45, 4, 1)], manual={1: ""})
+        (m,) = _by_hole(res, "1-01")
+        self.assertEqual(m.issue, "missing_point")
+        extra = [x for x in res if x.hole_id is None]
+        self.assertEqual([(x.point.line, x.by, x.issue) for x in extra], [(1, "manual", "unmatched_point")])
 
     def test_disabled_hole_matched(self):
         holes = [_hole("1", 0, 0, enabled=False)]

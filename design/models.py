@@ -598,6 +598,9 @@ class Hole:
     manual: list[str] = field(default_factory=list)
     # Сдвиг от узла сетки (TASK-017, PR 2): только у сдвинутой — с `"xy"` в `manual`.
     manual_offset: ManualOffset | None = None
+    # Проектный перебур (TASK-014): только когда «Применить» съёмку сменило
+    # `subdrill_m` на фактический — по нему считается нужная длина пересъёмки.
+    design_subdrill_m: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data = {
@@ -621,6 +624,8 @@ class Hole:
             data["manual"] = list(self.manual)
         if self.manual_offset is not None:
             data["manual_offset"] = self.manual_offset.to_dict()
+        if self.design_subdrill_m is not None:
+            data["design_subdrill_m"] = self.design_subdrill_m
         return data
 
     @classmethod
@@ -647,6 +652,9 @@ class Hole:
                 ManualOffset.from_dict(data["manual_offset"])
                 if isinstance(data.get("manual_offset"), dict)
                 else None
+            ),
+            design_subdrill_m=(
+                float(data["design_subdrill_m"]) if data.get("design_subdrill_m") is not None else None
             ),
         )
 

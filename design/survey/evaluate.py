@@ -7,8 +7,9 @@
 - смещение устья — в плане (XY): разница отметок на неровной площадке не смещение;
 - глубина сравнивается с **нужной** длиной при снятой отметке устья:
   L_нужн = (Z_уст.ф − Z_подошвы)/cos α + Δ, подошва проектная
-  (Z_уст.проект − `Hole.bench_height_m`), Δ — проектный перебур, α — угол по
-  съёмке (нет — проектный); та же формула, что `geometry.hole_depth_m`;
+  (Z_уст.проект − `Hole.bench_height_m`), Δ — проектный перебур
+  (`Hole.design_subdrill_m`, если съёмку уже применяли, иначе `subdrill_m`), α —
+  угол по съёмке (нет — проектный); та же формула, что `geometry.hole_depth_m`;
 - угол — отклонение оси по съёмке от проектной (угол между осями: у
   вертикальной скважины азимут ничего не значит);
 - ЛСПП (первый ряд) — `toe_line.floor_burdens` на проекте и на проекте по
@@ -42,6 +43,7 @@ __all__ = [
     "HoleVerdict",
     "SurveyTolerances",
     "applied_points",
+    "design_subdrill",
     "evaluate_survey",
     "required_length_m",
     "surveyed_geometry",
@@ -164,11 +166,17 @@ def _length_to_floor(hole: Hole, collar_z: float, angle_deg: float) -> float | N
     return (collar_z - floor_z) / cos_a
 
 
+def design_subdrill(hole: Hole) -> float:
+    """Проектный перебур Δ: после «Применить» `subdrill_m` — фактический, проектный — в `design_subdrill_m`."""
+
+    return hole.subdrill_m if hole.design_subdrill_m is None else hole.design_subdrill_m
+
+
 def required_length_m(hole: Hole, collar_z: float, angle_deg: float) -> float | None:
     """L_нужн = (Z_уст.ф − Z_подошвы)/cos α + Δ: подошва и перебур — проектные."""
 
     to_floor = _length_to_floor(hole, collar_z, angle_deg)
-    return None if to_floor is None else to_floor + hole.subdrill_m
+    return None if to_floor is None else to_floor + design_subdrill(hole)
 
 
 def surveyed_hole(hole: Hole, point: SurveyedPoint) -> Hole:
@@ -176,17 +184,22 @@ def surveyed_hole(hole: Hole, point: SurveyedPoint) -> Hole:
 
     Перебур — длина за проектной подошвой по оси: точка оси на уровне подошвы
     (ЛСПП) остаётся на проектной отметке подошвы, как у графы Ф проекта МВ
-    (`mass_blast_fact._fact_geometry`). Остальные поля — те же объекты, что у
-    `hole` (копия неглубокая); `hole` не меняется.
+    (`mass_blast_fact._fact_geometry`). Перебур сменился — прежний проектный
+    запоминается в `design_subdrill_m` (если его ещё нет): по нему пересъёмка
+    после добуривания считает нужную длину. Остальные поля — те же объекты, что
+    у `hole` (копия неглубокая); `hole` не меняется.
     """
 
     surveyed = _surveyed(hole, point)
     to_floor = _length_to_floor(hole, surveyed.collar.z, surveyed.angle_deg)
+    subdrill = hole.subdrill_m if to_floor is None else surveyed.length_m - to_floor
+    changed = abs(subdrill - hole.subdrill_m) > _EPS
     return replace(
         hole,
         collar=surveyed.collar,
         toe=hole_from_collar(surveyed.collar, surveyed.length_m, surveyed.angle_deg, surveyed.azimuth_deg),
-        subdrill_m=hole.subdrill_m if to_floor is None else surveyed.length_m - to_floor,
+        subdrill_m=subdrill,
+        design_subdrill_m=design_subdrill(hole) if changed else hole.design_subdrill_m,
     )
 
 

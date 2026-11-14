@@ -415,3 +415,51 @@ def test_empty_survey_applications_not_in_execution_payload():
     data = _design().to_dict()
     data["survey_applications"] = []
     assert "survey_applications" not in execution_payload(data)
+
+
+def test_resurvey_after_redrilling_is_ok():
+    """Δ=1: недобур 0,5 → «Применить» → добурили до проекта → пересъёмка — ОК, а не ПЕРЕБУР."""
+
+    design = _design()
+    hole = _hole(design, "2-02")
+    design_subdrill = hole.subdrill_m
+    assert design_subdrill > 0.4
+    short = _point(hole, dl=-0.5)
+    first_matches = _matches(design, {"2-02": short}, only={"2-02"})
+    (verdict,) = evaluate_survey(design, first_matches, SurveyTolerances())
+    assert "underdrill" in verdict.codes
+    after = _applied(design, _apply(design, first_matches))
+    moved = _hole(after, "2-02")
+    assert moved.subdrill_m == pytest.approx(design_subdrill - 0.5)
+    assert moved.design_subdrill_m == pytest.approx(design_subdrill)
+    assert moved.to_dict()["design_subdrill_m"] == pytest.approx(design_subdrill)
+
+    redrilled = _point(moved, dl=0.5)
+    second_matches = _matches(after, {"2-02": redrilled}, only={"2-02"})
+    (again,) = evaluate_survey(after, second_matches, SurveyTolerances())
+    assert again.codes == ["ok"]
+    assert again.required_length_m == pytest.approx(hole.length_m)
+    final = _applied(after, _apply(after, second_matches))
+    # Перебур вернулся к проекту, проектный — тот же (не фактический 0,5).
+    assert _hole(final, "2-02").subdrill_m == pytest.approx(design_subdrill)
+    assert _hole(final, "2-02").design_subdrill_m == pytest.approx(design_subdrill)
+
+
+def test_design_subdrill_not_written_when_subdrill_unchanged():
+    design = _design()
+    hole = _hole(design, "2-02")
+    result = _apply(design, _matches(design, {"2-02": _point(hole, dx=0.4)}, only={"2-02"}))
+    moved = _by_id(result.holes)["2-02"]
+    assert moved.design_subdrill_m is None
+    assert "design_subdrill_m" not in moved.to_dict()
+
+
+def test_fact_without_depth_is_marked():
+    """Глубина не замерена — запись факта помечена: в графы Ф глубина не идёт."""
+
+    design = _design()
+    measured, unmeasured = _hole(design, "2-02"), _hole(design, "2-03")
+    points = {"2-02": _point(measured, dl=-0.3), "2-03": _point(unmeasured, dx=0.2, depth_m=None)}
+    result = _apply(design, _matches(design, points, only=set(points)))
+    methods = {item.design_hole_id: item.provenance.method for item in result.as_drilled_holes}
+    assert methods == {"2-02": "survey_import", "2-03": "survey_import_no_depth"}

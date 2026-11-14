@@ -264,3 +264,29 @@ def test_deck_scoped_fired_detonator_overrides_primer_assignments_in_that_deck(b
     names = {line.name for line in explosives_consumption(design, MATERIALS)}
     assert not any("NSI-PLAN" in name for name in names)
     assert any("ELECTRO" in name for name in names)
+
+
+def test_survey_without_depth_leaves_depth_and_subdrill_empty(base):
+    """Съёмка без замера глубины (TASK-014): устье — факт, глубина и перебур Ф — «—», итог глубины Ф — нет."""
+
+    design, table = base
+    design = _with_copies(design, charge=False)
+    target = table["rows"][0]["hole_id"]
+    item = next(item for item in design.as_drilled_holes if item.design_hole_id == target)
+    item.actual_collar = Point3(item.actual_collar.x + 0.4, item.actual_collar.y, item.actual_collar.z)
+    item.actual_toe = Point3(item.actual_toe.x + 0.4, item.actual_toe.y, item.actual_toe.z)
+    item.provenance = DataProvenance(source="s66.csv", method="survey_import_no_depth", role="executed")
+    fact, _issues = block_fact(design, table, MATERIALS)
+    rows = {row["hole_id"]: row for row in fact["rows"]}
+    row = rows[target]
+    assert row["drilled"] is True
+    assert row["depth_fact_m"] is None and row["subdrill_fact_m"] is None
+    assert row["spacing_fact_m"] is not None  # устье снято — расстояния Ф считаются
+    other = next(r for r in fact["rows"] if r["hole_id"] != target)
+    assert other["depth_fact_m"] is not None
+    totals = fact["totals"]
+    assert totals["drilled_count"] == len(table["rows"])
+    assert totals["depth_fact_m"] is None
+    assert totals["subdrill_fact_mean_m"] is None
+    point = next(hole for hole in fact["holes"] if hole["hole_id"] == target)
+    assert point["surveyed"] and point["offset_m"] == pytest.approx(0.4, abs=0.01)

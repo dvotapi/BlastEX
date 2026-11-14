@@ -51,6 +51,7 @@ const COLUMN_ROLES: [string, string][] = [
 ];
 
 const UNBIND = "__unbind__";
+const DETACH = "__detach__";
 const DEPTH_INVALID = "Глубина — число больше нуля.";
 
 const FORMAT_LABELS: [SurveyFormat | "", string][] = [
@@ -137,13 +138,6 @@ function DepthInput({ holeId, entered, onCommit }: { holeId: string; entered: nu
   );
 }
 
-/** Точку можно перепривязать или пропустить: не найдена, спорная, по близости или вручную. */
-function rebindable(row: SurveyRow): boolean {
-  return Boolean(
-    row.point &&
-      (row.issue === "unmatched_point" || row.issue === "duplicate_point" || row.by === "manual" || row.by === "nearest"),
-  );
-}
 
 function statusClass(code: SurveyVerdictCode): string {
   if (code === "ok") return "ok";
@@ -152,18 +146,24 @@ function statusClass(code: SurveyVerdictCode): string {
 }
 
 function HoleCell({ row, survey }: { row: SurveyRow; survey: SurveyImportView }) {
-  // Точку без скважины, спорную, по близости или привязанную вручную инженер привязывает сам.
-  if (row.point && rebindable(row)) {
-    const name = row.point.name;
+  // Любую точку инженер привязывает сам: и по имени — имя могло ошибиться скважиной.
+  // Решение — по строке файла: у одноимённых точек оно своё.
+  if (row.point) {
+    const { name, line } = row.point;
+    const choose = (value: string) => {
+      if (value === DETACH) survey.detach(line);
+      else survey.setManual(line, value === UNBIND ? "" : value);
+    };
     return (
       <select
         aria-label={`Скважина для точки ${name}`}
         value=""
         disabled={survey.busy}
-        onChange={(event) => survey.setManual(name, event.target.value === UNBIND ? "" : event.target.value)}
+        onChange={(event) => choose(event.target.value)}
       >
         <option value="">{row.holeId ?? "—"}</option>
         {row.by === "manual" && <option value={UNBIND}>снять ручную привязку</option>}
+        {row.by !== "manual" && row.holeId && <option value={DETACH}>без скважины</option>}
         {survey.holeIds.map((id) => (
           <option key={id} value={id}>{id}</option>
         ))}
@@ -192,13 +192,13 @@ function StatusCell({ row, survey }: { row: SurveyRow; survey: SurveyImportView 
           onCommit={(m) => survey.setDepth(row.holeId as string, m)}
         />
       )}
-      {rebindable(row) && row.point && (
+      {row.point && (
         <button
           type="button"
           className="secondary-button survey-skip"
           disabled={survey.busy}
           aria-label={`Пропустить точку ${row.point.name}`}
-          onClick={() => survey.skip(row.point!.name)}
+          onClick={() => survey.skip(row.point!.line)}
         >
           пропустить
         </button>
@@ -214,6 +214,9 @@ export function SurveyPanel({ survey }: { survey: SurveyImportView }) {
   const holesTotal = survey.holeIds.length;
   const outOfTolerance = survey.rows.filter((row) => row.verdict?.codes.some((code) => code !== "ok" && code !== "no_depth")).length;
   const copy = survey.action === "copy";
+  // Одноимённые точки в списке пропущенных различаются строкой файла.
+  const nameCount = new Map<string, number>();
+  for (const point of survey.points) nameCount.set(point.name, (nameCount.get(point.name) ?? 0) + 1);
 
   return (
     <section className="panel survey-panel">
@@ -334,16 +337,16 @@ export function SurveyPanel({ survey }: { survey: SurveyImportView }) {
         {survey.skipped.length > 0 && (
           <div className="survey-skipped">
             <small>Пропущены точки:</small>
-            {survey.skipped.map((name) => (
+            {survey.skipped.map((point) => (
               <button
-                key={name}
+                key={point.line}
                 type="button"
                 className="secondary-button"
                 disabled={survey.busy}
                 title="Вернуть точку в сопоставление"
-                onClick={() => survey.unskip(name)}
+                onClick={() => survey.unskip(point.line)}
               >
-                {name} ↺
+                {(nameCount.get(point.name) ?? 0) > 1 ? `${point.name} · стр. ${point.line}` : point.name} ↺
               </button>
             ))}
           </div>

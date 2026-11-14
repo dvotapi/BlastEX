@@ -66,6 +66,20 @@ def test_moved_hole_round_trips_through_the_api():
     assert designed_sha256(again) == designed_sha256(design) != UNMOVED_SHA256
 
 
+
+def test_design_subdrill_key_only_when_set_and_round_trips():
+    """Проектный перебур (TASK-014): ключ — только у скважины, перебур которой сменила съёмка."""
+
+    design = _design()
+    assert "design_subdrill_m" not in design.to_dict()["holes"][0]
+    assert designed_sha256(_through_api(design)) == UNMOVED_SHA256
+
+    surveyed = _design(_hole(subdrill_m=0.5, design_subdrill_m=1.0))
+    again = _through_api(surveyed)
+    assert again.to_dict()["holes"][0]["design_subdrill_m"] == 1.0
+    assert again.holes[0].design_subdrill_m == 1.0
+    assert designed_sha256(again) == designed_sha256(surveyed)
+
 # --- Перестроение сетки сохраняет сдвиги -----------------------------------
 
 import math  # noqa: E402

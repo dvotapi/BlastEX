@@ -40,7 +40,7 @@ from api.services.drilling_passport_service import block_label
 from cost.v2.models import ReferenceSnapshot
 from design import persistence as design_persistence
 from design.drilling_passport_repository import DrillingPassportRepositoryError
-from design.lifecycle import STATUS_DRAFT, STATUS_IN_REVIEW, utc_now_iso
+from design.lifecycle import STATUS_CLOSED, STATUS_DRAFT, STATUS_IN_REVIEW, utc_now_iso
 from design.models import BlastDesign
 from design.survey.site_repository import (
     PostgresSiteSurveyRepository,
@@ -66,6 +66,7 @@ TOLERANCES_DEFAULT_TEXT = (
 TOLERANCES_UNAVAILABLE_TEXT = "Паспорта на бурение сейчас недоступны — допуски по умолчанию."
 APPROVED_TEXT = "Проект утверждён: правка по съёмке — через «Копию по съёмке»"
 IN_REVIEW_TEXT = "Проект на проверке: верните его в черновик"
+CLOSED_TEXT = "Проект закрыт: съёмку к нему не применить"
 # Цепочка копий длиннее не бывает; предел — от зацикленной родословной.
 MAX_PARENT_DEPTH = 20
 
@@ -208,7 +209,7 @@ def evaluate(request: SurveyEvaluateRequest, organization_id: str, repository: A
     result = _evaluate(request, organization_id, repository)
     points = applied_points(result.design, result.matches)
     skipped = set(request.skip)
-    free = [point for point in result.points if point.name not in skipped]
+    free = [point for point in result.points if point.line not in skipped]
     return SurveyEvaluateResponse(
         matches=[
             SurveyMatchSchema(hole_id=m.hole_id, point=_point(m.point), by=m.by, issue=m.issue)
@@ -248,6 +249,8 @@ def _check_editable(request: SurveyApplyRequest, organization_id: str) -> None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"Проект блока {design_id} не найден.") from exc
     if lifecycle_status == STATUS_IN_REVIEW:
         raise HTTPException(status.HTTP_409_CONFLICT, IN_REVIEW_TEXT)
+    if lifecycle_status == STATUS_CLOSED:
+        raise HTTPException(status.HTTP_409_CONFLICT, CLOSED_TEXT)
     if lifecycle_status != STATUS_DRAFT:
         raise HTTPException(status.HTTP_409_CONFLICT, APPROVED_TEXT)
 
@@ -294,7 +297,7 @@ def _postgres_site_repository(database_url: str) -> PostgresSiteSurveyRepository
 SITE_SURVEYS_UNAVAILABLE_TEXT = "Съёмки старых блоков временно недоступны: база данных не отвечает."
 
 
-def _unavailable(exc: Exception) -> HTTPException:
+def _unavailable() -> HTTPException:
     return HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, SITE_SURVEYS_UNAVAILABLE_TEXT)
 
 
@@ -302,7 +305,7 @@ def get_site_survey_repository() -> SiteSurveyRepository:
     try:
         return _postgres_site_repository(config.database_url())
     except (RuntimeError, SQLAlchemyError) as exc:
-        raise _unavailable(exc) from exc
+        raise _unavailable() from exc
 
 
 def check_site(snapshot: ReferenceSnapshot | None, site_code: str) -> None:
@@ -334,7 +337,7 @@ def list_site_surveys(
     try:
         records = repository.list(organization_id, site_code)
     except SQLAlchemyError as exc:
-        raise _unavailable(exc) from exc
+        raise _unavailable() from exc
     return [_site_summary(record) for record in records]
 
 
@@ -350,7 +353,7 @@ def _own_record(repository: SiteSurveyRepository, organization_id: str, site_cod
     except SiteSurveyNotFoundError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     except SQLAlchemyError as exc:
-        raise _unavailable(exc) from exc
+        raise _unavailable() from exc
     if record["site_code"] != site_code:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Съёмка {survey_id} не найдена.")
     return record
@@ -395,7 +398,7 @@ def create_site_survey(
     except SiteSurveyDuplicateError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     except SQLAlchemyError as exc:
-        raise _unavailable(exc) from exc
+        raise _unavailable() from exc
     return _site_detail(created)
 
 
@@ -406,4 +409,4 @@ def delete_site_survey(repository: SiteSurveyRepository, organization_id: str, s
     except SiteSurveyNotFoundError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
     except SQLAlchemyError as exc:
-        raise _unavailable(exc) from exc
+        raise _unavailable() from exc

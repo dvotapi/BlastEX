@@ -25,6 +25,10 @@ from design.models import (
     SurveyPoint,
 )
 
+# `provenance.method` записи факта по съёмке маркшейдера без замера глубины
+# (TASK-014): устье и угол — факт, длина — проектная, не замер.
+SURVEY_NO_DEPTH_METHOD = "survey_import_no_depth"
+
 MWD_FIELD_SCHEMA: tuple[dict[str, Any], ...] = (
     {
         "id": "depth_m",

@@ -171,6 +171,8 @@ class HoleSchema(BaseModel):
     # `xy` — скважина сетки сдвинута от узла (TASK-017, PR 2), см. `manual_offset`.
     manual: list[Literal["collar_z", "length", "xy"]] = Field(default_factory=list)
     manual_offset: ManualOffsetSchema | None = None
+    # Проектный перебур, когда съёмка сменила `subdrill_m` (TASK-014); иначе нет.
+    design_subdrill_m: float | None = None
 
 
 class DeckSchema(BaseModel):

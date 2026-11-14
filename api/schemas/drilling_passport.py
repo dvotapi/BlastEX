@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SerializerFunctionWrapHandler, model_serializer, model_validator
 
 from design.drilling_passport import (
     DEFAULT_EXTRA_APPROVALS,
@@ -26,6 +26,9 @@ TEXT_LIMITS = {
 }
 SIGNER_LIMITS = {"position": 120, "organization": 200, "name": 120}
 PERSON_LIMITS = {"name": 60, "position": 100}
+# Допуски съёмки (TASK-014, PR 5а): в payload — только когда заданы, иначе у
+# прежних паспортов сменился бы снимок ревизии (`content_sha256`).
+OPTIONAL_PAYLOAD_KEYS = ("tol_angle_deg", "tol_burden_pct", "tol_spacing_pct")
 
 
 class SignerSchema(BaseModel):
@@ -78,6 +81,11 @@ class DrillingPassportPayload(BaseModel):
     )
     tol_depth_m: float = Field(default=DEFAULT_TOLERANCE_M, gt=0, le=2, description="Допуск по глубине скважины, ± м")
     tol_collar_m: float = Field(default=DEFAULT_TOLERANCE_M, gt=0, le=2, description="Допуск по положению устья, ± м")
+    tol_angle_deg: float | None = Field(default=None, gt=0, le=10, description="Допуск по углу, ±°")
+    tol_burden_pct: float | None = Field(default=None, gt=0, le=50, description="Допуск по ЛСПП, ±%")
+    tol_spacing_pct: float | None = Field(
+        default=None, gt=0, le=50, description="Допуск по расстоянию между скважинами, ±%"
+    )
     personnel: list[PersonSchema] = Field(default_factory=list, description="Персонал для ознакомления")
     alpha_deg: float | None = Field(default=None, ge=30, le=90, description="Угол откоса α, если не из справочника")
     gamma_deg: float | None = Field(default=None, ge=20, le=90, description="Угол устойчивого борта γ")
@@ -87,6 +95,15 @@ class DrillingPassportPayload(BaseModel):
     bench_height_for_s_m: float | None = Field(
         default=None, gt=0, le=30, description="Высота уступа для безопасного расстояния, м"
     )
+
+    @model_serializer(mode="wrap")
+    def _without_unset_optional(self, handler: SerializerFunctionWrapHandler):
+        """Незаданные `OPTIONAL_PAYLOAD_KEYS` не пишутся (без аннотации — схема OpenAPI прежняя)."""
+        data = handler(self)
+        for key in OPTIONAL_PAYLOAD_KEYS:
+            if data.get(key) is None:
+                data.pop(key, None)
+        return data
 
 
 def _too_long(label: str, value: str, limit: int) -> str | None:

@@ -85,6 +85,7 @@ import {
   type SpatialSummary,
   type MovementPredictResponse,
   type BlastDesign,
+  type ChargeGenerateRequest,
 } from "../../types/design";
 import { emptyHoleGeology, emptySurfaces } from "../../types/design";
 import {
@@ -96,6 +97,8 @@ import {
   isRecordFrozen,
   overlayRole,
   statusLabel,
+  SURVEY_STAGE_LABELS,
+  surveyStage,
   WORKFLOW_STAGES,
   type WorkflowStageId,
 } from "../../lib/lifecycle";
@@ -164,6 +167,8 @@ import { TiePanel } from "./TiePanel";
 import { TimingPanel } from "./TimingPanel";
 import { VibrationPanel } from "./VibrationPanel";
 import { AsDrilledPanel } from "./AsDrilledPanel";
+import { SurveyPanel } from "./SurveyPanel";
+import { useSurveyImport } from "./useSurveyImport";
 import { AsChargedPanel } from "./AsChargedPanel";
 import { AsFiredPanel } from "./AsFiredPanel";
 import { ExecutionComparePanel } from "./ExecutionComparePanel";
@@ -893,6 +898,21 @@ export function DesignPage({
     },
   });
 
+  // Съёмка бурения (TASK-014, PR 5а): «Применить к проекту» или «Копия по съёмке».
+  const survey = useSurveyImport({
+    state,
+    dispatch,
+    designId: document.design_id,
+    status: document.lifecycle_status,
+    chargeRequest,
+    onFork: () => forkPlan({ name: `${document.name} · по съёмке`, keepStage: true }),
+    onApplied: () => {
+      // Скважины и заряды сменились: прежние сравнения и прогноз — не о них.
+      setFragResult(null);
+      setAsDrilledResult(null);
+    },
+  });
+
   function onContourChange(vertices: Point3[], freeFaces?: number[][], coalesce?: boolean) {
     if (rejectLocked("designed")) return;
     const draped = vertices.map((v) => ({
@@ -1159,14 +1179,26 @@ export function DesignPage({
     });
   }
 
+  /** Параметры расчёта зарядов страницы: ВВ, правила, каталог; ВВ не выбрано — null. */
+  function chargeRequest(): (ChargeGenerateRequest & { rules: ChargeRules }) | null {
+    const explosive = explosives.find((item) => item.key === explosiveKey);
+    if (!explosive) return null;
+    const catalog = explosives.map((item) => ({
+      name: item.name,
+      density_t_m3: item.density_t_m3,
+      power_mj_kg: item.power_mj_kg,
+    }));
+    return { holes: document.holes, rules: chargeRules, explosive, contour: document.contour, explosives: catalog };
+  }
+
   async function calculateCharge() {
     if (rejectLocked("designed")) return;
     if (!document.holes.length) {
       setError("Сначала постройте сетку скважин.");
       return;
     }
-    const explosive = explosives.find((item) => item.key === explosiveKey);
-    if (!explosive) {
+    const request = chargeRequest();
+    if (!request) {
       setError("Выберите взрывчатое вещество.");
       return;
     }
@@ -1177,15 +1209,10 @@ export function DesignPage({
     setChargeBusy(true);
     setError("");
     try {
-      const catalog = explosives.map((item) => ({
-        name: item.name,
-        density_t_m3: item.density_t_m3,
-        power_mj_kg: item.power_mj_kg,
-      }));
-      const holes = document.holes;
-      const result = await api.design.charge(holes, chargeRules, explosive, {
-        contour: document.contour,
-        explosives: catalog,
+      const holes = request.holes;
+      const result = await api.design.charge(holes, request.rules, request.explosive, {
+        contour: request.contour,
+        explosives: request.explosives,
       });
       if (holesRef.current !== holes || recomputePendingRef.current) {
         // Заряды посчитаны по старым длинам (или кровлю, подошву, сетку
@@ -2474,29 +2501,39 @@ export function DesignPage({
     setCurrentMs(ms);
   }
 
-  async function forkPlan() {
+  /**
+   * Ревизия сохранённого паспорта, открытая черновиком. Возвращает копию, если
+   * она открылась (иначе null, причина — в ошибке страницы). «Копия по съёмке»
+   * остаётся на своём этапе (`keepStage`).
+   */
+  async function forkPlan(options: { name?: string; keepStage?: boolean } = {}): Promise<BlastDesign | null> {
     if (!document.design_id) {
       setError("Сначала сохраните паспорт.");
-      return;
+      return null;
     }
     if (unsavedChanges) {
       setError("Есть несохранённые правки: ревизия создаётся из сохранённой версии паспорта. Сначала сохраните паспорт.");
-      return;
+      return null;
     }
     const base = state.saved;
     setSaveBusy(true);
     setError("");
     try {
-      const forked = await api.design.forkPlan(document.design_id, `${document.name} · ревизия`);
-      if (savedRef.current === base) {
+      const forked = await api.design.forkPlan(document.design_id, options.name ?? `${document.name} · ревизия`);
+      const opened = savedRef.current === base;
+      if (opened) {
         dispatch({ type: "LOAD", design: forked, base });
         syncDesignParams(forked);
       }
-      setWorkflowStage("survey");
-      setMode("contour");
+      if (!options.keepStage) {
+        setWorkflowStage("survey");
+        setMode("contour");
+      }
       await refreshPlans();
+      return opened ? forked : null;
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось создать ревизию.");
+      return null;
     } finally {
       setSaveBusy(false);
     }
@@ -2728,6 +2765,9 @@ export function DesignPage({
         />
         <span className={`save-status lifecycle-pill status-${document.lifecycle_status}`}>
           ● {statusLabel(document.lifecycle_status)}
+        </span>
+        <span className={`lifecycle-pill survey-stage-pill stage-${surveyStage(document)}`} title="Стадия проекта">
+          {SURVEY_STAGE_LABELS[surveyStage(document)]}
         </span>
         {crsUnconfirmed && (
           <span className="crs-warning" role="status">Система координат не подтверждена</span>
@@ -3058,6 +3098,7 @@ export function DesignPage({
           />
           </>}
           {workflowStage === "execution" && <>
+          <SurveyPanel survey={survey} />
           <AsDrilledPanel
             holes={document.holes}
             asDrilled={document.as_drilled_holes}

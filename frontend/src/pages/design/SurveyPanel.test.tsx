@@ -1,0 +1,221 @@
+// @vitest-environment jsdom
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { SurveyHoleVerdict, SurveyTolerances, SurveyedPoint } from "../../types/design";
+import type { SurveyImportView, SurveyRow } from "./useSurveyImport";
+
+const api = vi.hoisted(() => ({
+  economics: { referenceSnapshot: vi.fn() },
+  survey: { sites: { list: vi.fn(), create: vi.fn(), remove: vi.fn() } },
+}));
+vi.mock("../../api/endpoints", () => ({ api }));
+
+import { SurveyPanel } from "./SurveyPanel";
+
+beforeAll(() => {
+  HTMLDialogElement.prototype.showModal = vi.fn(function (this: HTMLDialogElement) {
+    this.open = true;
+  });
+  HTMLDialogElement.prototype.close = vi.fn(function (this: HTMLDialogElement) {
+    this.open = false;
+  });
+});
+beforeEach(() => {
+  api.economics.referenceSnapshot.mockReset().mockResolvedValue({
+    revision_id: "r", published_at: null, published_by: "", section_catalog: [], group_catalog: [],
+    sections: {
+      sites: [
+        { code: "GUS", name: "Гусевогорское", payload: {}, is_active: true, valid_from: null, valid_to: null, source: "", comment: "", revision: 1 },
+        { code: "OLD", name: "Закрытый", payload: {}, is_active: false, valid_from: null, valid_to: null, source: "", comment: "", revision: 1 },
+      ],
+    },
+  });
+  api.survey.sites.list.mockReset().mockResolvedValue([
+    { id: "s1", site_code: "GUS", block_label: "64", horizon_m: 180, survey_date: "2026-10-01", file_name: "64.csv", file_sha256: "x", points_count: 41, created_at: "2026-10-02T10:00:00+00:00" },
+  ]);
+  api.survey.sites.create.mockReset();
+  api.survey.sites.remove.mockReset().mockResolvedValue(undefined);
+});
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
+
+const P1: SurveyedPoint = { name: "66-1-01", x: 10, y: 5, line: 1 };
+const P2: SurveyedPoint = { name: "7", x: 14.2, y: 5, line: 2 };
+const R1: SurveyedPoint = { name: "R1", x: 40, y: 40, line: 3 };
+
+function verdict(hole_id: string, point: SurveyedPoint, codes: SurveyHoleVerdict["codes"], extra: Partial<SurveyHoleVerdict> = {}): SurveyHoleVerdict {
+  return {
+    hole_id, point, codes, offset_m: 0, depth_delta_m: 0, required_length_m: 12, angle_delta_deg: null,
+    burden_delta_pct: null, spacing_delta_pct: null, unchanged: false, ...extra,
+  };
+}
+
+const ROWS: SurveyRow[] = [
+  { key: "a", holeId: "1-01", point: P1, by: "name", issue: "", verdict: verdict("1-01", P1, ["ok"]) },
+  { key: "b", holeId: "1-02", point: P2, by: "nearest", issue: "", verdict: verdict("1-02", P2, ["offset", "underdrill", "no_depth"], { offset_m: 0.42, depth_delta_m: -0.5 }) },
+  { key: "c", holeId: null, point: R1, by: "", issue: "unmatched_point", verdict: null },
+  { key: "d", holeId: "1-03", point: null, by: "", issue: "missing_point", verdict: null },
+];
+
+const TOLERANCES: SurveyTolerances = {
+  depth_m: 0.3, collar_m: 0.3, angle_deg: 1, burden_pct: 5, spacing_pct: 5,
+  source: "passport", passport_no: "12", revision_no: 2, passport_design_id: "d1",
+};
+
+function view(extra: Partial<SurveyImportView> = {}): SurveyImportView {
+  return {
+    fileName: "66.csv",
+    format: "PNEZD_CSV",
+    formatChoice: "",
+    points: [P1, P2, R1],
+    rows: ROWS,
+    tolerances: TOLERANCES,
+    swapSuggested: false,
+    warnings: [],
+    skipped: [],
+    holeIds: ["1-01", "1-02", "1-03"],
+    surveyDate: "",
+    setSurveyDate: vi.fn(),
+    action: "apply",
+    actionHint: "",
+    ready: true,
+    busy: false,
+    error: "",
+    notice: "",
+    load: vi.fn(async () => undefined),
+    setFormat: vi.fn(async () => undefined),
+    swap: vi.fn(async () => undefined),
+    evaluate: vi.fn(async () => undefined),
+    setManual: vi.fn(),
+    skip: vi.fn(),
+    unskip: vi.fn(),
+    setDepth: vi.fn(),
+    apply: vi.fn(async () => undefined),
+    copyBySurvey: vi.fn(async () => undefined),
+    ...extra,
+  };
+}
+
+describe("SurveyPanel", () => {
+  it("таблица: сопоставление и статусы подписями, допуски с источником", () => {
+    render(<SurveyPanel survey={view()} />);
+    const table = screen.getByRole("table");
+    const rows = within(table).getAllByRole("row");
+    expect(within(rows[1]).getByText("1-01")).toBeTruthy();
+    expect(within(rows[1]).getByText("по имени")).toBeTruthy();
+    expect(within(rows[1]).getByText("ОК")).toBeTruthy();
+    expect(within(rows[2]).getByText("по близости")).toBeTruthy();
+    expect(within(rows[2]).getByText("СМЕЩЕНИЕ")).toBeTruthy();
+    expect(within(rows[2]).getByText("ДОБУРИТЬ")).toBeTruthy();
+    expect(within(rows[2]).getByText("глубина не замерена")).toBeTruthy();
+    expect(within(rows[2]).getByText("0,42")).toBeTruthy();
+    expect(within(rows[2]).getByText("−0,50")).toBeTruthy();
+    expect(within(rows[3]).getByText("точка без скважины")).toBeTruthy();
+    expect(within(rows[4]).getByText("нет съёмки")).toBeTruthy();
+    expect(screen.getByText(/из паспорта на бурение № 12, ревизия 2/)).toBeTruthy();
+    expect(screen.queryByText(/[{}]/)).toBeNull();
+  });
+
+  it("умолчания допусков подписаны словом", () => {
+    render(<SurveyPanel survey={view({ tolerances: { ...TOLERANCES, source: "default", passport_no: "", revision_no: null } })} />);
+    expect(screen.getByText(/умолчания/)).toBeTruthy();
+  });
+
+  it("точка без скважины: выбор скважины — setManual, «Пропустить» — skip", async () => {
+    const user = userEvent.setup();
+    const survey = view();
+    render(<SurveyPanel survey={survey} />);
+    await user.selectOptions(screen.getByLabelText("Скважина для точки R1"), "1-03");
+    expect(survey.setManual).toHaveBeenCalledWith("R1", "1-03");
+    await user.click(screen.getByRole("button", { name: "Пропустить точку R1" }));
+    expect(survey.skip).toHaveBeenCalledWith("R1");
+  });
+
+  it("глубина не замерена: введённая глубина уходит в setDepth", async () => {
+    const user = userEvent.setup();
+    const survey = view();
+    render(<SurveyPanel survey={survey} />);
+    await user.type(screen.getByLabelText("Глубина скважины 1-02, м"), "11,8{Enter}");
+    expect(survey.setDepth).toHaveBeenCalledWith("1-02", 11.8);
+  });
+
+  it("кнопка по статусу: черновик — «Применить к проекту»", async () => {
+    const user = userEvent.setup();
+    const survey = view();
+    render(<SurveyPanel survey={survey} />);
+    await user.click(screen.getByRole("button", { name: "Применить к проекту" }));
+    expect(survey.apply).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Копия по съёмке" })).toBeNull();
+  });
+
+  it("кнопка по статусу: утверждён — «Копия по съёмке»", async () => {
+    const user = userEvent.setup();
+    const survey = view({ action: "copy" });
+    render(<SurveyPanel survey={survey} />);
+    await user.click(screen.getByRole("button", { name: "Копия по съёмке" }));
+    expect(survey.copyBySurvey).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Применить к проекту" })).toBeNull();
+  });
+
+  it("кнопка по статусу: на проверке — недоступна с подсказкой", () => {
+    render(<SurveyPanel survey={view({ action: "blocked", actionHint: "Верните проект в черновик" })} />);
+    const button = screen.getByRole("button", { name: "Применить к проекту" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(screen.getByText("Верните проект в черновик")).toBeTruthy();
+  });
+
+  it("X и Y перепутаны — плашка и «Поменять»", async () => {
+    const user = userEvent.setup();
+    const survey = view({ swapSuggested: true });
+    render(<SurveyPanel survey={survey} />);
+    expect(screen.getByText("Похоже, X и Y перепутаны")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Поменять" }));
+    expect(survey.swap).toHaveBeenCalledTimes(1);
+  });
+
+  it("файл уходит в load, формат можно сменить", async () => {
+    const user = userEvent.setup();
+    const survey = view();
+    render(<SurveyPanel survey={survey} />);
+    const file = new File(["x"], "66.csv");
+    await user.upload(screen.getByLabelText("Файл съёмки"), file);
+    expect(survey.load).toHaveBeenCalledWith(file);
+    await user.selectOptions(screen.getByLabelText("Формат файла"), "TABLE");
+    expect(survey.setFormat).toHaveBeenCalledWith("TABLE");
+  });
+
+  it("«Съёмка старого блока»: объект из справочника, список, загрузка и удаление", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    api.survey.sites.create.mockResolvedValue({
+      id: "s2", site_code: "GUS", block_label: "65", horizon_m: 175.5, survey_date: "2026-11-01", file_name: "65.csv",
+      file_sha256: "y", points_count: 30, created_at: "2026-11-02T10:00:00+00:00", points: [],
+    });
+    render(<SurveyPanel survey={view()} />);
+    await user.click(screen.getByRole("button", { name: "Съёмка старого блока" }));
+    const dialog = await screen.findByRole("dialog");
+    const site = within(dialog).getByLabelText("Объект") as HTMLSelectElement;
+    await waitFor(() => expect(site.value).toBe("GUS"));
+    expect(within(site).queryByText("Закрытый")).toBeNull();
+    await waitFor(() => expect(api.survey.sites.list).toHaveBeenCalledWith("GUS"));
+    expect(await within(dialog).findByText(/Блок 64/)).toBeTruthy();
+
+    await user.type(within(dialog).getByLabelText("Блок"), "65");
+    await user.type(within(dialog).getByLabelText("Горизонт, м"), "175,5");
+    await user.type(within(dialog).getByLabelText("Дата съёмки"), "2026-11-01");
+    const file = new File(["x"], "65.csv");
+    await user.upload(within(dialog).getByLabelText("Файл съёмки старого блока"), file);
+    await user.click(within(dialog).getByRole("button", { name: "Загрузить" }));
+    await waitFor(() =>
+      expect(api.survey.sites.create).toHaveBeenCalledWith("GUS", file, { blockLabel: "65", surveyDate: "2026-11-01", horizonM: 175.5 }),
+    );
+    expect(await within(dialog).findByText(/Блок 65/)).toBeTruthy();
+
+    await user.click(within(dialog).getByRole("button", { name: "Удалить съёмку блока 64" }));
+    await waitFor(() => expect(api.survey.sites.remove).toHaveBeenCalledWith("GUS", "s1"));
+    await waitFor(() => expect(within(dialog).queryByText(/Блок 64/)).toBeNull());
+  });
+});

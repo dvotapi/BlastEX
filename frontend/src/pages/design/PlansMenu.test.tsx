@@ -7,7 +7,7 @@ import { PlansMenu } from "./PlansMenu";
 
 const plans = [
   { design_id: "d66", name: "Блок 66", lifecycle_status: "draft", hole_count: 196, updated_at: "2026-11-12T10:00:00Z" },
-  { design_id: "d67", name: "Блок 67", lifecycle_status: "approved", hole_count: 120, updated_at: "2026-11-11T10:00:00Z" },
+  { design_id: "d67", name: "Блок 67", lifecycle_status: "approved", hole_count: 120, updated_at: "2026-11-11T10:00:00Z", surveyed: true },
 ] as DesignSummary[];
 
 function setup(unsaved = false) {
@@ -29,6 +29,13 @@ describe("PlansMenu", () => {
     await userEvent.click(screen.getByRole("button", { name: /^Блок 67/ }));
     expect(onOpen).toHaveBeenCalledWith("d67");
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("стадия проекта в строке: «предварительный» или «по съёмке»", async () => {
+    setup();
+    await userEvent.click(screen.getByRole("button", { name: /Проекты/ }));
+    expect(screen.getByRole("button", { name: /^Блок 66/ }).textContent).toContain("черновик · предварительный ·");
+    expect(screen.getByRole("button", { name: /^Блок 67/ }).textContent).toContain("утверждён · по съёмке ·");
   });
 
   it("новый проект и закрытие по Escape", async () => {

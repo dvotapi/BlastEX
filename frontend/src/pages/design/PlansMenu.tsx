@@ -2,7 +2,7 @@
 // открыть, создать новый, удалить. Раньше список жил в панели «Паспорт БВР»
 // вкладки «Отчёт»; панель убрана (решение владельца 12.11.2026), список — здесь.
 import { useEffect, useRef, useState } from "react";
-import { canDeletePlan, statusLabel } from "../../lib/lifecycle";
+import { canDeletePlan, statusLabel, SURVEY_STAGE_LABELS } from "../../lib/lifecycle";
 import type { DesignSummary } from "../../types/design";
 
 export function PlansMenu({
@@ -66,7 +66,7 @@ export function PlansMenu({
                   <button type="button" className="plans-list-open" disabled={busy} onClick={() => leave(() => onOpen(plan.design_id))}>
                     <b>{plan.name}</b>
                     <small>
-                      {statusLabel(plan.lifecycle_status)} · {plan.hole_count} скв. · {new Date(plan.updated_at).toLocaleString("ru-RU")}
+                      {statusLabel(plan.lifecycle_status)} · {SURVEY_STAGE_LABELS[plan.surveyed ? "surveyed" : "preliminary"]} · {plan.hole_count} скв. · {new Date(plan.updated_at).toLocaleString("ru-RU")}
                     </small>
                   </button>
                   <button

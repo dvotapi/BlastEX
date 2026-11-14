@@ -94,14 +94,14 @@ function applied(): SurveyApplyResponse {
 
 type ForkFn = (dispatch: Dispatch<DesignAction>) => Promise<BlastDesign | null>;
 
-function setup(initial: BlastDesign, fork: ForkFn = async () => null) {
+function setup(initial: BlastDesign, fork: ForkFn = async () => null, swallow: DesignAction["type"][] = []) {
   const actions: DesignAction[] = [];
   const onFork = vi.fn();
   const view = renderHook(() => {
     const [state, rawDispatch] = useReducer(designReducer, initial, initDesignState);
     const dispatch = (action: DesignAction) => {
       actions.push(action);
-      rawDispatch(action);
+      if (!swallow.includes(action.type)) rawDispatch(action);
     };
     onFork.mockImplementation(() => fork(rawDispatch));
     const survey = useSurveyImport({
@@ -126,8 +126,8 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-async function loaded(initial: BlastDesign, fork?: ForkFn) {
-  const ctx = setup(initial, fork);
+async function loaded(initial: BlastDesign, fork?: ForkFn, swallow: DesignAction["type"][] = []) {
+  const ctx = setup(initial, fork, swallow);
   await act(() => ctx.view.result.current.survey.load(FILE));
   return ctx;
 }
@@ -331,5 +331,31 @@ describe("useSurveyImport", () => {
     await waitFor(() => expect(view.result.current.survey.error).toBe(COPY_FAILED));
     expect(api.survey.apply).not.toHaveBeenCalled();
     expect(view.result.current.survey.busy).toBe(false);
+  });
+
+  it("«Поменять» → «Прочитать заново»: колонки уже с перестановкой, X/Y второй раз не меняются", async () => {
+    api.survey.read
+      .mockResolvedValueOnce({ ...READ, format: "TABLE", headers: ["№", "E", "N"], columns: { name: "№", east: "E", north: "N" } })
+      .mockResolvedValueOnce({ ...READ, format: "TABLE", headers: ["№", "E", "N"], columns: { name: "№", east: "N", north: "E" } })
+      .mockResolvedValue({ ...READ, format: "TABLE", headers: ["№", "E", "N"], columns: { name: "№", east: "N", north: "E" } });
+    const { view } = setup(design());
+    await act(() => view.result.current.survey.load(FILE));
+    await act(() => view.result.current.survey.swap());
+    expect(api.survey.read).toHaveBeenLastCalledWith(FILE, { swapXy: true });
+    await act(() => view.result.current.survey.rereadColumns());
+    expect(api.survey.read).toHaveBeenLastCalledWith(FILE, { columns: { name: "№", east: "N", north: "E" } });
+    // Следующее «Поменять» — снова одна перестановка, от прочитанных колонок.
+    await act(() => view.result.current.survey.swap());
+    expect(api.survey.read).toHaveBeenLastCalledWith(FILE, { swapXy: true, columns: { name: "№", east: "N", north: "E" } });
+  });
+
+  it("«Применить» не сменило документ — повторной оценки нет и потом", async () => {
+    const { view } = await loaded(design(), undefined, ["APPLY_SURVEY"]);
+    await act(() => view.result.current.survey.apply());
+    await waitFor(() => expect(view.result.current.survey.busy).toBe(false));
+    const calls = api.survey.evaluate.mock.calls.length;
+    act(() => view.result.current.dispatch({ type: "SET_NAME", name: "66 правка" }));
+    await act(async () => undefined);
+    expect(api.survey.evaluate.mock.calls.length).toBe(calls);
   });
 });

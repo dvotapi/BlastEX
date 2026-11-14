@@ -279,4 +279,21 @@ describe("SurveyPanel", () => {
     render(<SurveyPanel survey={view()} />);
     expect(screen.getByRole("button", { name: "Съёмка старого блока" }).className).toBe("secondary-button");
   });
+
+  it("«Оценить заново» доступна, когда файл прочитан, даже если оценки нет", async () => {
+    const user = userEvent.setup();
+    const survey = view({ rows: [], tolerances: null, ready: false, error: "База не отвечает." });
+    render(<SurveyPanel survey={survey} />);
+    const button = screen.getByRole("button", { name: "Оценить заново" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    await user.click(button);
+    expect(survey.evaluate).toHaveBeenCalledTimes(1);
+  });
+
+  it("одинаковые заголовки таблицы — без повторных ключей", () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    render(<SurveyPanel survey={view({ format: "TABLE", headers: ["A", "A", "B"], columns: {} })} />);
+    expect(within(screen.getByRole("group", { name: "Колонки" })).getByLabelText("номер").querySelectorAll("option")).toHaveLength(4);
+    expect(errors.mock.calls.some((call) => String(call[0]).includes("same key"))).toBe(false);
+  });
 });

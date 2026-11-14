@@ -226,6 +226,8 @@ export function useSurveyImport({
   const copyRun = useRef(0);
   // После «Применить» — повторная оценка по новому документу (не по `base`).
   const reevaluateAfter = useRef<BlastDesign | null>(null);
+  // Отметка «применено»: эффект повторной оценки сверяет документ после dispatch.
+  const [appliedTick, setAppliedTick] = useState(0);
   const sequence = useRef(0);
   const sourceRef = useRef(source);
   sourceRef.current = source;
@@ -290,12 +292,13 @@ export function useSurveyImport({
   // «Применить» положило съёмку в документ — оценка заново, уже по нему.
   useEffect(() => {
     const base = reevaluateAfter.current;
-    if (!base || present === base) return;
+    if (!base) return;
     reevaluateAfter.current = null;
-    void runEvaluate(decisionsRef.current);
+    // Документ не сменился — оценка прежняя, повторять нечего.
+    if (present !== base) void runEvaluate(decisionsRef.current);
     // runEvaluate читает остальное из ссылок.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [present]);
+  }, [present, appliedTick]);
 
   function decide(change: (current: Decisions) => Decisions) {
     const next = change(decisionsRef.current);
@@ -371,7 +374,9 @@ export function useSurveyImport({
 
   async function rereadColumns(): Promise<void> {
     const current = sourceRef.current;
-    if (current) await load(current.file, { format: current.formatChoice, swapXy: current.swapXy, columns: columnsRef.current });
+    // Колонки уже несут перестановку X/Y («Поменять»): вторая перестановка сервером
+    // отразила бы точки обратно.
+    if (current) await load(current.file, { format: current.formatChoice, swapXy: false, columns: columnsRef.current });
   }
 
   async function evaluate(): Promise<void> {
@@ -451,6 +456,7 @@ export function useSurveyImport({
         survey_application: response.survey_application,
         changed_ids: response.changed_ids,
       });
+      setAppliedTick((tick) => tick + 1);
       setApplyWarnings(response.warnings);
       setNotice(`Съёмка применена: изменено скважин — ${response.changed_ids.length}.`);
       onAppliedRef.current?.();

@@ -270,8 +270,8 @@ export function SurveyPanel({ survey }: { survey: SurveyImportView }) {
                 {label}
                 <select value={survey.columns[role] ?? ""} onChange={(event) => survey.setColumn(role, event.target.value)}>
                   <option value="">— нет —</option>
-                  {survey.headers.map((header) => (
-                    <option key={header} value={header}>{header}</option>
+                  {survey.headers.map((header, index) => (
+                    <option key={index} value={header}>{header}</option>
                   ))}
                 </select>
               </label>
@@ -358,7 +358,7 @@ export function SurveyPanel({ survey }: { survey: SurveyImportView }) {
             >
               {copy ? "Копия по съёмке" : "Применить к проекту"}
             </button>
-            <button type="button" className="secondary-button" disabled={survey.busy || !survey.ready} onClick={() => void survey.evaluate()}>
+            <button type="button" className="secondary-button" disabled={survey.busy || survey.points.length === 0} onClick={() => void survey.evaluate()}>
               Оценить заново
             </button>
           </div>

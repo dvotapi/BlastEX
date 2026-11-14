@@ -232,10 +232,8 @@ def intercept_geology(request: GeologyInterceptRequest) -> GeologyInterceptRespo
     )
 
 
-def generate_charge(request: ChargeGenerateRequest) -> ChargeGenerateResponse:
-    holes = [Hole.from_dict(h.model_dump()) for h in request.holes]
-    if not holes:
-        raise InvalidDesignError("Список скважин пуст — нечего заряжать.")
+def charge_explosives(request: ChargeGenerateRequest) -> tuple[ExplosiveProperties, list[ExplosiveProperties]]:
+    """ВВ правил заряжания и каталог ВВ шаблонов из запроса расчёта зарядов."""
 
     explosive = ExplosiveProperties(
         name=request.explosive.name,
@@ -250,6 +248,15 @@ def generate_charge(request: ChargeGenerateRequest) -> ChargeGenerateResponse:
         )
         for item in request.explosives
     ]
+    return explosive, catalog
+
+
+def generate_charge(request: ChargeGenerateRequest) -> ChargeGenerateResponse:
+    holes = [Hole.from_dict(h.model_dump()) for h in request.holes]
+    if not holes:
+        raise InvalidDesignError("Список скважин пуст — нечего заряжать.")
+
+    explosive, catalog = charge_explosives(request)
     contour = BlockContour.from_dict(request.contour.model_dump()) if request.contour is not None else None
     loads = apply_charge_rules(holes, request.rules, explosive, contour=contour, explosives=catalog)
 

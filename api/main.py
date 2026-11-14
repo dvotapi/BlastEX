@@ -19,7 +19,7 @@ from pydantic import ValidationError
 
 from api import config
 from api.exceptions import BlastExError
-from api.routers import auth, blast, block_economics, cad, cost, calibration, datasets, design, drift, drilling_passport, economics, learning, mass_blast, optimization, outcomes, recommendation, references, registry, scenarios, spatial, workspace
+from api.routers import auth, blast, block_economics, cad, cost, calibration, datasets, design, drift, drilling_passport, economics, learning, mass_blast, optimization, outcomes, recommendation, references, registry, scenarios, spatial, survey, workspace
 from api.security import require_internal_access
 from api.services import magex_settings
 
@@ -219,6 +219,8 @@ app.include_router(mass_blast.router, prefix=API_PREFIX, dependencies=_internal_
 # Паспорт на бурение (TASK-015) — только при включённом флаге, иначе маршрутов нет (404).
 if config.drill_passport_enabled():
     app.include_router(drilling_passport.router, prefix=API_PREFIX, dependencies=_internal_dependencies)
+# Съёмка к проекту блока (TASK-014, PR 5а) — допуски из паспортов на бурение, но без их флага.
+app.include_router(survey.router, prefix=API_PREFIX, dependencies=_internal_dependencies)
 app.include_router(scenarios.router, prefix=API_PREFIX, dependencies=_internal_dependencies)
 app.include_router(workspace.router, prefix=API_PREFIX, dependencies=_internal_dependencies)
 

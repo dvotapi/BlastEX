@@ -64,7 +64,9 @@ async def _read_upload(
     try:
         survey = await run_in_threadpool(read_survey, data, name, format=format, columns=mapping, swap_xy=swap_xy)
     except SurveyReadError as exc:
-        raise HTTPException(422, str(exc)) from exc
+        # У таблицы — её заголовки: колонки выбираются вручную и файл читается заново.
+        detail: str | dict[str, object] = {"message": str(exc), "headers": exc.headers} if exc.headers else str(exc)
+        raise HTTPException(422, detail) from exc
     return survey, name
 
 

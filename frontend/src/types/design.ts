@@ -1140,6 +1140,8 @@ export type SurveyReadResponse = {
   warnings: string[];
   sha256: string;
   file_name: string;
+  /** Заголовки колонок таблицы (TABLE) — для выбора колонок вручную; у профилей — пусто. */
+  headers?: string[];
 };
 
 export type SurveyMatchBy = "name" | "nearest" | "manual" | "";

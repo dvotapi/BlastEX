@@ -36,6 +36,7 @@ from api.schemas.survey import (
     SurveyTolerancesSchema,
 )
 from api.services.design_service import charge_explosives
+from api.services.drilling_passport_service import block_label
 from cost.v2.models import ReferenceSnapshot
 from design import persistence as design_persistence
 from design.drilling_passport_repository import DrillingPassportRepositoryError
@@ -154,6 +155,7 @@ def read_response(survey: SurveyFile, file_name: str) -> SurveyReadResponse:
         warnings=survey.warnings,
         sha256=survey.sha256,
         file_name=file_name,
+        headers=survey.headers,
     )
 
 
@@ -182,7 +184,9 @@ def _design_id(request: SurveyEvaluateRequest) -> str:
 def _evaluate(request: SurveyEvaluateRequest, organization_id: str, repository: Any) -> _Evaluation:
     design = BlastDesign.from_dict(request.design.model_dump())
     lookup = survey_tolerances(organization_id, _design_id(request), repository, design_persistence.load_design)
-    block = request.block.strip() or lookup.block
+    # Блок для имён точек: из запроса, из паспорта на бурение, иначе — как «Блок»
+    # нового паспорта (имя контура или номер из названия проекта).
+    block = request.block.strip() or lookup.block or block_label(design)
     points = [SurveyedPoint.from_dict(point.model_dump()) for point in request.points]
     matches = match_survey(
         design.holes,

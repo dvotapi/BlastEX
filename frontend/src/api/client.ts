@@ -18,16 +18,26 @@ function validationMessages(details: unknown): string[] {
 /** Текст ошибки из ответа: FastAPI кладёт его в `detail` строкой или объектом с
  * `message`; при 422 — ещё русские тексты валидаторов из `details`. */
 export async function errorMessage(response: Response, fallback: string): Promise<string> {
+  return messageOf(await errorPayload(response), fallback);
+}
+
+/** Тело ответа с ошибкой; без JSON — null. */
+async function errorPayload(response: Response): Promise<any> {
   try {
-    const payload = await response.json();
-    if (typeof payload.detail === "string") {
-      const messages = validationMessages(payload.details);
-      return messages.length ? `${payload.detail.replace(/\.$/, "")}: ${messages.join(" ")}` : payload.detail;
-    }
-    if (payload.detail && typeof payload.detail.message === "string") return payload.detail.message;
+    return await response.json();
   } catch {
     // В ответе нет тела JSON.
+    return null;
   }
+}
+
+function messageOf(payload: any, fallback: string): string {
+  if (!payload) return fallback;
+  if (typeof payload.detail === "string") {
+    const messages = validationMessages(payload.details);
+    return messages.length ? `${payload.detail.replace(/\.$/, "")}: ${messages.join(" ")}` : payload.detail;
+  }
+  if (payload.detail && typeof payload.detail.message === "string") return payload.detail.message;
   return fallback;
 }
 
@@ -36,6 +46,8 @@ export class HttpError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /** `detail` ответа, когда это объект: в нём бывают данные для исправления (заголовки таблицы). */
+    readonly detail: unknown = undefined,
   ) {
     super(message);
     this.name = "HttpError";
@@ -75,7 +87,11 @@ export async function postFile<T>(path: string, file: File, field = "file"): Pro
 /** Отправка формы (несколько файлов и поля) — как `postFile`, но форму собирает вызывающий. */
 export async function postForm<T>(path: string, form: FormData): Promise<T> {
   const response = await fetch(path, { method: "POST", credentials: "include", body: form });
-  if (!response.ok) throw new Error(await errorMessage(response, "Не удалось загрузить файл."));
+  if (!response.ok) {
+    const payload = await errorPayload(response);
+    const detail = payload && typeof payload.detail === "object" ? payload.detail : undefined;
+    throw new HttpError(messageOf(payload, "Не удалось загрузить файл."), response.status, detail);
+  }
   return response.json() as Promise<T>;
 }
 

@@ -7,7 +7,7 @@ import { ruNumber } from "../../lib/format";
 import type { SurveyFormat, SurveyMatchBy, SurveyMatchIssue, SurveyTolerances, SurveyVerdictCode } from "../../types/design";
 import { RoleBadge } from "./RoleBadge";
 import { SiteSurveyDialog } from "./SiteSurveyDialog";
-import type { SurveyImportView, SurveyRow } from "./useSurveyImport";
+import { DATE_MISSING, type SurveyImportView, type SurveyRow } from "./useSurveyImport";
 
 const SURVEY_ACCEPT = ".csv,.txt,.xlsx,.xlsm,.dxf";
 
@@ -35,6 +35,22 @@ export const MATCH_ISSUE_LABELS: Record<SurveyMatchIssue, string> = {
   duplicate_point: "две точки",
   missing_point: "нет съёмки",
 };
+
+/** Роли колонок таблицы — как их понимает сервер (`design/survey/read.py::COLUMN_KEYS`). */
+const COLUMN_ROLES: [string, string][] = [
+  ["name", "номер"],
+  ["east", "восток"],
+  ["north", "север"],
+  ["z", "отметка"],
+  ["depth", "глубина"],
+  ["angle", "угол"],
+  ["azimuth", "азимут"],
+  ["wet", "вода"],
+  ["water", "уровень воды"],
+];
+
+const UNBIND = "__unbind__";
+const DEPTH_INVALID = "Глубина — число больше нуля.";
 
 const FORMAT_LABELS: [SurveyFormat | "", string][] = [
   ["", "определить по файлу"],
@@ -67,16 +83,32 @@ function tolerancesText(t: SurveyTolerances): string {
   return `Допуски: ${values} — из паспорта на бурение${origin} № ${t.passport_no || "—"}${revision}`;
 }
 
-/** Поле глубины: значение уходит в оценку по Enter или при уходе с поля. */
-function DepthInput({ holeId, onCommit }: { holeId: string; onCommit: (m: number | null) => void }) {
-  const [text, setText] = useState("");
+/**
+ * Поле глубины: значение уходит в оценку по Enter или при уходе с поля.
+ * Введённая глубина остаётся в поле — её можно сменить или стереть (снять).
+ */
+function DepthInput({ holeId, entered, onCommit }: { holeId: string; entered: number | null; onCommit: (m: number | null) => void }) {
+  const [text, setText] = useState(entered === null ? "" : ruNumber(entered));
+  const [invalid, setInvalid] = useState(false);
   // Enter и уход с поля после него — одна оценка, а не две.
-  const committed = useRef<number | null>(null);
+  const committed = useRef<number | null>(entered);
   function commit() {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed) {
+      setInvalid(false);
+      if (committed.current !== null) {
+        committed.current = null;
+        onCommit(null);
+      }
+      return;
+    }
     const value = Number(trimmed.replace(",", "."));
-    if (!Number.isFinite(value) || value <= 0 || value === committed.current) return;
+    if (!Number.isFinite(value) || value <= 0) {
+      setInvalid(true);
+      return;
+    }
+    setInvalid(false);
+    if (value === committed.current) return;
     committed.current = value;
     onCommit(value);
   }
@@ -87,16 +119,28 @@ function DepthInput({ holeId, onCommit }: { holeId: string; onCommit: (m: number
     }
   }
   return (
-    <input
-      className="survey-depth-input"
-      inputMode="decimal"
-      placeholder="глубина, м"
-      aria-label={`Глубина скважины ${holeId}, м`}
-      value={text}
-      onChange={(event) => setText(event.target.value)}
-      onKeyDown={onKeyDown}
-      onBlur={commit}
-    />
+    <>
+      <input
+        className="survey-depth-input"
+        inputMode="decimal"
+        placeholder="глубина, м"
+        aria-label={`Глубина скважины ${holeId}, м`}
+        aria-invalid={invalid || undefined}
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={onKeyDown}
+        onBlur={commit}
+      />
+      {invalid && <small className="frag-warnings" role="alert">{DEPTH_INVALID}</small>}
+    </>
+  );
+}
+
+/** Точку можно перепривязать или пропустить: не найдена, спорная, по близости или вручную. */
+function rebindable(row: SurveyRow): boolean {
+  return Boolean(
+    row.point &&
+      (row.issue === "unmatched_point" || row.issue === "duplicate_point" || row.by === "manual" || row.by === "nearest"),
   );
 }
 
@@ -107,17 +151,18 @@ function statusClass(code: SurveyVerdictCode): string {
 }
 
 function HoleCell({ row, survey }: { row: SurveyRow; survey: SurveyImportView }) {
-  // Точка без скважины или спорная — инженер выбирает скважину сам.
-  if (row.point && (row.issue === "unmatched_point" || row.issue === "duplicate_point")) {
+  // Точку без скважины, спорную, по близости или привязанную вручную инженер привязывает сам.
+  if (row.point && rebindable(row)) {
     const name = row.point.name;
     return (
       <select
         aria-label={`Скважина для точки ${name}`}
         value=""
         disabled={survey.busy}
-        onChange={(event) => survey.setManual(name, event.target.value)}
+        onChange={(event) => survey.setManual(name, event.target.value === UNBIND ? "" : event.target.value)}
       >
         <option value="">{row.holeId ?? "—"}</option>
+        {row.by === "manual" && <option value={UNBIND}>снять ручную привязку</option>}
         {survey.holeIds.map((id) => (
           <option key={id} value={id}>{id}</option>
         ))}
@@ -130,19 +175,26 @@ function HoleCell({ row, survey }: { row: SurveyRow; survey: SurveyImportView })
 function StatusCell({ row, survey }: { row: SurveyRow; survey: SurveyImportView }) {
   const issue = MATCH_ISSUE_LABELS[row.issue];
   const codes = row.verdict?.codes ?? [];
+  const line = row.verdict?.point.line;
+  const entered = line !== undefined ? survey.enteredDepths[line] ?? null : null;
   return (
     <div className="survey-statuses">
       {issue && <span className="survey-status note">{issue}</span>}
       {codes.map((code) => (
         <span key={code} className={`survey-status ${statusClass(code)}`}>{VERDICT_LABELS[code]}</span>
       ))}
-      {codes.includes("no_depth") && row.holeId && (
-        <DepthInput holeId={row.holeId} onCommit={(m) => survey.setDepth(row.holeId as string, m)} />
+      {(codes.includes("no_depth") || entered !== null) && row.holeId && (
+        <DepthInput
+          key={`${row.holeId}|${entered ?? ""}`}
+          holeId={row.holeId}
+          entered={entered}
+          onCommit={(m) => survey.setDepth(row.holeId as string, m)}
+        />
       )}
-      {row.point && (row.issue === "unmatched_point" || row.issue === "duplicate_point") && (
+      {rebindable(row) && row.point && (
         <button
           type="button"
-          className="ghost-button survey-skip"
+          className="secondary-button survey-skip"
           disabled={survey.busy}
           aria-label={`Пропустить точку ${row.point.name}`}
           onClick={() => survey.skip(row.point!.name)}
@@ -210,6 +262,25 @@ export function SurveyPanel({ survey }: { survey: SurveyImportView }) {
             </label>
           </>
         )}
+        {survey.headers.length > 0 && (
+          <fieldset className="survey-columns" disabled={survey.busy}>
+            <legend>Колонки</legend>
+            {COLUMN_ROLES.map(([role, label]) => (
+              <label key={role}>
+                {label}
+                <select value={survey.columns[role] ?? ""} onChange={(event) => survey.setColumn(role, event.target.value)}>
+                  <option value="">— нет —</option>
+                  {survey.headers.map((header) => (
+                    <option key={header} value={header}>{header}</option>
+                  ))}
+                </select>
+              </label>
+            ))}
+            <button type="button" className="secondary-button" onClick={() => void survey.rereadColumns()}>
+              Прочитать заново
+            </button>
+          </fieldset>
+        )}
         {survey.swapSuggested && (
           <div className="survey-swap" role="status">
             <span>Похоже, X и Y перепутаны</span>
@@ -266,7 +337,7 @@ export function SurveyPanel({ survey }: { survey: SurveyImportView }) {
               <button
                 key={name}
                 type="button"
-                className="ghost-button"
+                className="secondary-button"
                 disabled={survey.busy}
                 title="Вернуть точку в сопоставление"
                 onClick={() => survey.unskip(name)}
@@ -281,23 +352,24 @@ export function SurveyPanel({ survey }: { survey: SurveyImportView }) {
             <button
               type="button"
               className="calculate-button"
-              disabled={survey.action === "blocked" || !survey.ready || survey.busy}
+              disabled={survey.action === "blocked" || !survey.ready || survey.busy || !survey.surveyDate}
               title={survey.actionHint || undefined}
               onClick={() => void (copy ? survey.copyBySurvey() : survey.apply())}
             >
               {copy ? "Копия по съёмке" : "Применить к проекту"}
             </button>
-            <button type="button" className="ghost-button" disabled={survey.busy} onClick={() => void survey.evaluate()}>
+            <button type="button" className="secondary-button" disabled={survey.busy || !survey.ready} onClick={() => void survey.evaluate()}>
               Оценить заново
             </button>
           </div>
         )}
         {survey.fileName && survey.actionHint && <small className="frag-warnings">{survey.actionHint}</small>}
+        {survey.fileName && !survey.actionHint && !survey.surveyDate && <small className="frag-warnings">{DATE_MISSING}</small>}
         {copy && survey.fileName && (
           <small>Проект утверждён: съёмка ляжет на его копию, копия откроется черновиком.</small>
         )}
         {survey.notice && <small role="status">{survey.notice}</small>}
-        <button type="button" className="ghost-button" onClick={() => setSiteOpen(true)}>
+        <button type="button" className="secondary-button" onClick={() => setSiteOpen(true)}>
           Съёмка старого блока
         </button>
       </div>

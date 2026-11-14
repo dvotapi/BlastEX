@@ -76,6 +76,25 @@ def test_table_explicit_columns_win():
     assert (f.points[0].x, f.points[0].y) == (1472880.04, 593722.99)
 
 
+def test_table_headers_returned():
+    raw = "Номер;X;Y;H\n1-01;593722,99;1472880,04;419,21\n".encode()
+    assert read_survey(raw, "s.csv").headers == ["Номер", "X", "Y", "H"]
+    assert read_survey((FIX / "66_PNEZ_TXT.txt").read_bytes(), "x.txt").headers == []
+
+
+def test_table_missing_column_error_carries_headers():
+    raw = "Пикет;Восточн;Северн\n1-01;1472880,04;593722,99\n".encode()
+    with pytest.raises(SurveyReadError) as missing:
+        read_survey(raw, "s.csv", format="TABLE")
+    assert "Укажите её вручную" in str(missing.value)
+    assert missing.value.headers == ["Пикет", "Восточн", "Северн"]
+    with pytest.raises(SurveyReadError) as unknown:
+        read_survey(raw, "s.csv", format="TABLE", columns={"name": "Нет такой"})
+    assert unknown.value.headers == ["Пикет", "Восточн", "Северн"]
+    f = read_survey(raw, "s.csv", format="TABLE", columns={"name": "Пикет", "east": "Восточн", "north": "Северн"})
+    assert (f.points[0].name, f.points[0].x) == ("1-01", 1472880.04)
+
+
 def test_table_angle_azimuth_water_and_duplicates():
     raw = "Скв;E;N;Угол;Азимут;Уровень воды;Обводн\nA;1;2;75;90;3,5;нет\nA;3;4;;;;+\n".encode()
     pts = read_survey(raw, "s.csv").points

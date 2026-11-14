@@ -76,8 +76,13 @@ function view(extra: Partial<SurveyImportView> = {}): SurveyImportView {
     swapSuggested: false,
     warnings: [],
     skipped: [],
+    enteredDepths: {},
     holeIds: ["1-01", "1-02", "1-03"],
-    surveyDate: "",
+    headers: [],
+    columns: {},
+    setColumn: vi.fn(),
+    rereadColumns: vi.fn(async () => undefined),
+    surveyDate: "2026-11-14",
     setSurveyDate: vi.fn(),
     action: "apply",
     actionHint: "",
@@ -217,5 +222,61 @@ describe("SurveyPanel", () => {
     await user.click(within(dialog).getByRole("button", { name: "Удалить съёмку блока 64" }));
     await waitFor(() => expect(api.survey.sites.remove).toHaveBeenCalledWith("GUS", "s1"));
     await waitFor(() => expect(within(dialog).queryByText(/Блок 64/)).toBeNull());
+  });
+
+  it("точку по близости и вручную можно перепривязать, пропустить и снять ручную привязку", async () => {
+    const user = userEvent.setup();
+    const manualRow: SurveyRow = { key: "e", holeId: "1-03", point: { name: "9", x: 1, y: 1, line: 4 }, by: "manual", issue: "", verdict: verdict("1-03", { name: "9", x: 1, y: 1, line: 4 }, ["ok"]) };
+    const survey = view({ rows: [...ROWS, manualRow] });
+    render(<SurveyPanel survey={survey} />);
+    expect(screen.queryByLabelText("Скважина для точки 66-1-01")).toBeNull();
+    await user.selectOptions(screen.getByLabelText("Скважина для точки 7"), "1-03");
+    expect(survey.setManual).toHaveBeenLastCalledWith("7", "1-03");
+    await user.click(screen.getByRole("button", { name: "Пропустить точку 7" }));
+    expect(survey.skip).toHaveBeenCalledWith("7");
+    expect(within(screen.getByLabelText("Скважина для точки 7")).queryByText("снять ручную привязку")).toBeNull();
+    await user.selectOptions(screen.getByLabelText("Скважина для точки 9"), "снять ручную привязку");
+    expect(survey.setManual).toHaveBeenLastCalledWith("9", "");
+    expect(screen.getByRole("button", { name: "Пропустить точку 9" })).toBeTruthy();
+  });
+
+  it("введённая глубина видна и правится; стёртая — снимается; 0 — подсказка", async () => {
+    const user = userEvent.setup();
+    const entered: SurveyRow = { ...ROWS[1], verdict: verdict("1-02", P2, ["offset"], { offset_m: 0.42, depth_delta_m: -0.5 }) };
+    const survey = view({ rows: [ROWS[0], entered], enteredDepths: { 2: 11.8 } });
+    render(<SurveyPanel survey={survey} />);
+    const input = screen.getByLabelText("Глубина скважины 1-02, м") as HTMLInputElement;
+    expect(input.value).toBe("11,80");
+    await user.clear(input);
+    await user.type(input, "0{Enter}");
+    expect(screen.getByText("Глубина — число больше нуля.")).toBeTruthy();
+    expect(survey.setDepth).not.toHaveBeenCalled();
+    await user.clear(input);
+    await user.type(input, "{Enter}");
+    expect(survey.setDepth).toHaveBeenCalledWith("1-02", null);
+  });
+
+  it("таблица с заголовками: колонки выбираются, «Прочитать заново»", async () => {
+    const user = userEvent.setup();
+    const survey = view({ format: "TABLE", headers: ["Пикет", "Вост", "Сев"], columns: { name: "Пикет" } });
+    render(<SurveyPanel survey={survey} />);
+    const group = screen.getByRole("group", { name: "Колонки" });
+    expect((within(group).getByLabelText("номер") as HTMLSelectElement).value).toBe("Пикет");
+    expect(within(group).getByLabelText("уровень воды")).toBeTruthy();
+    await user.selectOptions(within(group).getByLabelText("север"), "Сев");
+    expect(survey.setColumn).toHaveBeenCalledWith("north", "Сев");
+    await user.click(within(group).getByRole("button", { name: "Прочитать заново" }));
+    expect(survey.rereadColumns).toHaveBeenCalledTimes(1);
+  });
+
+  it("без даты съёмки «Применить» недоступно с подсказкой", () => {
+    render(<SurveyPanel survey={view({ surveyDate: "" })} />);
+    expect((screen.getByRole("button", { name: "Применить к проекту" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("Укажите дату съёмки")).toBeTruthy();
+  });
+
+  it("«Съёмка старого блока» — обычная кнопка панели", () => {
+    render(<SurveyPanel survey={view()} />);
+    expect(screen.getByRole("button", { name: "Съёмка старого блока" }).className).toBe("secondary-button");
   });
 });

@@ -53,6 +53,8 @@ class SurveyReadResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     sha256: str
     file_name: str
+    # Заголовки колонок таблицы (TABLE) — для выбора колонок вручную; у профилей — пусто.
+    headers: list[str] = Field(default_factory=list)
 
 
 class SurveyMatchSchema(BaseModel):

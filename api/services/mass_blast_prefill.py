@@ -21,7 +21,7 @@ from __future__ import annotations
 from typing import Any, Iterable, Mapping
 
 from api.services.cad_service import active_work_object_name, resolve_site_code
-from api.services.drilling_passport_service import _block_label
+from api.services.drilling_passport_service import block_label
 from cost.v2.repository import EconomicsRepository, EconomicsRepositoryError
 from design.drilling_passport import floor_horizon
 from design.models import BlastDesign
@@ -139,7 +139,7 @@ def new_project_payload(
 
     blocks = []
     for design in designs:
-        label = _block_label(design) or design.name
+        label = block_label(design) or design.name
         blocks.append({"design_id": design.design_id, "code": label[:120], "horizon": floor_horizon(design)})
     labels = ", ".join(block["code"] for block in blocks if block["code"])
     name = f"Массовый взрыв — блок {labels}" if len(blocks) == 1 else f"Массовый взрыв — блоки {labels}"

@@ -217,7 +217,7 @@ export function SiteSurveyDialog({ onClose }: { onClose: () => void }) {
                   </span>
                   <button
                     type="button"
-                    className="ghost-button"
+                    className="secondary-button survey-site-delete"
                     disabled={busy}
                     aria-label={`Удалить съёмку блока ${item.block_label}`}
                     onClick={() => void remove(item)}

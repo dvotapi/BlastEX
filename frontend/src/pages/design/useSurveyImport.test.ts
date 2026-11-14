@@ -22,7 +22,8 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock("../../api/endpoints", () => ({ api }));
 
-import { SURVEY_CHANGED, useSurveyImport } from "./useSurveyImport";
+import { HttpError } from "../../api/client";
+import { COPY_FAILED, DATE_MISSING, SURVEY_CHANGED, todayIso, useSurveyImport } from "./useSurveyImport";
 
 function hole(id: string, x: number): Hole {
   return {
@@ -261,5 +262,74 @@ describe("useSurveyImport", () => {
     expect(view.result.current.survey.swapSuggested).toBe(true);
     await act(() => view.result.current.survey.swap());
     expect(api.survey.read).toHaveBeenLastCalledWith(FILE, { swapXy: true });
+  });
+
+  it("после «Применить» оценка повторяется по новому документу", async () => {
+    const { view } = await loaded(design());
+    const before = api.survey.evaluate.mock.calls.length;
+    await act(() => view.result.current.survey.apply());
+    await waitFor(() => expect(api.survey.evaluate.mock.calls.length).toBe(before + 1));
+    const body = api.survey.evaluate.mock.calls.at(-1)![0];
+    expect(body.design.holes[1].collar.x).toBe(14.2);
+    expect(body.design.survey_applications).toHaveLength(1);
+    await waitFor(() => expect(view.result.current.survey.busy).toBe(false));
+    // Оценено по новому документу — «Применить» снова сверяется с ним, а не ловушка.
+    api.survey.apply.mockClear();
+    await act(() => view.result.current.survey.apply());
+    expect(api.survey.apply).toHaveBeenCalledTimes(1);
+  });
+
+  it("дата съёмки — сегодня; пустая дата не даёт применить", async () => {
+    const { view } = await loaded(design());
+    expect(view.result.current.survey.surveyDate).toBe(todayIso());
+    act(() => view.result.current.survey.setSurveyDate(""));
+    await act(() => view.result.current.survey.apply());
+    expect(view.result.current.survey.error).toBe(DATE_MISSING);
+    expect(api.survey.apply).not.toHaveBeenCalled();
+  });
+
+  it("ручную привязку можно снять", async () => {
+    const { view } = await loaded(design());
+    await act(async () => view.result.current.survey.setManual("7", "1-01"));
+    expect(api.survey.evaluate).toHaveBeenLastCalledWith(expect.objectContaining({ manual: { "7": "1-01" } }));
+    await act(async () => view.result.current.survey.setManual("7", ""));
+    expect(api.survey.evaluate).toHaveBeenLastCalledWith(expect.objectContaining({ manual: {} }));
+  });
+
+  it("введённую глубину можно сменить и снять — в точке снова глубина файла", async () => {
+    const { view } = await loaded(design());
+    await act(async () => view.result.current.survey.setDepth("1-02", 11.8));
+    expect(view.result.current.survey.enteredDepths).toEqual({ 2: 11.8 });
+    await act(async () => view.result.current.survey.setDepth("1-02", null));
+    expect(view.result.current.survey.enteredDepths).toEqual({});
+    const body = api.survey.evaluate.mock.calls.at(-1)![0];
+    expect(body.points.find((p: SurveyedPoint) => p.line === 2).depth_m).toBeNull();
+  });
+
+  it("колонка таблицы не найдена — заголовки файла, выбор вручную и чтение заново", async () => {
+    const detail = { message: "В таблице не найдена колонка «север». Укажите её вручную.", headers: ["Пикет", "Вост", "Сев"] };
+    api.survey.read.mockRejectedValueOnce(new HttpError(detail.message, 422, detail));
+    const { view } = setup(design());
+    await act(() => view.result.current.survey.load(FILE));
+    const survey = view.result.current.survey;
+    expect(survey.error).toBe(detail.message);
+    expect(survey.headers).toEqual(["Пикет", "Вост", "Сев"]);
+    expect(survey.fileName).toBe("66.csv");
+    act(() => view.result.current.survey.setColumn("name", "Пикет"));
+    act(() => view.result.current.survey.setColumn("east", "Вост"));
+    act(() => view.result.current.survey.setColumn("north", "Сев"));
+    act(() => view.result.current.survey.setColumn("z", ""));
+    await act(() => view.result.current.survey.rereadColumns());
+    expect(api.survey.read).toHaveBeenLastCalledWith(FILE, { columns: { name: "Пикет", east: "Вост", north: "Сев" } });
+    expect(view.result.current.survey.error).toBe("");
+    expect(view.result.current.survey.rows).toHaveLength(3);
+  });
+
+  it("копия не стала документом — ошибка, «Применить» не вызывается", async () => {
+    const { view } = await loaded(design("approved"), async () => ({ ...design("draft", "d2") }));
+    await act(() => view.result.current.survey.copyBySurvey());
+    await waitFor(() => expect(view.result.current.survey.error).toBe(COPY_FAILED));
+    expect(api.survey.apply).not.toHaveBeenCalled();
+    expect(view.result.current.survey.busy).toBe(false);
   });
 });

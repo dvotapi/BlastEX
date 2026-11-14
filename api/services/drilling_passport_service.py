@@ -233,7 +233,7 @@ DEFAULT_CONTOUR_NAME = BlockContour().name
 _BLOCK_NUMBER = re.compile(r"^\s*блок\s*№?\s*(.+?)\s*$", re.IGNORECASE)
 
 
-def _block_label(design: BlastDesign) -> str:
+def block_label(design: BlastDesign) -> str:
     """«Блок» нового паспорта: имя контура, если оно задано (не «Блок» по
     умолчанию), иначе номер из названия проекта («Блок 67» → «67»), иначе
     само название; не длиннее поля паспорта."""
@@ -270,7 +270,7 @@ def create_passport(
     if not payload["block"]:
         # Имя контура не ограничено, а блок паспорта — да: иначе черновик не
         # сохранить повторно (предел проверяется при записи).
-        payload["block"] = _block_label(design)
+        payload["block"] = block_label(design)
     passports = list(repository.list_passports(organization_id, None))
     if not payload["site_code"] and "site_code" not in explicit:
         # Активный объект организации; не определился — объект последнего

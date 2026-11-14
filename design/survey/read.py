@@ -50,7 +50,12 @@ _FALSE = {"нет", "0", "false", "no", "n", "н"}
 
 
 class SurveyReadError(ValueError):
-    """Файл съёмки не прочитан; текст — для пользователя."""
+    """Файл съёмки не прочитан; текст — для пользователя. У таблицы — её
+    заголовки (`headers`): по ним колонки выбираются вручную."""
+
+    def __init__(self, message: str, headers: list[str] | None = None) -> None:
+        super().__init__(message)
+        self.headers = list(headers or [])
 
 
 @dataclass
@@ -97,6 +102,8 @@ class SurveyFile:
     columns: dict[str, str] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
     sha256: str = ""
+    # Заголовки колонок таблицы (формат TABLE); у профилей — пусто.
+    headers: list[str] = field(default_factory=list)
 
 
 def read_survey(
@@ -116,15 +123,16 @@ def read_survey(
     fmt = format or _detect_format(data, filename)
     warnings: list[str] = []
     used: dict[str, str] = {}
+    headers: list[str] = []
     if fmt == "DXF_POINTS":
         points = _read_dxf(data, filename, warnings)
     elif fmt == "TABLE":
-        points = _read_table(data, filename, columns, swap_xy, warnings, used)
+        points = _read_table(data, filename, columns, swap_xy, warnings, used, headers)
     else:
         points = _read_profile(_decode(data), fmt, warnings)
     if not points:
         raise SurveyReadError("В файле нет ни одной точки съёмки: координаты не прочитаны как числа.")
-    return SurveyFile(points, fmt, used, warnings, hashlib.sha256(data).hexdigest())
+    return SurveyFile(points, fmt, used, warnings, hashlib.sha256(data).hexdigest(), headers)
 
 
 # --- определение формата и декодирование -----------------------------------
@@ -304,6 +312,7 @@ def _read_table(
     swap_xy: bool | None,
     warnings: list[str],
     used: dict[str, str],
+    headers: list[str],
 ) -> list[SurveyedPoint]:
     if _extension(filename) in ("xlsx", "xlsm"):
         header, rows, comma = _xlsx_rows(data)
@@ -311,11 +320,16 @@ def _read_table(
         header, rows, comma = _text_rows(_decode(data))
     if not header:
         raise SurveyReadError("В таблице нет строки заголовков.")
-    mapping = _map_columns(header, explicit or {}, swap_xy, warnings)
+    # Непустые заголовки — как в файле: по ним колонку выбирают вручную.
+    headers.extend(title for title in header if title.strip())
+    try:
+        mapping = _map_columns(header, explicit or {}, swap_xy, warnings)
+    except SurveyReadError as exc:
+        raise SurveyReadError(str(exc), headers) from None
     for key in ("name", "east", "north"):
         if key not in mapping:
             label = {"name": "номер скважины", "east": "восток", "north": "север"}[key]
-            raise SurveyReadError(f"В таблице не найдена колонка «{label}». Укажите её вручную.")
+            raise SurveyReadError(f"В таблице не найдена колонка «{label}». Укажите её вручную.", headers)
     used.update({key: header[idx] for key, idx in mapping.items()})
     points: list[SurveyedPoint] = []
     bad: list[int] = []

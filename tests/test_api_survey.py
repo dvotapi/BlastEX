@@ -185,6 +185,41 @@ def test_evaluate_block_from_request_wins(client, repository):
     assert _evaluate(client, design, block="67")["block"] == "67"
 
 
+def test_evaluate_block_without_passport_from_design(client):
+    # Нет паспорта на бурение: блок — как «Блок» нового паспорта (имя контура).
+    design = _design()
+    design.contour.name = "66"
+    for index, hole in enumerate(design.holes, start=1):
+        hole.id = str(index)
+    points = [{**point, "name": f"66-{index:03d}"} for index, point in enumerate(_points(design), start=1)]
+    body = _evaluate(client, design, points=points)
+    assert body["block"] == "66"
+    assert {match["by"] for match in body["matches"]} == {"name"}
+
+
+def test_read_table_returns_headers(client):
+    content = "№;E;N\n1-01;8,0;2,0\n".encode("utf-8")
+    response = client.post(f"{BASE}/read", files={"file": ("s66.csv", content, "text/csv")})
+    assert response.status_code == 200, response.text
+    assert response.json()["headers"] == ["№", "E", "N"]
+
+
+def test_read_missing_column_is_422_with_headers(client):
+    content = "Пикет;Восточн;Северн\n1-01;8,0;2,0\n".encode("utf-8")
+    response = client.post(f"{BASE}/read", files={"file": ("s66.csv", content, "text/csv")})
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert "Укажите её вручную" in detail["message"]
+    assert detail["headers"] == ["Пикет", "Восточн", "Северн"]
+    again = client.post(
+        f"{BASE}/read",
+        files={"file": ("s66.csv", content, "text/csv")},
+        data={"columns": '{"name": "Пикет", "east": "Восточн", "north": "Северн"}'},
+    )
+    assert again.status_code == 200, again.text
+    assert again.json()["points"][0]["name"] == "1-01"
+
+
 def test_evaluate_extra_point_is_unmatched(client):
     design = _design()
     points = [*_points(design), {"name": "Rp1", "x": 500.0, "y": 500.0, "line": 99}]

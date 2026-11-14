@@ -16,7 +16,7 @@
       "receptors",
       "vibration_models"
     ],
-    "execution": ["as_drilled_holes", "as_charged_holes", "as_fired_holes"],
+    "execution": ["as_drilled_holes", "as_charged_holes", "as_fired_holes", "survey_applications"],
     "measured": ["vibration_measurements", "blast_result"],
     "metadata": ["name"]
   }

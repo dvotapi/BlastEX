@@ -1985,6 +1985,45 @@ def default_vibration_model() -> VibrationModel:
 
 
 @dataclass
+class SurveyApplication:
+    """Запись «Применить съёмку» (TASK-014, PR 5а): дата съёмки, файл, кто применил, сколько скважин.
+
+    Хранится в исполнительской части паспорта (`survey_applications`): по ней
+    проект — «по съёмке», а не «предварительный» (решение М3).
+    """
+
+    applied_at: str
+    survey_date: str
+    file_name: str
+    file_sha256: str
+    actor: str = ""
+    counts: dict[str, int] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "applied_at": self.applied_at,
+            "survey_date": self.survey_date,
+            "file_name": self.file_name,
+            "file_sha256": self.file_sha256,
+            "actor": self.actor,
+            "counts": dict(self.counts),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> SurveyApplication:
+        data = data or {}
+        counts = data.get("counts") if isinstance(data.get("counts"), dict) else {}
+        return cls(
+            applied_at=str(data.get("applied_at", "") or ""),
+            survey_date=str(data.get("survey_date", "") or ""),
+            file_name=str(data.get("file_name", "") or ""),
+            file_sha256=str(data.get("file_sha256", "") or ""),
+            actor=str(data.get("actor", "") or ""),
+            counts={str(key): int(value) for key, value in counts.items()},
+        )
+
+
+@dataclass
 class BlastDesign:
     """Паспорт БВР — агрегат всего проекта блока."""
 
@@ -2010,6 +2049,8 @@ class BlastDesign:
     as_drilled_holes: list[AsDrilledHole] = field(default_factory=list)
     as_charged_holes: list[AsChargedHole] = field(default_factory=list)
     as_fired_holes: list[AsFiredHole] = field(default_factory=list)
+    # Применения съёмки (TASK-014, PR 5а); в `to_dict` — только непустой список.
+    survey_applications: list[SurveyApplication] = field(default_factory=list)
     blast_result: Any = None
     lifecycle_status: str = STATUS_DRAFT
     revision: int = 0
@@ -2032,7 +2073,7 @@ class BlastDesign:
         ]
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data = {
             "design_id": self.design_id,
             "name": self.name,
             "version": self.version,
@@ -2062,6 +2103,11 @@ class BlastDesign:
             "designed_sha256": self.designed_sha256,
             "lifecycle_events": [item.to_dict() for item in self.lifecycle_events],
         }
+        # Ключ — только когда съёмку применяли: иначе сменился бы отпечаток
+        # факта (`execution_payload`) у всех прежних проектов.
+        if self.survey_applications:
+            data["survey_applications"] = [item.to_dict() for item in self.survey_applications]
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> BlastDesign:
@@ -2093,6 +2139,9 @@ class BlastDesign:
             as_drilled_holes=[AsDrilledHole.from_dict(item) for item in data.get("as_drilled_holes", [])],
             as_charged_holes=[AsChargedHole.from_dict(item) for item in data.get("as_charged_holes", [])],
             as_fired_holes=[AsFiredHole.from_dict(item) for item in data.get("as_fired_holes", [])],
+            survey_applications=[
+                SurveyApplication.from_dict(item) for item in data.get("survey_applications") or []
+            ],
             blast_result=_blast_result_from_dict(data.get("blast_result")),
             lifecycle_status=str(data.get("lifecycle_status", STATUS_DRAFT) or STATUS_DRAFT),
             revision=int(data.get("revision", 0) or 0),

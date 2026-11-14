@@ -615,6 +615,19 @@ class LifecycleEventSchema(BaseModel):
     mutations: list[str] = Field(default_factory=list)
 
 
+class SurveyApplicationSchema(BaseModel):
+    """Запись «Применить съёмку» (TASK-014, PR 5а)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    applied_at: str = ""
+    survey_date: str = ""
+    file_name: str = ""
+    file_sha256: str = ""
+    actor: str = ""
+    counts: dict[str, int] = Field(default_factory=dict)
+
+
 class BlastDesignSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -640,6 +653,7 @@ class BlastDesignSchema(BaseModel):
     as_drilled_holes: list[AsDrilledHoleSchema] = Field(default_factory=list)
     as_charged_holes: list[AsChargedHoleSchema] = Field(default_factory=list)
     as_fired_holes: list[AsFiredHoleSchema] = Field(default_factory=list)
+    survey_applications: list[SurveyApplicationSchema] = Field(default_factory=list)
     blast_result: BlastResultSchema | None = None
     lifecycle_status: str = "draft"
     revision: int = 0
@@ -1384,6 +1398,7 @@ class DesignSummarySchema(BaseModel):
     revision: int = 0
     designed_sha256: str = ""
     parent_design_id: str = ""
+    surveyed: bool = False
 
 
 class LifecycleStatusSchema(BaseModel):

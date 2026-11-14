@@ -73,6 +73,8 @@ class DesignSummary:
     revision: int = 0
     designed_sha256: str = ""
     parent_design_id: str = ""
+    # Съёмка применена — проект «по съёмке», иначе «предварительный» (решение М3).
+    surveyed: bool = False
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -148,6 +150,7 @@ def list_designs(team_id: str) -> list[DesignSummary]:
                 revision=int(data.get("revision", 0) or 0),
                 designed_sha256=str(data.get("designed_sha256", "") or ""),
                 parent_design_id=str(data.get("parent_design_id", "") or ""),
+                surveyed=bool(data.get("survey_applications")),
             )
         )
     summaries.sort(key=lambda s: s.updated_at, reverse=True)
@@ -316,6 +319,7 @@ def fork_design(
     clone.as_drilled_holes = []
     clone.as_charged_holes = []
     clone.as_fired_holes = []
+    clone.survey_applications = []
     clone.blast_result = None
     clone.vibration_measurements = []
     clone.updated_at = ""

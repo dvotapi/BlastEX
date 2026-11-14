@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import math
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Mapping
 
 from design.editing import local_spacing
@@ -41,9 +41,11 @@ __all__ = [
     "VERDICT_CODES",
     "HoleVerdict",
     "SurveyTolerances",
+    "applied_points",
     "evaluate_survey",
     "required_length_m",
     "surveyed_geometry",
+    "surveyed_hole",
     "tolerances_from_payload",
 ]
 
@@ -131,7 +133,7 @@ class _Surveyed:
     length_m: float
 
 
-def _clean(design: BlastDesign, matches: list[SurveyMatch]) -> dict[str, SurveyedPoint]:
+def applied_points(design: BlastDesign, matches: list[SurveyMatch]) -> dict[str, SurveyedPoint]:
     """Точки, сопоставленные со скважиной проекта без проблемы: hole_id → точка."""
 
     ids = {hole.id for hole in design.holes}
@@ -169,28 +171,36 @@ def required_length_m(hole: Hole, collar_z: float, angle_deg: float) -> float | 
     return None if to_floor is None else to_floor + hole.subdrill_m
 
 
-def surveyed_geometry(design: BlastDesign, matches: list[SurveyMatch]) -> BlastDesign:
-    """Копия проекта: у скважин с точкой — устье, угол, азимут и длина по съёмке.
+def surveyed_hole(hole: Hole, point: SurveyedPoint) -> Hole:
+    """Скважина по съёмке: устье, угол, азимут и длина из точки, не снятое — из проекта.
 
-    Не снятое берётся из проекта (отметка, угол, азимут, длина). Перебур
-    копии — длина за проектной подошвой по оси: тогда точка оси на уровне
-    подошвы (ЛСПП) остаётся на проектной отметке подошвы, как у графы Ф
-    проекта МВ (`mass_blast_fact._fact_geometry`). Скважины без точки — по
-    проекту (смешанная сетка). Проект на входе не меняется.
+    Перебур — длина за проектной подошвой по оси: точка оси на уровне подошвы
+    (ЛСПП) остаётся на проектной отметке подошвы, как у графы Ф проекта МВ
+    (`mass_blast_fact._fact_geometry`). Остальные поля — те же объекты, что у
+    `hole` (копия неглубокая); `hole` не меняется.
     """
 
-    points = _clean(design, matches)
+    surveyed = _surveyed(hole, point)
+    to_floor = _length_to_floor(hole, surveyed.collar.z, surveyed.angle_deg)
+    return replace(
+        hole,
+        collar=surveyed.collar,
+        toe=hole_from_collar(surveyed.collar, surveyed.length_m, surveyed.angle_deg, surveyed.azimuth_deg),
+        subdrill_m=hole.subdrill_m if to_floor is None else surveyed.length_m - to_floor,
+    )
+
+
+def surveyed_geometry(design: BlastDesign, matches: list[SurveyMatch]) -> BlastDesign:
+    """Копия проекта: у скважин с точкой — геометрия по съёмке (`surveyed_hole`).
+
+    Скважины без точки — по проекту (смешанная сетка). Проект на входе не меняется.
+    """
+
+    points = applied_points(design, matches)
     copy = deepcopy(design)
-    for hole in copy.holes:
-        point = points.get(hole.id)
-        if point is None:
-            continue
-        surveyed = _surveyed(hole, point)
-        to_floor = _length_to_floor(hole, surveyed.collar.z, surveyed.angle_deg)
-        hole.collar = surveyed.collar
-        hole.toe = hole_from_collar(surveyed.collar, surveyed.length_m, surveyed.angle_deg, surveyed.azimuth_deg)
-        if to_floor is not None:
-            hole.subdrill_m = surveyed.length_m - to_floor
+    copy.holes = [
+        surveyed_hole(hole, points[hole.id]) if hole.id in points else hole for hole in copy.holes
+    ]
     return copy
 
 
@@ -238,7 +248,7 @@ def evaluate_survey(design: BlastDesign, matches: list[SurveyMatch], tol: Survey
     пропускаются (длина по проекту для ЛСПП и шага).
     """
 
-    points = _clean(design, matches)
+    points = applied_points(design, matches)
     if not points:
         return []
     surveyed_design = surveyed_geometry(design, matches)

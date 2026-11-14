@@ -51,7 +51,8 @@ VERDICT_CODES = ("ok", "underdrill", "overdrill", "offset", "angle", "burden", "
 TOLERANCE_SOURCES = ("passport", "parent_passport", "default")
 
 # «Без изменения» — округление файла маркшейдера: 1 мм в плане и по отметке,
-# 1 см по глубине (спецификация, §7). Угол файл пишет до 0,1°.
+# 1 см по глубине (спецификация, §7). Угол файл пишет до 0,1°: половина шага
+# округления (15,05° → 15,1°) — ещё «без изменения», граница включается.
 UNCHANGED_XYZ_M = 0.001
 UNCHANGED_DEPTH_M = 0.01
 UNCHANGED_ANGLE_DEG = 0.05
@@ -202,7 +203,13 @@ def _axis_deviation_deg(hole: Hole, surveyed: _Surveyed) -> float:
     one = _axis(hole.angle_deg, hole.azimuth_deg)
     two = _axis(surveyed.angle_deg, surveyed.azimuth_deg)
     dot = sum(p * q for p, q in zip(one, two))
-    return math.degrees(math.acos(max(-1.0, min(1.0, dot))))
+    cross = (
+        one[1] * two[2] - one[2] * two[1],
+        one[2] * two[0] - one[0] * two[2],
+        one[0] * two[1] - one[1] * two[0],
+    )
+    # atan2, а не acos: у малых углов (порог «без изменения») acos теряет точность.
+    return math.degrees(math.atan2(math.hypot(*cross), dot))
 
 
 def _percent(value: float | None, base: float | None) -> float | None:
@@ -268,7 +275,7 @@ def evaluate_survey(design: BlastDesign, matches: list[SurveyMatch], tol: Survey
             offset < UNCHANGED_XYZ_M
             and abs(surveyed.collar.z - hole.collar.z) < UNCHANGED_XYZ_M
             and abs(surveyed.length_m - hole.length_m) < UNCHANGED_DEPTH_M
-            and (angle_delta is None or angle_delta < UNCHANGED_ANGLE_DEG)
+            and (angle_delta is None or angle_delta <= UNCHANGED_ANGLE_DEG + _EPS)
         )
         verdicts.append(
             HoleVerdict(

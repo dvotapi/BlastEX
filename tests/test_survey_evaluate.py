@@ -183,6 +183,17 @@ def test_unchanged_thresholds():
     assert _verdicts(design, _matches(design, {"2-02": no_z}))["2-02"].unchanged
 
 
+def test_unchanged_angle_boundary_is_file_rounding():
+    # Угол в файле — до 0,1°: проект 15°, в файле 15,05 → ровно половина шага — ещё «без изменения».
+    design = _design(tilt_deg=15.0)
+    hole = _hole(design, "1-02")
+    at_boundary = _verdicts(design, _matches(design, {"1-02": _point(hole, angle_deg=15.05)}))["1-02"]
+    assert at_boundary.angle_delta_deg == pytest.approx(0.05)
+    assert at_boundary.unchanged
+    beyond = _verdicts(design, _matches(design, {"1-02": _point(hole, angle_deg=15.06)}))["1-02"]
+    assert not beyond.unchanged
+
+
 def test_tolerances_from_payload_defaults_and_values():
     assert tolerances_from_payload(None, source="passport") == SurveyTolerances(source="default")
     defaults = tolerances_from_payload({"tol_depth_m": 0.3, "tol_collar_m": 0.3}, source="parent_passport")

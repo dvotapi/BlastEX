@@ -32,6 +32,10 @@ export type DrillPassportPayload = {
   extra_approvals: string[];
   tol_depth_m: number;
   tol_collar_m: number;
+  /** Допуски съёмки (TASK-014, PR 5а): ключ — только когда задан. */
+  tol_angle_deg?: number | null;
+  tol_burden_pct?: number | null;
+  tol_spacing_pct?: number | null;
   personnel: DrillPerson[];
   alpha_deg: number | null;
   gamma_deg: number | null;

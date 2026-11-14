@@ -103,4 +103,34 @@ describe("APPLY_SURVEY", () => {
     expect(applied.present.network.timing_params?.geometry_stale).toBeUndefined();
     expect(applied.autoRetie).toBeUndefined();
   });
+
+  it("только вода у изменённых скважин — сеть та же, без autoRetie", () => {
+    const before = base(TEMPLATE_NETWORK);
+    const wet = { ...hole("b", 14), water_intervals: [{ from_m: 2, to_m: 13, condition: "wet" }] } as Hole;
+    const applied = designReducer(initDesignState(before), {
+      type: "APPLY_SURVEY",
+      holes: [hole("a"), wet],
+      loads: null,
+      as_drilled_holes: [],
+      survey_application: APPLICATION,
+      changed_ids: ["b"],
+    });
+    expect(applied.present.holes[1].water_intervals).toHaveLength(1);
+    expect(applied.present.network).toBe(before.network);
+    expect(applied.autoRetie).toBeUndefined();
+  });
+
+  it("сменился забой (глубина) — сеть помечена", () => {
+    const deeper = { ...hole("b", 14), toe: { x: 14, y: 5, z: 407 } };
+    const applied = designReducer(initDesignState(base(TEMPLATE_NETWORK)), {
+      type: "APPLY_SURVEY",
+      holes: [hole("a"), deeper],
+      loads: null,
+      as_drilled_holes: [],
+      survey_application: APPLICATION,
+      changed_ids: ["b"],
+    });
+    expect(applied.present.network.timing_params?.geometry_stale).toBe(true);
+    expect(applied.autoRetie?.present).toBe(applied.present);
+  });
 });

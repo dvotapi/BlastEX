@@ -497,3 +497,49 @@ def test_site_surveys_missing_database_url_is_503(sites_client, monkeypatch):
     monkeypatch.delenv("BLASTEX_DATABASE_URL", raising=False)
     sites_client.app.dependency_overrides.pop(get_site_survey_repository)
     assert sites_client.get(SITES_URL).status_code == 503
+
+
+def test_points_are_capped_in_evaluate_and_apply():
+    from pydantic import ValidationError
+
+    from api.schemas.survey import SurveyApplyRequest, SurveyEvaluateRequest
+    from design.survey.read import MAX_SURVEY_ROWS
+
+    def point_errors(model, count: int) -> list[str]:
+        try:
+            model.model_validate({"points": [{"name": "1", "x": 0.0, "y": 0.0}] * count})
+        except ValidationError as exc:
+            return [error["type"] for error in exc.errors() if error["loc"][:1] == ("points",)]
+        return []
+
+    for model in (SurveyEvaluateRequest, SurveyApplyRequest):
+        assert point_errors(model, MAX_SURVEY_ROWS) == []
+        assert point_errors(model, MAX_SURVEY_ROWS + 1) == ["too_long"]
+
+
+def test_hole_subdrill_may_be_negative_but_bounded():
+    from pydantic import ValidationError
+
+    from api.schemas.design import HoleSchema
+
+    base = {
+        "id": "1-01", "row": 1, "col": 1, "diameter_mm": 165.0,
+        "collar": {"x": 0.0, "y": 0.0, "z": 0.0}, "toe": {"x": 0.0, "y": 0.0, "z": -10.0},
+    }
+    assert HoleSchema.model_validate({**base, "subdrill_m": -2.0}).subdrill_m == -2.0  # недобур по съёмке
+    with pytest.raises(ValidationError):
+        HoleSchema.model_validate({**base, "subdrill_m": -150.0})
+
+
+def test_site_survey_create_returns_read_warnings_and_format(sites_client):
+    """Ответ создания несёт формат и предупреждения чтения (сверить файл); в БД их нет."""
+
+    raw = "№;X;Y;Отметка\n1-01;593722,99;1472880,04;419,2\n".encode()
+    created = _upload(sites_client, raw, swap_xy="true")
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["format"] == "TABLE"
+    assert any("переставлены" in text for text in body["warnings"])
+    assert body["points"][0]["x"] == 593722.99  # «Поменять»: X — восток
+    detail = sites_client.get(f"{SITES_URL}/{body['id']}").json()
+    assert "warnings" not in detail and "format" not in detail

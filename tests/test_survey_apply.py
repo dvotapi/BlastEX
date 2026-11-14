@@ -463,3 +463,35 @@ def test_fact_without_depth_is_marked():
     result = _apply(design, _matches(design, points, only=set(points)))
     methods = {item.design_hole_id: item.provenance.method for item in result.as_drilled_holes}
     assert methods == {"2-02": "survey_import", "2-03": "survey_import_no_depth"}
+
+
+def test_unmeasured_depth_is_not_a_measurement_in_compare_and_report():
+    """Факт без замера глубины: в сравнении с проектом и в погонаже факта — «нет замера»."""
+
+    from design.as_drilled import compare_design
+    from design.reporting.engine import _collect_executed
+
+    design = _design()
+    measured, unmeasured = _hole(design, "2-02"), _hole(design, "2-03")
+    points = {"2-02": _point(measured, dl=-0.3), "2-03": _point(unmeasured, dx=0.2, depth_m=None)}
+    applied = _applied(design, _apply(design, _matches(design, points, only=set(points))))
+    rows = {row["design_hole_id"]: row for row in compare_design(applied)["deviations"]}
+    assert rows["2-03"]["depth_deviation_m"] is None and rows["2-03"]["actual_depth_m"] is None
+    assert rows["2-03"]["designed_depth_m"] == pytest.approx(unmeasured.length_m, abs=1e-3)
+    # Применённая съёмка — и проект, и факт: замеренная глубина — число, не «нет замера».
+    assert rows["2-02"]["depth_deviation_m"] == 0.0
+    assert rows["2-02"]["actual_depth_m"] == pytest.approx(measured.length_m - 0.3, abs=1e-3)
+    # Погонаж факта — только когда глубина замерена у всех пробуренных.
+    assert _collect_executed(applied).drilling_metres is None
+    only_measured = _applied(design, _apply(design, _matches(design, {"2-02": points["2-02"]}, only={"2-02"})))
+    assert _collect_executed(only_measured).drilling_metres == pytest.approx(measured.length_m - 0.3, abs=1e-3)
+
+
+def test_deviation_schema_accepts_unmeasured_depth():
+    from api.schemas.design import HoleDeviationSchema
+
+    row = HoleDeviationSchema(
+        design_hole_id="2-03", collar_offset_m=0.2, toe_offset_m=0.2, depth_deviation_m=None,
+        angle_deviation_deg=0.0, azimuth_deviation_deg=0.0, actual_depth_m=None, designed_depth_m=12.0,
+    )
+    assert row.depth_deviation_m is None and row.actual_depth_m is None

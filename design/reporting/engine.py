@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from design.analysis import summary as run_summary
+from design.as_drilled import SURVEY_NO_DEPTH_METHOD
 from design.models import (
     ROLE_DESIGNED,
     ROLE_EXECUTED,
@@ -144,6 +145,9 @@ def _collect_executed(design: BlastDesign) -> ExecutedSnapshot:
     charged = list(design.as_charged_holes)
     fired = list(design.as_fired_holes)
     depths = [float(item.actual_depth) for item in drilled if item.actual_depth]
+    # Съёмка без замера глубины — длина проектная: погонаж факта не считается.
+    if any(item.provenance.method == SURVEY_NO_DEPTH_METHOD for item in drilled):
+        depths = []
     diameters = [float(item.actual_diameter) for item in drilled if item.actual_diameter]
     masses = [float(item.charge_mass_kg) for item in charged if item.charge_mass_kg]
     return ExecutedSnapshot(

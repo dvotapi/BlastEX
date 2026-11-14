@@ -162,30 +162,50 @@ def _detect_format(data: bytes, filename: str) -> str:
         return "DXF_POINTS"
     if ext in ("xlsx", "xlsm"):
         return "TABLE"
+    named = _profile_in_name(filename)
+    if named:
+        return named
     text = _decode(data)
     first = next((ln for ln in text.splitlines() if ln.strip()), "")
-    if ext == "txt" and "," not in text and ";" not in text:
-        return "PNEZ_TXT"
+    # Заголовок — таблица при любом расширении и разделителе (таб, пробелы).
     if _has_header(first):
         return "TABLE"
+    if ext == "txt" and "," not in text and ";" not in text:
+        return "PNEZ_TXT"
     return "PNEZD_CSV"
+
+
+# Профили выноса, которые BlastEX пишет в имя файла (`drilling_passport_service._stakeout`).
+_NAMED_PROFILES = ("PENZD_CSV", "PNEZD_CSV", "PNEZ_TXT")
+
+
+def _profile_in_name(filename: str) -> str | None:
+    upper = filename.upper()
+    return next((code for code in _NAMED_PROFILES if code in upper), None)
 
 
 def _has_header(line: str) -> bool:
     """Первая строка — заголовок, если в ней нет двух чисел подряд за именем."""
 
-    cells = _split(line, _delimiter(line))
+    cells = _split(line, _delimiter(line, spaces=True))
     return not (len(cells) >= 3 and _number(cells[1], False) is not None and _number(cells[2], False) is not None)
 
 
-def _delimiter(line: str) -> str:
+_SPACES = " "  # разделитель таблицы — пробелы (подряд), когда нет «;», таба и «,»
+
+
+def _delimiter(line: str, *, spaces: bool = False) -> str:
     for delim in (";", "\t"):
         if delim in line:
             return delim
+    if spaces and "," not in line:
+        return _SPACES
     return ","
 
 
 def _split(line: str, delim: str) -> list[str]:
+    if delim == _SPACES:
+        return line.split()
     return next(csv.reader([line], delimiter=delim, skipinitialspace=True), [])
 
 
@@ -309,7 +329,7 @@ def _read_dxf(data: bytes, filename: str, warnings: list[str]) -> list[SurveyedP
     return points
 
 
-# --- таблица (CSV/TXT с заголовком, XLSX) -----------------------------------
+# --- таблица (CSV/TXT с заголовком: «;», таб, «,» или пробелы; XLSX) -------
 
 
 def _read_table(
@@ -324,7 +344,7 @@ def _read_table(
     if _extension(filename) in ("xlsx", "xlsm"):
         header, rows, comma = _xlsx_rows(data)
     else:
-        header, rows, comma = _text_rows(_decode(data))
+        header, rows, comma = _text_rows(_decode(data), warnings)
     if not header:
         raise SurveyReadError("В таблице нет строки заголовков.")
     # Непустые заголовки — как в файле: по ним колонку выбирают вручную.
@@ -391,18 +411,28 @@ def _flag(value: Any) -> bool | None:
     return None
 
 
-def _text_rows(text: str) -> tuple[list[str], list[tuple[int, list[Any]]], bool]:
+def _text_rows(text: str, warnings: list[str]) -> tuple[list[str], list[tuple[int, list[Any]]], bool]:
     all_lines = text.splitlines()
     if len(all_lines) > MAX_SURVEY_ROWS + 1:
         raise _too_many_rows()
     lines = [(n, ln) for n, ln in enumerate(all_lines, start=1) if ln.strip()]
     if not lines:
         return [], [], False
-    delim = _delimiter(lines[0][1])
+    delim = _delimiter(lines[0][1], spaces=True)
     header = [c.strip() for c in _split(lines[0][1], delim)]
     if len(header) > MAX_COLUMNS:
         raise SurveyReadError(f"В таблице больше {MAX_COLUMNS} колонок.")
-    return header, [(n, _split(ln, delim)) for n, ln in lines[1:]], delim != ","
+    rows = [(n, _split(ln, delim)) for n, ln in lines[1:]]
+    if delim == _SPACES:
+        # Через пробелы пустую ячейку и название из двух слов не отличить — не молча.
+        ragged = [n for n, cells in rows if len(cells) != len(header)]
+        if ragged:
+            warnings.append(
+                "Таблица через пробелы: в строках "
+                f"{_listed(ragged)} число значений не совпадает с заголовком — проверьте колонки "
+                "(названия колонок — одним словом, пустые ячейки не допускаются)."
+            )
+    return header, rows, delim != ","
 
 
 def _xlsx_rows(data: bytes) -> tuple[list[str], list[tuple[int, list[Any]]], bool]:

@@ -544,6 +544,10 @@
 .survey-site-form label { display:grid; gap:3px; color:#5c6a63; font-size:var(--fs-label); }
 .survey-site-form input, .survey-site-form select { height:var(--control-h); padding:4px 8px; border:1px solid #cfd9d4; border-radius:var(--radius-control); color:#17231d; background:#fbfcfb; }
 .survey-site-form .primary-button { align-self:end; }
+.survey-site-form .survey-site-swap { display:flex; align-items:center; gap:6px; align-self:end; min-height:var(--control-h); }
+.survey-site-form .survey-site-swap input { height:auto; padding:0; }
+.survey-site-dialog > .survey-columns, .survey-site-read { margin:0 12px; }
+.survey-site-read { display:grid; gap:4px; }
 .survey-site-list { margin:0 12px; }
 .survey-site-list ul { display:grid; gap:4px; margin:0; padding:0; list-style:none; max-height:260px; overflow:auto; }
 .survey-site-list li { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:6px 8px; border:1px solid #e2e8e5; border-radius:7px; }

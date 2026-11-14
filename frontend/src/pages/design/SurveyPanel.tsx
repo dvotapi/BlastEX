@@ -7,6 +7,7 @@ import { ruNumber } from "../../lib/format";
 import type { SurveyFormat, SurveyMatchBy, SurveyMatchIssue, SurveyTolerances, SurveyVerdictCode } from "../../types/design";
 import { RoleBadge } from "./RoleBadge";
 import { SiteSurveyDialog } from "./SiteSurveyDialog";
+import { FORMAT_LABELS, formatLabel, SurveyColumnsPicker } from "./SurveyColumnsPicker";
 import { SurveyHelp } from "./SurveyHelp";
 import { DATE_MISSING, type SurveyImportView, type SurveyRow } from "./useSurveyImport";
 
@@ -37,31 +38,9 @@ export const MATCH_ISSUE_LABELS: Record<SurveyMatchIssue, string> = {
   missing_point: "нет съёмки",
 };
 
-/** Роли колонок таблицы — как их понимает сервер (`design/survey/read.py::COLUMN_KEYS`). */
-const COLUMN_ROLES: [string, string][] = [
-  ["name", "номер"],
-  ["east", "восток"],
-  ["north", "север"],
-  ["z", "отметка"],
-  ["depth", "глубина"],
-  ["angle", "угол"],
-  ["azimuth", "азимут"],
-  ["wet", "вода"],
-  ["water", "уровень воды"],
-];
-
 const UNBIND = "__unbind__";
 const DETACH = "__detach__";
 const DEPTH_INVALID = "Глубина — число больше нуля.";
-
-const FORMAT_LABELS: [SurveyFormat | "", string][] = [
-  ["", "определить по файлу"],
-  ["PNEZD_CSV", "CSV: точка, север, восток, отметка"],
-  ["PENZD_CSV", "CSV: точка, восток, север, отметка"],
-  ["PNEZ_TXT", "TXT: точка, север, восток, отметка"],
-  ["DXF_POINTS", "DXF: точки и номера скважин"],
-  ["TABLE", "Таблица с заголовками (CSV, XLSX)"],
-];
 
 /** Число со знаком и настоящим минусом: «+0,20», «−0,50». */
 function signed(value: number | null, digits = 2): string {
@@ -146,6 +125,9 @@ function statusClass(code: SurveyVerdictCode): string {
 }
 
 function HoleCell({ row, survey }: { row: SurveyRow; survey: SurveyImportView }) {
+  // В покое — одна опция (текущая скважина): список всех скважин в каждой
+  // строке — сотни тысяч узлов на блок. Полный список — когда список открывают.
+  const [open, setOpen] = useState(false);
   // Любую точку инженер привязывает сам: и по имени — имя могло ошибиться скважиной.
   // Решение — по строке файла: у одноимённых точек оно своё.
   if (row.point) {
@@ -154,17 +136,25 @@ function HoleCell({ row, survey }: { row: SurveyRow; survey: SurveyImportView })
       if (value === DETACH) survey.detach(line);
       else survey.setManual(line, value === UNBIND ? "" : value);
     };
+    const expand = () => setOpen(true);
     return (
       <select
         aria-label={`Скважина для точки ${name}`}
         value=""
         disabled={survey.busy}
+        onFocus={expand}
+        onMouseDown={expand}
+        onPointerDown={expand}
+        onMouseEnter={expand}
+        // Наведённый, но не открытый список снова сворачивается; открытый держит фокус.
+        onMouseLeave={(event) => document.activeElement !== event.currentTarget && setOpen(false)}
+        onBlur={() => setOpen(false)}
         onChange={(event) => choose(event.target.value)}
       >
         <option value="">{row.holeId ?? "—"}</option>
-        {row.by === "manual" && <option value={UNBIND}>снять ручную привязку</option>}
-        {row.by !== "manual" && row.holeId && <option value={DETACH}>без скважины</option>}
-        {survey.holeIds.map((id) => (
+        {open && row.by === "manual" && <option value={UNBIND}>снять ручную привязку</option>}
+        {open && row.by !== "manual" && row.holeId && <option value={DETACH}>без скважины</option>}
+        {open && survey.holeIds.map((id) => (
           <option key={id} value={id}>{id}</option>
         ))}
       </select>
@@ -255,7 +245,7 @@ export function SurveyPanel({ survey }: { survey: SurveyImportView }) {
               >
                 {FORMAT_LABELS.map(([code, label]) => (
                   <option key={code} value={code}>
-                    {code === "" && survey.format ? `${label} (${FORMAT_LABELS.find(([c]) => c === survey.format)?.[1] ?? ""})` : label}
+                    {code === "" && survey.format ? `${label} (${formatLabel(survey.format)})` : label}
                   </option>
                 ))}
               </select>
@@ -267,23 +257,11 @@ export function SurveyPanel({ survey }: { survey: SurveyImportView }) {
           </>
         )}
         {survey.headers.length > 0 && (
-          <fieldset className="survey-columns" disabled={survey.busy}>
-            <legend>Колонки</legend>
-            {COLUMN_ROLES.map(([role, label]) => (
-              <label key={role}>
-                {label}
-                <select value={survey.columns[role] ?? ""} onChange={(event) => survey.setColumn(role, event.target.value)}>
-                  <option value="">— нет —</option>
-                  {survey.headers.map((header, index) => (
-                    <option key={index} value={header}>{header}</option>
-                  ))}
-                </select>
-              </label>
-            ))}
+          <SurveyColumnsPicker headers={survey.headers} columns={survey.columns} disabled={survey.busy} onColumn={survey.setColumn}>
             <button type="button" className="secondary-button" onClick={() => void survey.rereadColumns()}>
               Прочитать заново
             </button>
-          </fieldset>
+          </SurveyColumnsPicker>
         )}
         {survey.swapSuggested && (
           <div className="survey-swap" role="status">

@@ -1,12 +1,15 @@
 // «Съёмка старого блока» (TASK-014, PR 5а): исполнительная съёмка блока,
 // которого нет в BlastEX, хранится на объекте работ — название блока, горизонт,
 // дата и точки файла. Объект — запись справочника «Объекты» (Cost V2): окно
-// показывает только её название, полей справочника не знает.
+// показывает только её название, полей справочника не знает. Сверить файл не с
+// чем, поэтому формат, «Поменять X и Y» и колонки — как в панели, а после
+// загрузки окно говорит, как файл прочитан.
 import { useEffect, useRef, useState, type MouseEvent, type SyntheticEvent } from "react";
 import { api } from "../../api/endpoints";
 import { ruDate, ruNumber } from "../../lib/format";
 import type { EconomicsReferenceItem } from "../../types/economics";
-import type { SiteSurvey } from "../../types/design";
+import type { SiteSurvey, SiteSurveyCreated, SurveyColumns, SurveyFormat } from "../../types/design";
+import { chosenColumns, FORMAT_LABELS, formatLabel, headersOf, SurveyColumnsPicker } from "./SurveyColumnsPicker";
 
 const SURVEY_ACCEPT = ".csv,.txt,.xlsx,.xlsm,.dxf";
 
@@ -36,6 +39,13 @@ export function SiteSurveyDialog({ onClose }: { onClose: () => void }) {
   const [horizon, setHorizon] = useState("");
   const [surveyDate, setSurveyDate] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [formatChoice, setFormatChoice] = useState<SurveyFormat | "">("");
+  const [swapXy, setSwapXy] = useState(false);
+  // Заголовки таблицы, когда сервер не нашёл колонку: выбор колонок вручную.
+  const [headers, setHeaders] = useState<string[]>([]);
+  const [columns, setColumns] = useState<SurveyColumns>({});
+  // Как прочитан последний сохранённый файл: формат и предупреждения чтения.
+  const [saved, setSaved] = useState<SiteSurveyCreated | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -79,23 +89,47 @@ export function SiteSurveyDialog({ onClose }: { onClose: () => void }) {
   const horizonBad = horizonValue !== null && !Number.isFinite(horizonValue);
   const canUpload = Boolean(siteCode.trim() && blockLabel.trim() && surveyDate && file && !horizonBad && !busy);
 
+  /** Другой файл или формат — колонки свои: их снова ищет сервер. */
+  function resetColumns() {
+    setHeaders([]);
+    setColumns({});
+  }
+
+  function setColumn(role: string, header: string) {
+    setColumns((current) => {
+      const next = { ...current };
+      if (header) next[role] = header;
+      else delete next[role];
+      return next;
+    });
+  }
+
   async function upload() {
     if (!file || !canUpload) return;
     setBusy(true);
     setError("");
+    setSaved(null);
+    const chosen = chosenColumns(columns);
     try {
       const created = await api.survey.sites.create(siteCode.trim(), file, {
         blockLabel: blockLabel.trim(),
         surveyDate,
         ...(horizonValue !== null ? { horizonM: horizonValue } : {}),
+        ...(formatChoice ? { format: formatChoice } : {}),
+        ...(swapXy ? { swapXy: true } : {}),
+        ...(Object.keys(chosen).length ? { columns: chosen } : {}),
       });
-      const { points: _points, ...summary } = created;
+      const { points: _points, format: _format, warnings: _warnings, ...summary } = created;
       setSurveys((current) => newestFirst([summary, ...(current ?? [])]));
+      setSaved(created);
       setBlockLabel("");
       setHorizon("");
       setFile(null);
+      setSwapXy(false);
+      resetColumns();
       if (fileRef.current) fileRef.current.value = "";
     } catch (reason) {
+      setHeaders(headersOf(reason));
       setError(message(reason, "Не удалось загрузить съёмку."));
     } finally {
       setBusy(false);
@@ -189,14 +223,51 @@ export function SiteSurveyDialog({ onClose }: { onClose: () => void }) {
             accept={SURVEY_ACCEPT}
             disabled={busy}
             aria-label="Файл съёмки старого блока"
-            onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+            onChange={(event) => {
+              setFile(event.target.files?.[0] ?? null);
+              resetColumns();
+            }}
           />
+        </label>
+        <label>
+          Формат файла
+          <select
+            value={formatChoice}
+            disabled={busy}
+            onChange={(event) => {
+              setFormatChoice(event.target.value as SurveyFormat | "");
+              resetColumns();
+            }}
+          >
+            {FORMAT_LABELS.map(([code, label]) => (
+              <option key={code} value={code}>{label}</option>
+            ))}
+          </select>
+        </label>
+        <label className="survey-site-swap">
+          <input type="checkbox" checked={swapXy} disabled={busy} onChange={(event) => setSwapXy(event.target.checked)} />
+          Поменять X и Y
         </label>
         <button type="button" className="primary-button" disabled={!canUpload} onClick={() => void upload()}>
           {busy ? "Загружаю…" : "Загрузить"}
         </button>
         {horizonBad && <small className="frag-warnings">Горизонт — число, метры.</small>}
       </div>
+      {headers.length > 0 && (
+        <SurveyColumnsPicker headers={headers} columns={columns} disabled={busy} onColumn={setColumn} />
+      )}
+      {saved && (
+        <div className="survey-site-read" role="status">
+          <small>
+            Блок {saved.block_label} сохранён: точек {saved.points_count}, прочитан как «{formatLabel(saved.format)}».
+          </small>
+          {saved.warnings.length > 0 && (
+            <ul className="frag-warnings survey-warnings">
+              {saved.warnings.map((text, index) => <li key={index}>{text}</li>)}
+            </ul>
+          )}
+        </div>
+      )}
       {siteCode.trim() && (
         <div className="survey-site-list">
           {surveys === null ? (

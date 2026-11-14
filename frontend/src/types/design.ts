@@ -645,14 +645,15 @@ export type HoleDeviation = {
   role: "executed" | string;
   collar_offset_m: number;
   toe_offset_m: number;
-  depth_deviation_m: number;
+  // null — глубина не замерена (съёмка без глубины).
+  depth_deviation_m: number | null;
   angle_deviation_deg: number;
   azimuth_deviation_deg: number;
   actual_burden_m: number | null;
   actual_spacing_m: number | null;
   designed_burden_m: number | null;
   designed_spacing_m: number | null;
-  actual_depth_m: number;
+  actual_depth_m: number | null;
   designed_depth_m: number;
   actual_diameter_mm: number;
   designed_diameter_mm: number;
@@ -1238,6 +1239,9 @@ export type SiteSurvey = {
 };
 
 export type SiteSurveyDetail = SiteSurvey & { points: SurveyedPoint[] };
+
+/** Ответ загрузки съёмки старого блока: как файл прочитан (только в ответе). */
+export type SiteSurveyCreated = SiteSurveyDetail & { format: SurveyFormat; warnings: string[] };
 
 export type SiteSurveyCreateParams = SurveyReadParams & {
   blockLabel: string;

@@ -336,19 +336,21 @@ def compare_hole(designed: Hole, executed: AsDrilledHole, mixed: list[Hole], des
     azimuth_dev = 0.0
     if horizontal_actual > 1e-9 and horizontal_designed > 1e-9:
         azimuth_dev = _signed_azimuth_delta(actual.azimuth_deg, designed.azimuth_deg)
+    # Съёмка без замера глубины: длина в записи — проектная, это не замер.
+    depth_measured = executed.provenance.method != SURVEY_NO_DEPTH_METHOD
     return {
         "design_hole_id": designed.id,
         "role": ROLE_EXECUTED,
         "collar_offset_m": round(_distance3(actual.actual_collar, designed.collar), 3),
         "toe_offset_m": round(_distance3(actual.actual_toe, designed.toe), 3),
-        "depth_deviation_m": round(actual.length_m - designed.length_m, 3),
+        "depth_deviation_m": round(actual.length_m - designed.length_m, 3) if depth_measured else None,
         "angle_deviation_deg": round(actual.angle_deg - designed.angle_deg, 3),
         "azimuth_deviation_deg": round(azimuth_dev, 3),
         "actual_burden_m": _round_opt(actual_burden),
         "actual_spacing_m": _round_opt(actual_spacing),
         "designed_burden_m": _round_opt(designed_burden),
         "designed_spacing_m": _round_opt(designed_spacing),
-        "actual_depth_m": round(actual.length_m, 3),
+        "actual_depth_m": round(actual.length_m, 3) if depth_measured else None,
         "designed_depth_m": round(designed.length_m, 3),
         "actual_diameter_mm": round(actual.actual_diameter, 2),
         "designed_diameter_mm": round(designed.diameter_mm, 2),

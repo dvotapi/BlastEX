@@ -66,6 +66,7 @@ import type {
   AsDrilledCompareResponse,
   SiteSurvey,
   SiteSurveyCreateParams,
+  SiteSurveyCreated,
   SiteSurveyDetail,
   SurveyApplyRequest,
   SurveyApplyResponse,
@@ -569,7 +570,7 @@ export const api = {
         if (params.format) form.append("format", params.format);
         if (params.swapXy !== undefined) form.append("swap_xy", String(params.swapXy));
         if (params.columns) form.append("columns", JSON.stringify(params.columns));
-        return postForm<SiteSurveyDetail>(`${V1}/design/survey/sites/${encodeURIComponent(siteCode)}`, form);
+        return postForm<SiteSurveyCreated>(`${V1}/design/survey/sites/${encodeURIComponent(siteCode)}`, form);
       },
       remove: (siteCode: string, id: string) =>
         del<void>(`${V1}/design/survey/sites/${encodeURIComponent(siteCode)}/${encodeURIComponent(id)}`),

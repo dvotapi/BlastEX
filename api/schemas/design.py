@@ -159,7 +159,8 @@ class HoleSchema(BaseModel):
     toe: Point3Schema
     diameter_mm: float = Field(..., ge=0)
     # Может быть отрицательным: недобур по съёмке при проектной подошве (TASK-014, М7).
-    subdrill_m: float = 0.0
+    # Недобур не глубже высоты уступа: 100 м — с запасом.
+    subdrill_m: float = Field(0.0, ge=-100)
     kind: str = "production"
     source: str = "generated"
     enabled: bool = True
@@ -573,14 +574,15 @@ class HoleDeviationSchema(BaseModel):
     role: str = "executed"
     collar_offset_m: float
     toe_offset_m: float
-    depth_deviation_m: float
+    # None — глубина не замерена (съёмка без глубины, `survey_import_no_depth`).
+    depth_deviation_m: float | None
     angle_deviation_deg: float
     azimuth_deviation_deg: float
     actual_burden_m: float | None = None
     actual_spacing_m: float | None = None
     designed_burden_m: float | None = None
     designed_spacing_m: float | None = None
-    actual_depth_m: float = 0.0
+    actual_depth_m: float | None = 0.0
     designed_depth_m: float = 0.0
     actual_diameter_mm: float = 0.0
     designed_diameter_mm: float = 0.0

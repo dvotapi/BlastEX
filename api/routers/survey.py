@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, Upl
 from fastapi.concurrency import run_in_threadpool
 
 from api.schemas.survey import (
+    SiteSurveyCreatedSchema,
     SiteSurveyDetailSchema,
     SiteSurveySchema,
     SurveyApplyRequest,
@@ -126,7 +127,7 @@ def get_site_survey(
     return survey_service.get_site_survey(repository, organization_id, site_code, survey_id)
 
 
-@router.post("/sites/{site_code}", response_model=SiteSurveyDetailSchema, status_code=status.HTTP_201_CREATED)
+@router.post("/sites/{site_code}", response_model=SiteSurveyCreatedSchema, status_code=status.HTTP_201_CREATED)
 async def post_site_survey(
     site_code: str,
     file: UploadFile = File(...),
@@ -139,7 +140,7 @@ async def post_site_survey(
     session: dict[str, object] = Depends(require_internal_access),
     repository: SiteSurveyRepository = Depends(get_site_survey_repository),
     snapshot: ReferenceSnapshot = Depends(current_reference_snapshot),
-) -> SiteSurveyDetailSchema:
+) -> SiteSurveyCreatedSchema:
     organization_id, actor = _identity(session)
     # Объект проверяется до чтения файла: чужой код не должен стоить разбора.
     survey_service.check_site(snapshot, site_code)

@@ -15,7 +15,6 @@
 // (как `CHANGED_DURING_GEOLOGY` у подбора раскладки). Сверка — по значениям:
 // «Сохранить» даёт новые объекты с теми же значениями.
 import { useEffect, useMemo, useRef, useState, type Dispatch } from "react";
-import { HttpError } from "../../api/client";
 import { api } from "../../api/endpoints";
 import { normalizeLifecycleStatus } from "../../lib/lifecycle";
 import type {
@@ -31,6 +30,7 @@ import type {
   SurveyedPoint,
 } from "../../types/design";
 import type { DesignAction, DesignState } from "./designReducer";
+import { chosenColumns, headersOf } from "./SurveyColumnsPicker";
 import { stableJson } from "./useLayoutSearch";
 
 export const SURVEY_CHANGED = "Проект изменился, повторите оценку";
@@ -38,6 +38,14 @@ export const IN_REVIEW_HINT = "Верните проект в черновик";
 export const CLOSED_HINT = "Проект закрыт: съёмку к нему не применить";
 export const DATE_MISSING = "Укажите дату съёмки";
 export const COPY_FAILED = "Копия по съёмке не открыта — съёмка не применена.";
+
+/** Копия создана на сервере, но пока она создавалась, открыли другой проект. */
+export function copyNotOpened(name: string): string {
+  return `Копия «${name}» создана, но не открыта — откройте её в списке проектов и примените съёмку там.`;
+}
+
+/** Итог «Создать копию»: копия на сервере и открыла ли её страница. */
+export type ForkResult = { copy: BlastDesign; opened: boolean };
 
 /** Строка таблицы сопоставления: скважина, её точка и оценка. */
 export type SurveyRow = {
@@ -151,18 +159,6 @@ function message(reason: unknown, fallback: string): string {
   return reason instanceof Error && reason.message ? reason.message : fallback;
 }
 
-/** Заголовки таблицы из ответа 422 чтения (колонка не найдена). */
-function headersOf(reason: unknown): string[] {
-  if (!(reason instanceof HttpError) || !reason.detail || typeof reason.detail !== "object") return [];
-  const headers = (reason.detail as { headers?: unknown }).headers;
-  return Array.isArray(headers) ? headers.filter((item): item is string => typeof item === "string") : [];
-}
-
-/** Только заданные роли — их сервер читает как выбор человека. */
-function chosenColumns(columns: SurveyColumns): SurveyColumns {
-  return Object.fromEntries(Object.entries(columns).filter(([, header]) => header));
-}
-
 type Source = { file: File; formatChoice: SurveyFormat | ""; swapXy: boolean; columns: SurveyColumns };
 type Loaded = { fileName: string; sha256: string; format: SurveyFormat; readWarnings: string[] };
 type Evaluation = { response: SurveyEvaluateResponse; signature: string };
@@ -202,7 +198,7 @@ export function useSurveyImport({
   /** Параметры расчёта зарядов страницы (как у «Рассчитать заряды»); нет ВВ — null. */
   chargeRequest: () => ChargeGenerateRequest | null;
   /** Копия сохранённого проекта, открытая черновиком; не вышло — null (причину показывает страница). */
-  onFork: () => Promise<BlastDesign | null>;
+  onFork: () => Promise<ForkResult | null>;
   /** Съёмка легла в документ: страница сбрасывает свои результаты. */
   onApplied?: () => void;
 }): SurveyImportView {
@@ -511,23 +507,24 @@ export function useSurveyImport({
     setBusy(true);
     setError("");
     setNotice("");
-    let copy: BlastDesign | null = null;
+    let fork: ForkResult | null = null;
     let failure = COPY_FAILED;
     try {
-      copy = await onForkRef.current();
+      fork = await onForkRef.current();
     } catch (reason) {
       failure = message(reason, COPY_FAILED);
     }
     // Пока создавалась копия, съёмку сбросили (открыли другой проект) — не применяем.
     if (run !== copyRun.current) return;
-    if (!copy) {
+    if (!fork || !fork.opened) {
       copying.current = false;
       setBusy(false);
-      setError(failure);
+      // Копия на сервере есть, но страница уже на другом проекте — сказать, где она.
+      setError(fork ? copyNotOpened(fork.copy.name) : failure);
       return;
     }
     // Страница открывает копию до ответа: на ближайшей отрисовке она — документ.
-    setPendingCopy(copy.design_id);
+    setPendingCopy(fork.copy.design_id);
   }
 
   useEffect(() => {

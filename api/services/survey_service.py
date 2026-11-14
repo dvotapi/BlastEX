@@ -25,6 +25,7 @@ from api import config
 from api.schemas.survey import (
     HoleVerdictSchema,
     SurveyApplyRequest,
+    SiteSurveyCreatedSchema,
     SiteSurveyDetailSchema,
     SiteSurveySchema,
     SurveyApplyResponse,
@@ -371,7 +372,7 @@ def create_site_survey(
     block_label: str,
     survey_date: str,
     horizon_m: float | None,
-) -> SiteSurveyDetailSchema:
+) -> SiteSurveyCreatedSchema:
     check_site(snapshot, site_code)
     label = block_label.strip()
     if not label:
@@ -399,7 +400,10 @@ def create_site_survey(
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     except SQLAlchemyError as exc:
         raise _unavailable() from exc
-    return _site_detail(created)
+    # Формат и предупреждения чтения — только в ответе: по ним файл сверяют.
+    return SiteSurveyCreatedSchema(
+        **_site_detail(created).model_dump(), format=survey.format, warnings=survey.warnings
+    )
 
 
 def delete_site_survey(repository: SiteSurveyRepository, organization_id: str, site_code: str, survey_id: str) -> None:

@@ -445,15 +445,25 @@ function reduceDocument(document: BlastDesign, action: DesignAction): BlastDesig
       // «Сетка» надо взять из документа (применение, отмена, повтор).
       return { ...cleared, network: normalizeNetwork(action.network), pattern_params: action.pattern_params };
     }
-    case "APPLY_SURVEY":
+    case "APPLY_SURVEY": {
+      // Коммутация устаревает, только если у изменённой скважины сменились устье
+      // или забой; одна вода сети не касается.
+      const previous = new Map(document.holes.map((h) => [h.id, h]));
+      const changed = new Set(action.changed_ids);
+      const geometryChanged = action.holes.some((h) => {
+        if (!changed.has(h.id)) return false;
+        const old = previous.get(h.id);
+        return !old || !samePoint(old.collar, h.collar) || !samePoint(old.toe, h.toe);
+      });
       return {
         ...document,
         holes: action.holes.map(normalizeHole),
         loads: action.loads ?? document.loads,
         as_drilled_holes: action.as_drilled_holes,
         survey_applications: [...(document.survey_applications ?? []), action.survey_application],
-        network: action.changed_ids.length ? staleNetwork(document.network) : document.network,
+        network: geometryChanged ? staleNetwork(document.network) : document.network,
       };
+    }
     case "RECOMPUTE_HOLES": {
       // Только геометрия: устье и забой. Прочие поля скважины (диаметр, вид,
       // ручные флаги) — как в документе; геология старой оси сбрасывается.

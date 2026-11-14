@@ -27,5 +27,8 @@ describe("SurveyHelp", () => {
     expect(text).toContain("отрицательный перебур");
     expect(text).toContain("без скважины");
     expect(text).toContain("строке файла");
+    expect(text).toContain("через пробелы");
+    expect(text).toContain("создана, но не открыта");
+    expect(text).toContain("Поменять X и Y");
   });
 });

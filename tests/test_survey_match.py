@@ -1,9 +1,12 @@
+import math
+import random
+import time
 import unittest
 
 from api.schemas.design import PatternGenerateRequest
 from api.services import design_service
 from design.models import Hole, Point3
-from design.survey.match import match_survey, swap_detect
+from design.survey.match import _pairs, match_survey, swap_detect
 from design.survey.read import SurveyedPoint
 
 
@@ -157,3 +160,41 @@ class MatchTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _brute_pairs(holes, points, limit, swap=False):
+    candidates = []
+    for hi, hole in enumerate(holes):
+        for pi, point in enumerate(points):
+            px, py = (point.y, point.x) if swap else (point.x, point.y)
+            dist = math.hypot(hole.collar.x - px, hole.collar.y - py)
+            if dist <= limit:
+                candidates.append((dist, hi, pi))
+    candidates.sort()
+    used_h, used_p, out = set(), set(), []
+    for _, hi, pi in candidates:
+        if hi not in used_h and pi not in used_p:
+            used_h.add(hi)
+            used_p.add(pi)
+            out.append((holes[hi].id, pi))
+    return out
+
+
+class PairsGridTest(unittest.TestCase):
+    def test_grid_gives_same_pairs_as_full_search(self):
+        rng = random.Random(14)
+        holes = [_hole(f"h{i}", rng.uniform(0, 30), rng.uniform(0, 30)) for i in range(150)]
+        points = [_pt(f"p{i}", rng.uniform(-1, 31), rng.uniform(-1, 31), i + 1) for i in range(300)]
+        for limit in (0.0, 0.3, 0.6, 2.0, 7.5):
+            for swap in (False, True):
+                got = [(h.id, points.index(p)) for h, p in _pairs(holes, points, limit, swap)]
+                self.assertEqual(got, _brute_pairs(holes, points, limit, swap), (limit, swap))
+
+    def test_large_survey_is_not_quadratic(self):
+        # 2000 скважин × 20 000 точек: полный перебор — 4·10⁷ расстояний за вызов.
+        holes = [_hole(f"h{i}", (i % 50) * 4.0, (i // 50) * 4.0) for i in range(2000)]
+        points = [_pt(f"p{i}", 1000.0 + (i % 200) * 4.0, (i // 200) * 4.0, i + 1) for i in range(20000)]
+        started = time.perf_counter()
+        swap_detect(holes, points, 0.3)
+        match_survey(holes, points, block="", tol_collar_m=0.3)
+        self.assertLess(time.perf_counter() - started, 3.0)

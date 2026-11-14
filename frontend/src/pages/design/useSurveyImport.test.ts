@@ -23,7 +23,7 @@ const api = vi.hoisted(() => ({
 vi.mock("../../api/endpoints", () => ({ api }));
 
 import { HttpError } from "../../api/client";
-import { COPY_FAILED, DATE_MISSING, SURVEY_CHANGED, todayIso, useSurveyImport } from "./useSurveyImport";
+import { COPY_FAILED, DATE_MISSING, SURVEY_CHANGED, copyNotOpened, todayIso, useSurveyImport, type ForkResult } from "./useSurveyImport";
 
 function hole(id: string, x: number): Hole {
   return {
@@ -92,7 +92,7 @@ function applied(): SurveyApplyResponse {
   };
 }
 
-type ForkFn = (dispatch: Dispatch<DesignAction>) => Promise<BlastDesign | null>;
+type ForkFn = (dispatch: Dispatch<DesignAction>) => Promise<ForkResult | null>;
 
 function setup(initial: BlastDesign, fork: ForkFn = async () => null, swallow: DesignAction["type"][] = []) {
   const actions: DesignAction[] = [];
@@ -237,7 +237,7 @@ describe("useSurveyImport", () => {
     const fork: ForkFn = async (dispatch) => {
       const copy = { ...design("draft", "d2"), parent_design_id: "d1" } as BlastDesign;
       dispatch({ type: "LOAD", design: copy });
-      return copy;
+      return { copy, opened: true };
     };
     const { view, actions, onFork } = await loaded(design("approved"), fork);
     await act(async () => view.result.current.survey.setManual(3, "1-02"));
@@ -346,9 +346,21 @@ describe("useSurveyImport", () => {
   });
 
   it("копия не стала документом — ошибка, «Применить» не вызывается", async () => {
-    const { view } = await loaded(design("approved"), async () => ({ ...design("draft", "d2") }));
+    const { view } = await loaded(design("approved"), async () => ({ copy: { ...design("draft", "d2") }, opened: true }));
     await act(() => view.result.current.survey.copyBySurvey());
     await waitFor(() => expect(view.result.current.survey.error).toBe(COPY_FAILED));
+    expect(api.survey.apply).not.toHaveBeenCalled();
+    expect(view.result.current.survey.busy).toBe(false);
+  });
+
+  it("копия создана, но страница сменилась — ошибка называет копию, «Применить» не вызывается", async () => {
+    const copy = { ...design("draft", "d2"), name: "Блок 66 · по съёмке" } as BlastDesign;
+    const { view } = await loaded(design("approved"), async () => ({ copy, opened: false }));
+    await act(() => view.result.current.survey.copyBySurvey());
+    expect(view.result.current.survey.error).toBe(copyNotOpened("Блок 66 · по съёмке"));
+    expect(view.result.current.survey.error).toBe(
+      "Копия «Блок 66 · по съёмке» создана, но не открыта — откройте её в списке проектов и примените съёмку там.",
+    );
     expect(api.survey.apply).not.toHaveBeenCalled();
     expect(view.result.current.survey.busy).toBe(false);
   });

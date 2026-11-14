@@ -3,6 +3,7 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SurveyHoleVerdict, SurveyTolerances, SurveyedPoint } from "../../types/design";
+import { HttpError } from "../../api/client";
 import type { SurveyImportView, SurveyRow } from "./useSurveyImport";
 
 const api = vi.hoisted(() => ({
@@ -105,6 +106,17 @@ function view(extra: Partial<SurveyImportView> = {}): SurveyImportView {
   };
 }
 
+/** Выбор скважины строки: полный список появляется, когда список открывают. */
+async function opened(user: ReturnType<typeof userEvent.setup>, label: string): Promise<HTMLSelectElement> {
+  const select = screen.getByLabelText(label) as HTMLSelectElement;
+  await user.click(select);
+  return select;
+}
+
+async function pick(user: ReturnType<typeof userEvent.setup>, label: string, value: string) {
+  await user.selectOptions(await opened(user, label), value);
+}
+
 describe("SurveyPanel", () => {
   it("таблица: сопоставление и статусы подписями, допуски с источником", () => {
     render(<SurveyPanel survey={view()} />);
@@ -136,7 +148,7 @@ describe("SurveyPanel", () => {
     const user = userEvent.setup();
     const survey = view();
     render(<SurveyPanel survey={survey} />);
-    await user.selectOptions(screen.getByLabelText("Скважина для точки R1"), "1-03");
+    await pick(user, "Скважина для точки R1", "1-03");
     expect(survey.setManual).toHaveBeenCalledWith(3, "1-03");
     await user.click(screen.getByRole("button", { name: "Пропустить точку R1" }));
     expect(survey.skip).toHaveBeenCalledWith(3);
@@ -200,7 +212,7 @@ describe("SurveyPanel", () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     api.survey.sites.create.mockResolvedValue({
       id: "s2", site_code: "GUS", block_label: "65", horizon_m: 175.5, survey_date: "2026-11-01", file_name: "65.csv",
-      file_sha256: "y", points_count: 30, created_at: "2026-11-02T10:00:00+00:00", points: [],
+      file_sha256: "y", points_count: 30, created_at: "2026-11-02T10:00:00+00:00", points: [], format: "PNEZD_CSV", warnings: [],
     });
     render(<SurveyPanel survey={view()} />);
     await user.click(screen.getByRole("button", { name: "Съёмка старого блока" }));
@@ -220,7 +232,7 @@ describe("SurveyPanel", () => {
     await waitFor(() =>
       expect(api.survey.sites.create).toHaveBeenCalledWith("GUS", file, { blockLabel: "65", surveyDate: "2026-11-01", horizonM: 175.5 }),
     );
-    expect(await within(dialog).findByText(/Блок 65/)).toBeTruthy();
+    expect(await within(dialog).findByText("Блок 65")).toBeTruthy();
 
     await user.click(within(dialog).getByRole("button", { name: "Удалить съёмку блока 64" }));
     await waitFor(() => expect(api.survey.sites.remove).toHaveBeenCalledWith("GUS", "s1"));
@@ -232,14 +244,14 @@ describe("SurveyPanel", () => {
     const manualRow: SurveyRow = { key: "e", holeId: "1-03", point: { name: "9", x: 1, y: 1, line: 4 }, by: "manual", issue: "", verdict: verdict("1-03", { name: "9", x: 1, y: 1, line: 4 }, ["ok"]) };
     const survey = view({ rows: [...ROWS, manualRow] });
     render(<SurveyPanel survey={survey} />);
-    await user.selectOptions(screen.getByLabelText("Скважина для точки 7"), "1-03");
+    await pick(user, "Скважина для точки 7", "1-03");
     expect(survey.setManual).toHaveBeenLastCalledWith(2, "1-03");
     await user.click(screen.getByRole("button", { name: "Пропустить точку 7" }));
     expect(survey.skip).toHaveBeenCalledWith(2);
-    expect(within(screen.getByLabelText("Скважина для точки 7")).queryByText("снять ручную привязку")).toBeNull();
-    await user.selectOptions(screen.getByLabelText("Скважина для точки 9"), "снять ручную привязку");
+    expect(within(await opened(user, "Скважина для точки 7")).queryByText("снять ручную привязку")).toBeNull();
+    await pick(user, "Скважина для точки 9", "снять ручную привязку");
     expect(survey.setManual).toHaveBeenLastCalledWith(4, "");
-    expect(within(screen.getByLabelText("Скважина для точки 9")).queryByText("без скважины")).toBeNull();
+    expect(within(await opened(user, "Скважина для точки 9")).queryByText("без скважины")).toBeNull();
     expect(screen.getByRole("button", { name: "Пропустить точку 9" })).toBeTruthy();
   });
 
@@ -247,9 +259,9 @@ describe("SurveyPanel", () => {
     const user = userEvent.setup();
     const survey = view();
     render(<SurveyPanel survey={survey} />);
-    await user.selectOptions(screen.getByLabelText("Скважина для точки 66-1-01"), "1-02");
+    await pick(user, "Скважина для точки 66-1-01", "1-02");
     expect(survey.setManual).toHaveBeenLastCalledWith(1, "1-02");
-    await user.selectOptions(screen.getByLabelText("Скважина для точки 66-1-01"), "без скважины");
+    await pick(user, "Скважина для точки 66-1-01", "без скважины");
     expect(survey.detach).toHaveBeenLastCalledWith(1);
     await user.click(screen.getByRole("button", { name: "Пропустить точку 66-1-01" }));
     expect(survey.skip).toHaveBeenLastCalledWith(1);
@@ -319,5 +331,66 @@ describe("SurveyPanel", () => {
     render(<SurveyPanel survey={view({ format: "TABLE", headers: ["A", "A", "B"], columns: {} })} />);
     expect(within(screen.getByRole("group", { name: "Колонки" })).getByLabelText("номер").querySelectorAll("option")).toHaveLength(4);
     expect(errors.mock.calls.some((call) => String(call[0]).includes("same key"))).toBe(false);
+  });
+
+  it("«Съёмка старого блока»: формат, «Поменять X и Y», предупреждения чтения и выбор колонок", async () => {
+    const user = userEvent.setup();
+    const saved = {
+      id: "s2", site_code: "GUS", block_label: "65", horizon_m: null, survey_date: "2026-11-01", file_name: "65.csv",
+      file_sha256: "y", points_count: 30, created_at: "2026-11-02T10:00:00+00:00", points: [],
+      format: "TABLE", warnings: ["Колонки X/Y переставлены по запросу: X — восток, Y — север."],
+    };
+    api.survey.sites.create
+      .mockRejectedValueOnce(
+        new HttpError("В таблице не найдена колонка «номер скважины». Укажите её вручную.", 422, {
+          message: "В таблице не найдена колонка «номер скважины». Укажите её вручную.",
+          headers: ["Пикет", "X", "Y"],
+        }),
+      )
+      .mockResolvedValueOnce(saved);
+    render(<SurveyPanel survey={view()} />);
+    await user.click(screen.getByRole("button", { name: "Съёмка старого блока" }));
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect((within(dialog).getByLabelText("Объект") as HTMLSelectElement).value).toBe("GUS"));
+    await user.type(within(dialog).getByLabelText("Блок"), "65");
+    await user.type(within(dialog).getByLabelText("Дата съёмки"), "2026-11-01");
+    const file = new File(["x"], "65.csv");
+    await user.upload(within(dialog).getByLabelText("Файл съёмки старого блока"), file);
+    await user.selectOptions(within(dialog).getByLabelText("Формат файла"), "TABLE");
+    await user.click(within(dialog).getByLabelText("Поменять X и Y"));
+    await user.click(within(dialog).getByRole("button", { name: "Загрузить" }));
+    await waitFor(() =>
+      expect(api.survey.sites.create).toHaveBeenLastCalledWith("GUS", file, {
+        blockLabel: "65", surveyDate: "2026-11-01", format: "TABLE", swapXy: true,
+      }),
+    );
+    // Колонка не найдена — выбор колонок по заголовкам файла, загрузка — с выбором.
+    expect((await within(dialog).findByRole("alert")).textContent).toContain("не найдена колонка");
+    await user.selectOptions(within(dialog).getByLabelText("номер"), "Пикет");
+    await user.click(within(dialog).getByRole("button", { name: "Загрузить" }));
+    await waitFor(() =>
+      expect(api.survey.sites.create).toHaveBeenLastCalledWith("GUS", file, {
+        blockLabel: "65", surveyDate: "2026-11-01", format: "TABLE", swapXy: true, columns: { name: "Пикет" },
+      }),
+    );
+    const note = await within(dialog).findByRole("status");
+    expect(note.textContent).toContain("Блок 65 сохранён");
+    expect(note.textContent).toContain("Таблица с заголовками");
+    expect(note.textContent).toContain("Колонки X/Y переставлены по запросу");
+    expect(within(dialog).queryByLabelText("номер")).toBeNull();
+    expect(within(dialog).queryByText(/\{|\}/)).toBeNull();
+  });
+
+  it("выбор скважины в покое — одна опция, полный список — когда его открывают", async () => {
+    const user = userEvent.setup();
+    render(<SurveyPanel survey={view()} />);
+    const select = screen.getByLabelText("Скважина для точки 7") as HTMLSelectElement;
+    expect(Array.from(select.options).map((option) => option.textContent)).toEqual(["1-02"]);
+    await user.hover(select);
+    expect(Array.from(select.options).map((option) => option.textContent)).toEqual(["1-02", "без скважины", "1-01", "1-02", "1-03"]);
+    // Другие строки не раскрываются; наведённый без открытия — сворачивается.
+    expect((screen.getByLabelText("Скважина для точки R1") as HTMLSelectElement).options).toHaveLength(1);
+    await user.unhover(select);
+    expect(select.options).toHaveLength(1);
   });
 });

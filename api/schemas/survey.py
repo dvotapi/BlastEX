@@ -175,3 +175,11 @@ class SiteSurveyDetailSchema(SiteSurveySchema):
     """Съёмка с точками (None в точках опущены, как у `SurveyedPoint.to_dict`)."""
 
     points: list[SurveyedPointSchema]
+
+
+class SiteSurveyCreatedSchema(SiteSurveyDetailSchema):
+    """Ответ загрузки: как файл прочитан — сверить до работы с ним. Только в
+    ответе, в БД не хранится."""
+
+    format: SurveyFormat
+    warnings: list[str] = Field(default_factory=list)

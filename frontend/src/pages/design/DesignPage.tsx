@@ -168,7 +168,7 @@ import { TimingPanel } from "./TimingPanel";
 import { VibrationPanel } from "./VibrationPanel";
 import { AsDrilledPanel } from "./AsDrilledPanel";
 import { SurveyPanel } from "./SurveyPanel";
-import { useSurveyImport } from "./useSurveyImport";
+import { useSurveyImport, type ForkResult } from "./useSurveyImport";
 import { AsChargedPanel } from "./AsChargedPanel";
 import { AsFiredPanel } from "./AsFiredPanel";
 import { ExecutionComparePanel } from "./ExecutionComparePanel";
@@ -2502,11 +2502,12 @@ export function DesignPage({
   }
 
   /**
-   * Ревизия сохранённого паспорта, открытая черновиком. Возвращает копию, если
-   * она открылась (иначе null, причина — в ошибке страницы). «Копия по съёмке»
-   * остаётся на своём этапе (`keepStage`).
+   * Ревизия сохранённого паспорта, открытая черновиком. Возвращает копию и
+   * открыла ли её страница (`opened = false` — пока копия создавалась, открыли
+   * другой проект); копии нет — null, причина — в ошибке страницы. «Копия по
+   * съёмке» остаётся на своём этапе (`keepStage`).
    */
-  async function forkPlan(options: { name?: string; keepStage?: boolean } = {}): Promise<BlastDesign | null> {
+  async function forkPlan(options: { name?: string; keepStage?: boolean } = {}): Promise<ForkResult | null> {
     if (!document.design_id) {
       setError("Сначала сохраните паспорт.");
       return null;
@@ -2530,7 +2531,7 @@ export function DesignPage({
         setMode("contour");
       }
       await refreshPlans();
-      return opened ? forked : null;
+      return { copy: forked, opened };
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось создать ревизию.");
       return null;

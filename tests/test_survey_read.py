@@ -211,3 +211,33 @@ def test_swap_xy_for_profiles_and_dxf(name):
     assert [(p.name, p.x, p.y) for p in swapped.points] == [(p.name, p.y, p.x) for p in plain.points]
     assert "Колонки востока и севера переставлены по запросу." in swapped.warnings
     assert "Колонки востока и севера переставлены по запросу." not in plain.warnings
+
+
+@pytest.mark.parametrize("sep", ["\t", " ", "  "])
+@pytest.mark.parametrize("dec", [".", ","])
+def test_txt_table_with_header_tab_or_spaces(sep, dec):
+    # Таблица в .txt с заголовком — колонки по заголовку, а не по позиции профиля PNEZ_TXT.
+    values = ["1-01", "1472880.04", "593722.99", "419.21", "12.4"]
+    rows = [["№", "Восток", "Север", "Отметка", "Глубина"], [v.replace(".", dec) for v in values]]
+    raw = "\n".join(sep.join(r) for r in rows).encode()
+    f = read_survey(raw, "s.txt")
+    p = f.points[0]
+    assert f.format == "TABLE"
+    assert (p.name, p.x, p.y, p.z, p.depth_m) == ("1-01", 1472880.04, 593722.99, 419.21, 12.4)
+
+
+def test_profile_from_file_name():
+    # Файл выноса BlastEX называется по профилю — без выбора формата профиль берётся из имени.
+    base = {p.name: (p.x, p.y) for p in read_survey((FIX / "66_PNEZD_CSV.csv").read_bytes(), "a.csv").points}
+    for name in ("66_PENZD_CSV.csv", "66-1_r2_penzd_csv.csv"):
+        f = read_survey((FIX / "66_PENZD_CSV.csv").read_bytes(), name)
+        assert f.format == "PENZD_CSV"
+        assert {p.name: (p.x, p.y) for p in f.points} == base
+    assert read_survey((FIX / "66_PNEZ_TXT.txt").read_bytes(), "66_PNEZ_TXT.txt").format == "PNEZ_TXT"
+
+
+def test_space_table_with_two_word_header_warns():
+    raw = "№ Восток Север Уровень воды\n1-01 1472880.04 593722.99 1.5\n".encode()
+    f = read_survey(raw, "s.txt")
+    assert f.format == "TABLE"
+    assert any("через пробелы" in w and "2" in w for w in f.warnings)

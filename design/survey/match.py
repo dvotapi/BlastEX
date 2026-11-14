@@ -45,15 +45,29 @@ def _is_toe(name: str) -> bool:
 def _pairs(
     holes: list[Hole], points: list[SurveyedPoint], limit: float, swap: bool = False
 ) -> list[tuple[Hole, SurveyedPoint]]:
-    """Жадное сопоставление по близости в плане: ближайшие пары первыми."""
+    """Жадное сопоставление по близости в плане: ближайшие пары первыми.
 
+    Точки — в сетку с ячейкой `limit` (как подписи DXF в `read`): скважина
+    сравнивается только с точками соседних ячеек, а не со всеми.
+    """
+
+    cell = limit if limit > 0 else 1.0
+    grid: dict[tuple[int, int], list[int]] = {}
+    plane: list[tuple[float, float]] = []
+    for pi, point in enumerate(points):
+        px, py = (point.y, point.x) if swap else (point.x, point.y)
+        plane.append((px, py))
+        grid.setdefault((math.floor(px / cell), math.floor(py / cell)), []).append(pi)
     candidates = []
     for hi, hole in enumerate(holes):
-        for pi, point in enumerate(points):
-            px, py = (point.y, point.x) if swap else (point.x, point.y)
-            dist = math.hypot(hole.collar.x - px, hole.collar.y - py)
-            if dist <= limit:
-                candidates.append((dist, hi, pi))
+        cx, cy = math.floor(hole.collar.x / cell), math.floor(hole.collar.y / cell)
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for pi in grid.get((cx + dx, cy + dy), ()):
+                    px, py = plane[pi]
+                    dist = math.hypot(hole.collar.x - px, hole.collar.y - py)
+                    if dist <= limit:
+                        candidates.append((dist, hi, pi))
     candidates.sort()
     used_h: set[int] = set()
     used_p: set[int] = set()

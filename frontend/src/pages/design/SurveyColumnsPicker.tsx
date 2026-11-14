@@ -37,6 +37,14 @@ export function headersOf(reason: unknown): string[] {
   return Array.isArray(headers) ? headers.filter((item): item is string => typeof item === "string") : [];
 }
 
+/**
+ * Выбор колонки для роли. «— нет —» (`header` = "") — роль выключена, а не
+ * «найди сам»: пустая строка уходит на сервер, и он колонку по псевдониму не ищет.
+ */
+export function withColumn(columns: SurveyColumns, role: string, header: string): SurveyColumns {
+  return { ...columns, [role]: header };
+}
+
 export function SurveyColumnsPicker({
   headers,
   columns,

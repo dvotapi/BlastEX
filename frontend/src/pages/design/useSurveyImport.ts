@@ -31,7 +31,7 @@ import type {
   SurveyedPoint,
 } from "../../types/design";
 import type { DesignAction, DesignState } from "./designReducer";
-import { headersOf } from "./SurveyColumnsPicker";
+import { headersOf, withColumn } from "./SurveyColumnsPicker";
 import { tinFingerprint } from "./useHoleRecompute";
 import { stableJson } from "./useLayoutSearch";
 
@@ -406,9 +406,8 @@ export function useSurveyImport({
     if (current) await load(current.file, { format: current.formatChoice, swapXy: !current.swapXy, columns: current.columns });
   }
 
-  /** «— нет —» (`header` = "") — роль выключена, а не «найди сам». */
   function setColumn(role: string, header: string) {
-    setColumns((current) => ({ ...current, [role]: header }));
+    setColumns((current) => withColumn(current, role, header));
   }
 
   async function rereadColumns(): Promise<void> {

@@ -430,4 +430,29 @@ describe("SurveyPanel", () => {
     expect(screen.getByLabelText("Скважина для точки 7")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Пропустить точку 7" })).toBeDisabled();
   });
+
+  it("«Съёмка старого блока»: «— нет —» у колонки уходит пустой строкой — роль выключена", async () => {
+    const user = userEvent.setup();
+    api.survey.sites.create
+      .mockRejectedValueOnce(new HttpError("нет колонки", 422, { message: "нет колонки", headers: ["Пикет", "X", "Y", "Z"] }))
+      .mockRejectedValueOnce(new HttpError("Этот файл уже загружен.", 409));
+    render(<SurveyPanel survey={view()} />);
+    await user.click(screen.getByRole("button", { name: "Съёмка старого блока" }));
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect((within(dialog).getByLabelText("Объект") as HTMLSelectElement).value).toBe("GUS"));
+    await user.type(within(dialog).getByLabelText("Блок"), "65");
+    await user.type(within(dialog).getByLabelText("Дата съёмки"), "2026-11-01");
+    const file = new File(["x"], "65.csv");
+    await user.upload(within(dialog).getByLabelText("Файл съёмки старого блока"), file);
+    await user.click(within(dialog).getByRole("button", { name: "Загрузить" }));
+    await user.selectOptions(await within(dialog).findByLabelText("номер"), "Пикет");
+    await user.selectOptions(within(dialog).getByLabelText("отметка"), "Z");
+    await user.selectOptions(within(dialog).getByLabelText("отметка"), "");
+    await user.click(within(dialog).getByRole("button", { name: "Загрузить" }));
+    await waitFor(() =>
+      expect(api.survey.sites.create).toHaveBeenLastCalledWith("GUS", file, {
+        blockLabel: "65", surveyDate: "2026-11-01", columns: { name: "Пикет", z: "" },
+      }),
+    );
+  });
 });

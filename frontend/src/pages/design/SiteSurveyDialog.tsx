@@ -9,7 +9,7 @@ import { api } from "../../api/endpoints";
 import { ruDate, ruNumber } from "../../lib/format";
 import type { EconomicsReferenceItem } from "../../types/economics";
 import type { SiteSurvey, SiteSurveyCreated, SurveyColumns, SurveyFormat } from "../../types/design";
-import { FORMAT_LABELS, formatLabel, headersOf, SurveyColumnsPicker } from "./SurveyColumnsPicker";
+import { FORMAT_LABELS, formatLabel, headersOf, SurveyColumnsPicker, withColumn } from "./SurveyColumnsPicker";
 
 const SURVEY_ACCEPT = ".csv,.txt,.xlsx,.xlsm,.dxf";
 
@@ -96,12 +96,7 @@ export function SiteSurveyDialog({ onClose }: { onClose: () => void }) {
   }
 
   function setColumn(role: string, header: string) {
-    setColumns((current) => {
-      const next = { ...current };
-      if (header) next[role] = header;
-      else delete next[role];
-      return next;
-    });
+    setColumns((current) => withColumn(current, role, header));
   }
 
   async function upload() {

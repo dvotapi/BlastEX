@@ -49,6 +49,25 @@ class MatchTests(unittest.TestCase):
         res = match_survey(holes, [_pt("66-007", 50, 50)], block="66", tol_collar_m=0.3)
         self.assertEqual((res[0].hole_id, res[0].by), ("7", "name"))
 
+    def test_exact_name_before_numeric_alias(self):
+        """Скважины «1» и «01»: точка «66-01» — к «01», «66-1» — к «1», не по порядку в списке."""
+
+        holes = [_hole("1", 0, 0), _hole("01", 30, 0)]
+        res = match_survey(holes, [_pt("66-01", 60, 60, 1), _pt("66-1", 90, 90, 2)], block="66", tol_collar_m=0.3)
+        self.assertEqual({m.hole_id: m.point.line for m in res if m.point}, {"01": 1, "1": 2})
+        self.assertTrue(all(m.by == "name" for m in res if m.point))
+
+    def test_ambiguous_numeric_alias_is_not_a_name_match(self):
+        """«66-001» подходит и к «1», и к «01» — по имени не сопоставляется (дальше близость)."""
+
+        holes = [_hole("1", 0, 0), _hole("01", 30, 0)]
+        res = match_survey(holes, [_pt("66-001", 30.1, 0, 1)], block="66", tol_collar_m=0.3)
+        (m,) = [m for m in res if m.point]
+        self.assertEqual((m.hole_id, m.by), ("01", "nearest"))
+        far = match_survey(holes, [_pt("66-001", 90, 90, 1)], block="66", tol_collar_m=0.3)
+        (m,) = [m for m in far if m.point]
+        self.assertEqual((m.hole_id, m.issue), (None, "unmatched_point"))
+
     def test_nearest_within_two_tolerances(self):
         res = _match([_pt("zzz", 5.5, 4.0)])
         (m,) = _by_hole(res, "1-01")

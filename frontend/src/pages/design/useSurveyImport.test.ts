@@ -9,6 +9,7 @@ import {
   emptyDesign,
   emptyHoleGeology,
   type BlastDesign,
+  type ChargeGenerateRequest,
   type Hole,
   type SurveyApplyResponse,
   type SurveyEvaluateResponse,
@@ -96,6 +97,8 @@ type ForkFn = (dispatch: Dispatch<DesignAction>) => Promise<ForkResult | null>;
 
 /** Живые (несохранённые) параметры сетки страницы — как `designWithParams`. */
 let liveParams: Record<string, unknown> | null = null;
+/** Параметры заряжания страницы на момент вызова `chargeRequest`. */
+let liveCharge: ChargeGenerateRequest | null = null;
 
 function withLive(design: BlastDesign): BlastDesign {
   return liveParams ? { ...design, pattern_params: { ...design.pattern_params, ...liveParams } } : design;
@@ -116,7 +119,7 @@ function setup(initial: BlastDesign, fork: ForkFn = async () => null, swallow: D
       dispatch,
       designId: state.present.design_id,
       status: state.present.lifecycle_status,
-      chargeRequest: () => null,
+      chargeRequest: () => liveCharge,
       onFork,
       withParams: withLive,
     });
@@ -129,6 +132,7 @@ const FILE = new File(["66-1-01,5,10,420"], "66.csv");
 
 beforeEach(() => {
   liveParams = null;
+  liveCharge = null;
   api.survey.read.mockReset().mockResolvedValue(READ);
   api.survey.evaluate.mockReset().mockResolvedValue(evaluation());
   api.survey.apply.mockReset().mockResolvedValue(applied());
@@ -484,5 +488,24 @@ describe("useSurveyImport", () => {
     });
     expect(actions.some((action) => action.type === "APPLY_SURVEY")).toBe(false);
     expect(view.result.current.survey.error).toBe(DECISIONS_CHANGED);
+  });
+
+  it("параметры заряжания сменились, пока шёл «Применить», — ответ (заряды по старым) не применяется", async () => {
+    const explosive = { key: "e100", name: "Э-100", density_t_m3: 1.2, power_mj_kg: 3.8 } as unknown as ChargeGenerateRequest["explosive"];
+    liveCharge = { holes: [], rules: { stemming_m: 3 }, explosive };
+    let release: (value: SurveyApplyResponse) => void = () => undefined;
+    api.survey.apply.mockImplementation(() => new Promise((resolve) => (release = resolve)));
+    const { view, actions } = await loaded(design());
+    let pending: Promise<void> = Promise.resolve();
+    act(() => {
+      pending = view.result.current.survey.apply();
+    });
+    liveCharge = { holes: [], rules: { stemming_m: 4 }, explosive };
+    await act(async () => {
+      release(applied());
+      await pending;
+    });
+    expect(actions.some((action) => action.type === "APPLY_SURVEY")).toBe(false);
+    expect(view.result.current.survey.error).toBe(SURVEY_CHANGED);
   });
 });

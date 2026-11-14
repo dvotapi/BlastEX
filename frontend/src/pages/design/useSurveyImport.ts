@@ -204,6 +204,11 @@ function effectivePoints(decisions: Decisions): SurveyedPoint[] {
   );
 }
 
+/** Отпечаток параметров заряжания страницы (скважины сервер берёт из проекта). */
+function chargeSignature(charge: ChargeGenerateRequest | null): string {
+  return stableJson(charge ? { ...charge, holes: [] } : null);
+}
+
 /** Отпечаток решений инженера: точки с введёнными глубинами, привязки, пропуски. */
 function decisionsSignature(decisions: Decisions): string {
   return stableJson({ points: effectivePoints(decisions), manual: decisions.manual, skip: decisions.skip });
@@ -482,6 +487,8 @@ export function useSurveyImport({
     const decided = decisionsSignature(decisionsRef.current);
     const { manual, skip: skipped } = decisionsRef.current;
     const charge = chargeRef.current();
+    // Параметры заряжания, под которые ушёл запрос: сменились к ответу — заряды в нём старые.
+    const charging = chargeSignature(charge);
     setBusy(true);
     setError("");
     try {
@@ -505,6 +512,10 @@ export function useSurveyImport({
       }
       if (decisionsSignature(decisionsRef.current) !== decided) {
         setError(DECISIONS_CHANGED);
+        return;
+      }
+      if (chargeSignature(chargeRef.current()) !== charging) {
+        setError(SURVEY_CHANGED);
         return;
       }
       reevaluateAfter.current = now;

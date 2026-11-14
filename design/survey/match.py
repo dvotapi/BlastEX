@@ -27,15 +27,40 @@ class SurveyMatch:
 
 
 def _key(text: str) -> str:
-    text = ascii_name(str(text)).lower()
-    return str(int(text)) if text.isdigit() else text
+    return ascii_name(str(text)).lower()
 
 
 def _point_key(name: str, prefix: str) -> str:
     text = ascii_name(name).lower()
     if prefix and text.startswith(prefix + "-") and len(text) > len(prefix) + 1:
         text = text[len(prefix) + 1:]
-    return str(int(text)) if text.isdigit() else text
+    return text
+
+
+class _HoleNames:
+    """Скважина по имени точки: сначала точное имя (без регистра, после
+    транслитерации), затем число («001» → «1») — только если оно указывает на
+    одну скважину. Неоднозначное число по имени не сопоставляется — точка идёт
+    в близость, а не к первой скважине списка."""
+
+    def __init__(self, holes: list[Hole]) -> None:
+        self.exact: dict[str, Hole] = {}
+        self.numeric: dict[int, list[Hole]] = {}
+        for hole in holes:
+            key = _key(hole.id)
+            self.exact.setdefault(key, hole)
+            if key.isdigit():
+                self.numeric.setdefault(int(key), []).append(hole)
+
+    def find(self, key: str) -> Hole | None:
+        hole = self.exact.get(key)
+        if hole is not None:
+            return hole
+        if key.isdigit():
+            candidates = self.numeric.get(int(key), [])
+            if len(candidates) == 1:
+                return candidates[0]
+        return None
 
 
 def _is_toe(name: str) -> bool:
@@ -126,9 +151,7 @@ def match_survey(
     skip = skip or set()
     prefix = ascii_name(block).lower()
     by_id = {h.id: h for h in holes}
-    hole_by_key: dict[str, Hole] = {}
-    for hole in holes:
-        hole_by_key.setdefault(_key(hole.id), hole)
+    names = _HoleNames(holes)
 
     assigned: dict[str, list[tuple[SurveyedPoint, str]]] = {}
     duplicates: set[str] = set()  # id скважин со спором
@@ -154,7 +177,7 @@ def match_survey(
     taken = set(assigned)
     named: dict[str, list[SurveyedPoint]] = {}
     for point in pending:
-        hole = hole_by_key.get(_point_key(point.name, prefix))
+        hole = names.find(_point_key(point.name, prefix))
         if hole is not None and hole.id in taken:
             orphans.append(point)
         elif hole is not None:

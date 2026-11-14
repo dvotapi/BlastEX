@@ -230,19 +230,22 @@ def _apply_site_profile(payload: dict[str, Any], explicit: set[str], snapshot) -
 
 # Имя контура по умолчанию (`BlockContour.name`): не номер блока.
 DEFAULT_CONTOUR_NAME = BlockContour().name
+# Копия проекта называется «<имя> · ревизия» / «<имя> · по съёмке» (фронт, `forkPlan`).
+COPY_SUFFIX_SEPARATOR = "·"
 _BLOCK_NUMBER = re.compile(r"^\s*блок\s*№?\s*(.+?)\s*$", re.IGNORECASE)
 
 
 def block_label(design: BlastDesign) -> str:
     """«Блок» нового паспорта: имя контура, если оно задано (не «Блок» по
     умолчанию), иначе номер из названия проекта («Блок 67» → «67»), иначе
-    само название; не длиннее поля паспорта."""
+    само название; не длиннее поля паспорта. Суффикс копии («Блок 66 · по
+    съёмке», «… · ревизия») — не часть номера: у копии блок тот же."""
 
     contour = (design.contour.name or "").strip()
     if contour and contour != DEFAULT_CONTOUR_NAME:
         label = contour
     else:
-        name = (design.name or "").strip()
+        name = (design.name or "").split(COPY_SUFFIX_SEPARATOR, 1)[0].strip()
         match = _BLOCK_NUMBER.match(name)
         # Без номера в названии («Новый паспорт», «Блок») — поле пустым, а не
         # «блок № Новый паспорт» в шапке PDF.

@@ -37,11 +37,12 @@ class SurveyedPointSchema(BaseModel):
     x: float
     y: float
     z: float | None = None
-    depth_m: float | None = None
+    # Глубина — замер длины скважины: больше нуля; уровень воды — от устья, не меньше нуля.
+    depth_m: float | None = Field(default=None, gt=0)
     angle_deg: float | None = None
     azimuth_deg: float | None = None
     wet: bool | None = None
-    water_depth_m: float | None = None
+    water_depth_m: float | None = Field(default=None, ge=0)
     line: int = 0
 
 

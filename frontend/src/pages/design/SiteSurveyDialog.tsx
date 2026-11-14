@@ -9,7 +9,7 @@ import { api } from "../../api/endpoints";
 import { ruDate, ruNumber } from "../../lib/format";
 import type { EconomicsReferenceItem } from "../../types/economics";
 import type { SiteSurvey, SiteSurveyCreated, SurveyColumns, SurveyFormat } from "../../types/design";
-import { chosenColumns, FORMAT_LABELS, formatLabel, headersOf, SurveyColumnsPicker } from "./SurveyColumnsPicker";
+import { FORMAT_LABELS, formatLabel, headersOf, SurveyColumnsPicker } from "./SurveyColumnsPicker";
 
 const SURVEY_ACCEPT = ".csv,.txt,.xlsx,.xlsm,.dxf";
 
@@ -109,7 +109,6 @@ export function SiteSurveyDialog({ onClose }: { onClose: () => void }) {
     setBusy(true);
     setError("");
     setSaved(null);
-    const chosen = chosenColumns(columns);
     try {
       const created = await api.survey.sites.create(siteCode.trim(), file, {
         blockLabel: blockLabel.trim(),
@@ -117,7 +116,7 @@ export function SiteSurveyDialog({ onClose }: { onClose: () => void }) {
         ...(horizonValue !== null ? { horizonM: horizonValue } : {}),
         ...(formatChoice ? { format: formatChoice } : {}),
         ...(swapXy ? { swapXy: true } : {}),
-        ...(Object.keys(chosen).length ? { columns: chosen } : {}),
+        ...(Object.keys(columns).length ? { columns } : {}),
       });
       const { points: _points, format: _format, warnings: _warnings, ...summary } = created;
       setSurveys((current) => newestFirst([summary, ...(current ?? [])]));

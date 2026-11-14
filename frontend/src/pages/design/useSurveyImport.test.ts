@@ -194,6 +194,7 @@ describe("useSurveyImport", () => {
     await act(() => view.result.current.survey.apply());
     expect(api.survey.apply).toHaveBeenCalledTimes(1);
     const body = api.survey.apply.mock.calls[0][0];
+    expect(body.block).toBe("66");
     expect(body).toMatchObject({ design_id: "d1", manual: { 3: "1-02" }, skip: [], file_name: "66.csv", file_sha256: "abc", charge: null });
     const surveyActions = actions.filter((action) => action.type === "APPLY_SURVEY");
     expect(surveyActions).toHaveLength(1);
@@ -247,6 +248,8 @@ describe("useSurveyImport", () => {
     expect(onFork).toHaveBeenCalledTimes(1);
     const body = api.survey.apply.mock.calls[0][0];
     expect(body.design_id).toBe("d2");
+    // Копия называется «… · по съёмке»: блок — тот, по которому сопоставлялись имена при оценке.
+    expect(body.block).toBe("66");
     expect(body.design.lifecycle_status).toBe("draft");
     expect(body.manual).toEqual({ 3: "1-02" });
     expect(body.skip).toEqual([2]);
@@ -340,7 +343,8 @@ describe("useSurveyImport", () => {
     act(() => view.result.current.survey.setColumn("north", "Сев"));
     act(() => view.result.current.survey.setColumn("z", ""));
     await act(() => view.result.current.survey.rereadColumns());
-    expect(api.survey.read).toHaveBeenLastCalledWith(FILE, { columns: { name: "Пикет", east: "Вост", north: "Сев" } });
+    // «— нет —» — роль выключена: уходит пустой строкой, сервер её не ищет сам.
+    expect(api.survey.read).toHaveBeenLastCalledWith(FILE, { columns: { name: "Пикет", east: "Вост", north: "Сев", z: "" } });
     expect(view.result.current.survey.error).toBe("");
     expect(view.result.current.survey.rows).toHaveLength(3);
   });
@@ -389,5 +393,21 @@ describe("useSurveyImport", () => {
     act(() => view.result.current.dispatch({ type: "SET_NAME", name: "66 правка" }));
     await act(async () => undefined);
     expect(api.survey.evaluate.mock.calls.length).toBe(calls);
+  });
+
+  it("«— нет —» у найденной сервером колонки выключает её и при следующих чтениях", async () => {
+    const found = { name: "№", east: "E", north: "N", z: "Z" };
+    api.survey.read
+      .mockResolvedValueOnce({ ...READ, format: "TABLE", headers: ["№", "E", "N", "Z"], columns: found })
+      .mockResolvedValue({ ...READ, format: "TABLE", headers: ["№", "E", "N", "Z"], columns: { ...found, z: "" } });
+    const { view } = setup(design());
+    await act(() => view.result.current.survey.load(FILE));
+    act(() => view.result.current.survey.setColumn("z", ""));
+    await act(() => view.result.current.survey.rereadColumns());
+    expect(api.survey.read).toHaveBeenLastCalledWith(FILE, { columns: { ...found, z: "" } });
+    expect(view.result.current.survey.columns.z).toBe("");
+    // «Поменять» после этого — Z по-прежнему выключена; нетронутые роли не уходят.
+    await act(() => view.result.current.survey.swap());
+    expect(api.survey.read).toHaveBeenLastCalledWith(FILE, { swapXy: true, columns: { ...found, z: "" } });
   });
 });

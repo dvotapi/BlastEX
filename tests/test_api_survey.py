@@ -543,3 +543,31 @@ def test_site_survey_create_returns_read_warnings_and_format(sites_client):
     assert body["points"][0]["x"] == 593722.99  # «Поменять»: X — восток
     detail = sites_client.get(f"{SITES_URL}/{body['id']}").json()
     assert "warnings" not in detail and "format" not in detail
+
+
+def test_point_schema_rejects_nonpositive_depth_and_negative_water():
+    from pydantic import ValidationError
+
+    from api.schemas.survey import SurveyedPointSchema
+
+    point = {"name": "1", "x": 0.0, "y": 0.0}
+    assert SurveyedPointSchema.model_validate({**point, "depth_m": 0.1, "water_depth_m": 0.0}).depth_m == 0.1
+    for bad in ({"depth_m": 0.0}, {"depth_m": -3.0}, {"water_depth_m": -0.5}):
+        with pytest.raises(ValidationError):
+            SurveyedPointSchema.model_validate({**point, **bad})
+
+
+def test_read_disabled_column_is_not_read(client):
+    content = "№;E;N;Z;Глубина\n1-01;8,0;2,0;0,0;11,0\n".encode("cp1251")
+    response = client.post(
+        f"{BASE}/read", files={"file": ("s66.csv", content, "text/csv")}, data={"columns": '{"z": ""}'}
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["points"][0]["z"] is None
+    assert body["columns"]["z"] == ""
+    refused = client.post(
+        f"{BASE}/read", files={"file": ("s66.csv", content, "text/csv")}, data={"columns": '{"north": ""}'}
+    )
+    assert refused.status_code == 422
+    assert "нельзя отключить" in refused.json()["detail"]["message"]

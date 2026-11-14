@@ -30,7 +30,7 @@ import type {
   SurveyedPoint,
 } from "../../types/design";
 import type { DesignAction, DesignState } from "./designReducer";
-import { chosenColumns, headersOf } from "./SurveyColumnsPicker";
+import { headersOf } from "./SurveyColumnsPicker";
 import { stableJson } from "./useLayoutSearch";
 
 export const SURVEY_CHANGED = "Проект изменился, повторите оценку";
@@ -227,6 +227,8 @@ export function useSurveyImport({
   const [pendingCopy, setPendingCopy] = useState<string | null>(null);
   const copying = useRef(false);
   const copyRun = useRef(0);
+  // Блок оценки, по которой нажата «Копия по съёмке»: применение на копии — с ним.
+  const copyBlock = useRef("");
   // После «Применить» — повторная оценка по новому документу (не по `base`).
   const reevaluateAfter = useRef<BlastDesign | null>(null);
   // Отметка «применено»: эффект повторной оценки сверяет документ после dispatch.
@@ -318,7 +320,8 @@ export function useSurveyImport({
       file,
       formatChoice: opts.format ?? "",
       swapXy: Boolean(opts.swapXy),
-      columns: chosenColumns(opts.columns ?? {}),
+      // Пустая строка — роль выключена человеком («— нет —»): сервер её не ищет.
+      columns: { ...(opts.columns ?? {}) },
     };
     setSource(next);
     setBusy(true);
@@ -366,13 +369,9 @@ export function useSurveyImport({
     if (current) await load(current.file, { format: current.formatChoice, swapXy: !current.swapXy, columns: current.columns });
   }
 
+  /** «— нет —» (`header` = "") — роль выключена, а не «найди сам». */
   function setColumn(role: string, header: string) {
-    setColumns((current) => {
-      const next = { ...current };
-      if (header) next[role] = header;
-      else delete next[role];
-      return next;
-    });
+    setColumns((current) => ({ ...current, [role]: header }));
   }
 
   async function rereadColumns(): Promise<void> {
@@ -433,7 +432,12 @@ export function useSurveyImport({
   }
 
   /** Применить к документу `base` (черновику): ответ — только если документ тот же. */
-  async function runApply(base: BlastDesign): Promise<void> {
+  /**
+   * `block` — блок, по которому сопоставлялись имена при оценке, которую видел
+   * инженер: копия по съёмке называется иначе («… · по съёмке»), и сервер вывел
+   * бы из имени другой префикс.
+   */
+  async function runApply(base: BlastDesign, block: string): Promise<void> {
     const current = loadedRef.current;
     if (!current) return;
     const signature = surveySignature(base);
@@ -448,6 +452,7 @@ export function useSurveyImport({
         points: effectivePoints(decisionsRef.current),
         manual,
         skip: skipped,
+        ...(block ? { block } : {}),
         file_name: current.fileName,
         file_sha256: current.sha256,
         survey_date: surveyDateRef.current,
@@ -497,13 +502,14 @@ export function useSurveyImport({
 
   async function apply(): Promise<void> {
     if (action !== "apply" || busy || !applicable()) return;
-    await runApply(latest.current);
+    await runApply(latest.current, evaluation?.response.block ?? "");
   }
 
   async function copyBySurvey(): Promise<void> {
     if (action !== "copy" || busy || !applicable()) return;
     const run = ++copyRun.current;
     copying.current = true;
+    copyBlock.current = evaluation?.response.block ?? "";
     setBusy(true);
     setError("");
     setNotice("");
@@ -538,7 +544,7 @@ export function useSurveyImport({
       setError(COPY_FAILED);
       return;
     }
-    void runApply(present).finally(() => {
+    void runApply(present, copyBlock.current).finally(() => {
       if (run === copyRun.current) copying.current = false;
     });
     // runApply читает остальное из ссылок.

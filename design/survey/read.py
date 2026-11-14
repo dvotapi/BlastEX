@@ -349,17 +349,21 @@ def _read_table(
         raise SurveyReadError("В таблице нет строки заголовков.")
     # Непустые заголовки — как в файле: по ним колонку выбирают вручную.
     headers.extend(title for title in header if title.strip())
+    disabled: set[str] = set()
     try:
-        mapping = _map_columns(header, explicit or {}, swap_xy, warnings)
+        mapping = _map_columns(header, explicit or {}, swap_xy, warnings, disabled)
     except SurveyReadError as exc:
         raise SurveyReadError(str(exc), headers) from None
-    for key in ("name", "east", "north"):
+    for key, label in _REQUIRED_LABELS.items():
         if key not in mapping:
-            label = {"name": "номер скважины", "east": "восток", "north": "север"}[key]
             raise SurveyReadError(f"В таблице не найдена колонка «{label}». Укажите её вручную.", headers)
     used.update({key: header[idx] for key, idx in mapping.items()})
+    # Выключенные роли — пустой строкой: клиент пришлёт их так же при новом чтении.
+    used.update({key: "" for key in disabled})
     points: list[SurveyedPoint] = []
     bad: list[int] = []
+    bad_depth: list[int] = []
+    bad_water: list[int] = []
     for number, row in rows:
 
         def cell(key: str) -> Any:
@@ -373,22 +377,36 @@ def _read_table(
         if not name or east is None or north is None:
             bad.append(number)
             continue
+        # Глубина ≤ 0 и уровень воды < 0 — не замер: забой выше устья дал бы
+        # скважину «пробуренной» на модуль числа.
+        depth = _number(cell("depth"), comma)
+        if depth is not None and depth <= 0:
+            bad_depth.append(number)
+            depth = None
+        water = _number(cell("water"), comma)
+        if water is not None and water < 0:
+            bad_water.append(number)
+            water = None
         points.append(
             SurveyedPoint(
                 name,
                 east,
                 north,
                 _number(cell("z"), comma),
-                _number(cell("depth"), comma),
+                depth,
                 _number(cell("angle"), comma),
                 _number(cell("azimuth"), comma),
                 _flag(cell("wet")) if "wet" in mapping else None,
-                _number(cell("water"), comma),
+                water,
                 line=number,
             )
         )
     if bad:
         warnings.append(f"Строки без номера или координат пропущены: {_listed(bad)}.")
+    if bad_depth:
+        warnings.append(f"Глубина не больше нуля не прочитана (глубина не замерена) в строках {_listed(bad_depth)}.")
+    if bad_water:
+        warnings.append(f"Уровень воды меньше нуля не прочитан в строках {_listed(bad_water)}.")
     return points
 
 
@@ -464,19 +482,36 @@ def _xlsx_rows(data: bytes) -> tuple[list[str], list[tuple[int, list[Any]]], boo
     return header, grid[1:], True
 
 
+_REQUIRED_LABELS = {"name": "номер скважины", "east": "восток", "north": "север"}
+
+
 def _map_columns(
-    header: list[str], explicit: dict[str, str], swap_xy: bool | None, warnings: list[str]
+    header: list[str],
+    explicit: dict[str, str],
+    swap_xy: bool | None,
+    warnings: list[str],
+    disabled: set[str],
 ) -> dict[str, int]:
+    """Колонки по ролям. Явный выбор главнее псевдонимов; пустая строка —
+    роль выключена (`disabled`): колонка не ищется по псевдониму, значения нет."""
+
     lowered = [h.strip().lower() for h in header]
     mapping: dict[str, int] = {}
     for key, title in explicit.items():
         if key not in COLUMN_KEYS:
             raise SurveyReadError(f"Неизвестная колонка «{key}».")
+        if title == "":
+            if key in _REQUIRED_LABELS:
+                raise SurveyReadError(
+                    f"Колонку «{_REQUIRED_LABELS[key]}» нельзя отключить: без неё точку не прочитать. Выберите её."
+                )
+            disabled.add(key)
+            continue
         if title not in header:
             raise SurveyReadError(f"В файле нет колонки «{title}».")
         mapping[key] = header.index(title)
     for key, aliases in _ALIASES.items():
-        if key in mapping:
+        if key in mapping or key in disabled:
             continue
         for idx, title in enumerate(lowered):
             if title in aliases and idx not in mapping.values():

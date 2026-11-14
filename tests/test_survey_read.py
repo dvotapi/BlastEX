@@ -241,3 +241,30 @@ def test_space_table_with_two_word_header_warns():
     f = read_survey(raw, "s.txt")
     assert f.format == "TABLE"
     assert any("через пробелы" in w and "2" in w for w in f.warnings)
+
+
+def test_nonpositive_depth_and_negative_water_are_not_read():
+    raw = "№;E;N;Глубина;Уровень воды\n1;1;2;0;1\n2;3;4;-2,5;-1\n3;5;6;10,5;0\n".encode()
+    f = read_survey(raw, "s.csv")
+    by = {p.name: p for p in f.points}
+    assert [by[n].depth_m for n in ("1", "2", "3")] == [None, None, 10.5]
+    assert [by[n].water_depth_m for n in ("1", "2", "3")] == [1.0, None, 0.0]
+    assert any("Глубина" in w and "2, 3" in w for w in f.warnings)
+    assert any("воды" in w and "3" in w for w in f.warnings)
+
+
+def test_empty_column_choice_disables_optional_role():
+    # «— нет —» у найденной сама колонки: роль выключена, а не найдена заново.
+    f = read_survey(CSV_TEXT.encode(), "s.csv", columns={"z": "", "wet": ""})
+    p = f.points[0]
+    assert (p.z, p.wet, p.depth_m) == (None, None, 12.4)
+    assert f.columns["z"] == "" and f.columns["wet"] == ""
+    assert f.columns["depth"] == "Глубина"
+
+
+@pytest.mark.parametrize("role", ["name", "east", "north"])
+def test_required_column_cannot_be_disabled(role):
+    with pytest.raises(SurveyReadError) as err:
+        read_survey(CSV_TEXT.encode(), "s.csv", columns={role: ""})
+    assert "нельзя отключить" in str(err.value)
+    assert err.value.headers  # выбрать колонку можно и после ошибки

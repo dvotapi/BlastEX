@@ -37,11 +37,6 @@ export function headersOf(reason: unknown): string[] {
   return Array.isArray(headers) ? headers.filter((item): item is string => typeof item === "string") : [];
 }
 
-/** Только заданные роли — их сервер читает как выбор человека. */
-export function chosenColumns(columns: SurveyColumns): SurveyColumns {
-  return Object.fromEntries(Object.entries(columns).filter(([, header]) => header));
-}
-
 export function SurveyColumnsPicker({
   headers,
   columns,

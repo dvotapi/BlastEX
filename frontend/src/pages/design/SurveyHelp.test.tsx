@@ -30,5 +30,6 @@ describe("SurveyHelp", () => {
     expect(text).toContain("через пробелы");
     expect(text).toContain("создана, но не открыта");
     expect(text).toContain("Поменять X и Y");
+    expect(text).toContain("её выключает");
   });
 });
